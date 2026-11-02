@@ -5,6 +5,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -91,6 +92,14 @@ func init() {
 			c.run = cmdVersion
 		case "help":
 			c.run = cmdHelp
+		case "list":
+			c.run = cmdList
+		case "wip":
+			c.run = cmdWip
+		case "doctor":
+			c.run = cmdDoctor
+		case "hook":
+			c.run = cmdHook
 		}
 	}
 }
@@ -136,6 +145,10 @@ func (e *Env) Run(args []string) int {
 		return ExitNotImp
 	}
 	if err := cmd.run(e, rest); err != nil {
+		var se silentExit
+		if errors.As(err, &se) {
+			return se.code
+		}
 		fmt.Fprintf(e.Stderr, "cwm %s: %v\n", cmd.name, err)
 		return ExitError
 	}
