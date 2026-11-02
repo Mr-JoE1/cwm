@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-workspace-kit installer (Linux). Idempotent: safe to re-run anytime.
+# cwm — Claude Workspace Manager installer (Linux). Idempotent: safe to re-run anytime.
 set -euo pipefail
 
 SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -43,9 +43,13 @@ chmod +x "$CLAUDE_ME/hooks/session-start.sh" "$CLAUDE_ME/hooks/session-end.sh"
 # 5. stignore: overwrite (policy is centralized in the kit)
 cp -f "$SRC/templates/stignore.tmpl" "$CLAUDE_ME/.stignore"
 
-# 6. launcher
+# 6. launcher (cwm canonical, cl legacy alias, cwm-doctor for `cwm doctor`)
+cp -f "$SRC/bin/cwm" "$HOME/bin/cwm"
+chmod +x "$HOME/bin/cwm"
 cp -f "$SRC/bin/cl" "$HOME/bin/cl"
 chmod +x "$HOME/bin/cl"
+cp -f "$SRC/bin/doctor.sh" "$HOME/bin/cwm-doctor"
+chmod +x "$HOME/bin/cwm-doctor"
 
 # 7. persist env (guarded, no duplicates)
 ensure_line() { # file line
@@ -62,11 +66,13 @@ ensure_line "$HOME/.profile" "$PATH_LINE"
 
 # 8. next steps
 say ""
-say "bootstrap done."
+say "cwm bootstrap done."
 say "  workspace : $CLAUDE_ME"
-say "  launcher  : $HOME/bin/cl  (open a new shell, or: export PATH=\"\$HOME/bin:\$PATH\")"
+say "  launcher  : $HOME/bin/cwm  (cl stays as a legacy alias)"
+say "  doctor    : $HOME/bin/cwm-doctor  (run 'cwm doctor' for health checks)"
+say "  open a new shell, or: export PATH=\"\$HOME/bin:\$PATH\""
 say "next steps:"
 say "  1. pair Syncthing on the ~/.claude-me folder with your other device"
 say "     (Linux: add folder ~/'claude-me'; Windows: %USERPROFILE%\\.claude-me)"
-say "  2. run 'bootstrap' on the other device, then accept the pairing"
-say "  3. 'cl' lists projects; 'cl <name>' clones on demand and resumes"
+say "  2. run the cwm bootstrap on the other device, then accept the pairing"
+say "  3. 'cwm' lists projects; 'cwm <name>' clones on demand and resumes"

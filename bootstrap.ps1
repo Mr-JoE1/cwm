@@ -1,4 +1,4 @@
-# claude-workspace-kit installer (Windows). Idempotent: safe to re-run anytime.
+# cwm - Claude Workspace Manager installer (Windows). Idempotent: safe to re-run anytime.
 # PowerShell 5.1 compatible.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'  # Stop + native stderr redirect misbehaves on PS 5.1
@@ -9,7 +9,7 @@ $Cfg = Join-Path $HomeDir '.claude-me'
 $BinDir = Join-Path $HomeDir 'bin'
 $MinVersion = [version]'2.1.234'
 
-Write-Host '== claude-workspace-kit bootstrap (Windows) =='
+Write-Host '== cwm bootstrap (Windows) =='
 
 # 1. claude presence + version (warn only, never abort)
 $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
@@ -53,9 +53,12 @@ Copy-Item -LiteralPath (Join-Path $Src 'hooks\session-end.ps1') -Destination (Jo
 # 5. stignore: overwrite (policy is centralized in the kit)
 Copy-Item -LiteralPath (Join-Path $Src 'templates\stignore.tmpl') -Destination (Join-Path $Cfg '.stignore') -Force
 
-# 6. launcher (cmd wrapper + ps1)
+# 6. launcher (cwm canonical + cmd shim, cl legacy alias, doctor for `cwm doctor`)
+Copy-Item -LiteralPath (Join-Path $Src 'bin\cwm.ps1') -Destination (Join-Path $BinDir 'cwm.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $Src 'bin\cwm.cmd') -Destination (Join-Path $BinDir 'cwm.cmd') -Force
 Copy-Item -LiteralPath (Join-Path $Src 'bin\cl.ps1') -Destination (Join-Path $BinDir 'cl.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $Src 'bin\cl.cmd') -Destination (Join-Path $BinDir 'cl.cmd') -Force
+Copy-Item -LiteralPath (Join-Path $Src 'bin\doctor.ps1') -Destination (Join-Path $BinDir 'doctor.ps1') -Force
 
 # 7. persist env vars (User scope)
 [Environment]::SetEnvironmentVariable('CLAUDE_CONFIG_DIR', $Cfg, 'User')
@@ -68,11 +71,13 @@ if (($userPath -split ';') -notcontains $BinDir) {
 
 # 8. next steps
 Write-Host ''
-Write-Host 'bootstrap done.'
+Write-Host 'cwm bootstrap done.'
 Write-Host "  workspace : $Cfg"
-Write-Host "  launcher  : $BinDir\cl  (open a NEW terminal for PATH/env changes)"
+Write-Host "  launcher  : $BinDir\cwm  (cl stays as a legacy alias)"
+Write-Host "  doctor    : $BinDir\doctor.ps1  (run 'cwm doctor' for health checks)"
+Write-Host '  open a NEW terminal for PATH/env changes'
 Write-Host 'next steps:'
 Write-Host '  1. pair Syncthing on the .claude-me folder with your other device'
 Write-Host '     (Windows: %USERPROFILE%\.claude-me; Linux: ~/.claude-me)'
-Write-Host '  2. run the kit bootstrap on the other device, then accept the pairing'
-Write-Host "  3. 'cl' lists projects; 'cl <name>' clones on demand and resumes"
+Write-Host '  2. run the cwm bootstrap on the other device, then accept the pairing'
+Write-Host "  3. 'cwm' lists projects; 'cwm <name>' clones on demand and resumes"

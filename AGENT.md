@@ -29,12 +29,15 @@ and a Linux end-to-end test with stubbed binaries.
   repos.tsv              name<TAB>origin-url manifest (hook-written)
   settings.json          machine-specific (NOT synced; bootstrap-generated from tmpl)
 ~/repos/<name>/          canonical clone root (not synced; cloned on demand)
-~/bin/cl (+ cl.ps1/cmd)  launcher installed by bootstrap
+~/bin/cwm (+ cl alias)   launcher installed by bootstrap; `cwm doctor` health checks
 ```
 
-Data flow: SessionStart hook records repo → repos.tsv; `cl <name>` reads repos.tsv,
+Data flow: SessionStart hook records repo → repos.tsv; `cwm <name>` reads repos.tsv,
 clones if missing, exports CLAUDE_CONFIG_DIR + CLAUDE_CODE_PROJECT_DIR_NAME, execs
 `claude --resume`; SessionEnd hook pushes dirty trees to `sync/<hostname>` on origin.
+
+`bin/cwm` is the canonical launcher; `bin/cl` is a legacy-alias wrapper. `bin/doctor.sh` /
+`bin/doctor.ps1` implement `cwm doctor` (local checks only; `--net` adds SSH probe).
 
 ## Code Style
 
