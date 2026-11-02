@@ -17,9 +17,18 @@ and a Linux end-to-end test with stubbed binaries.
 
 ## Key Commands
 
-- Build: none (plain scripts).
-- Test: `bash tests/test.sh` — must pass, exit 0, all assertions green.
-- Syntax: `bash -n <file>` for every .sh.
+- Build: `go build ./...` (and `GOOS=windows go build ./...` before commits)
+- Test: `go test ./...` — must pass, exit 0
+- E2E: `go test -tags e2e ./test/` (fakeclaude + local git only, no network)
+- Lint: `gofmt -l .` empty, `go vet ./...` clean
+- Legacy bash kit: `bash tests/test.sh` must stay green (untouched files)
+
+## Go rules
+
+- Module `github.com/Mr-JoE1/cwm`, Go ≥1.25; only approved dep: BurntSushi/toml
+- `SPEC-V0.2.md` is authoritative for v0.2; stage markers [A]/[B]/[C]
+- Library code: no panics, wrapped errors (`%w`), testable seams (e.g. Linker interface)
+- Unit/e2e tests never touch network or real `claude` (fakeclaude stub)
 
 ## Architecture
 
