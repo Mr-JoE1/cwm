@@ -100,6 +100,8 @@ func init() {
 			c.run = cmdDoctor
 		case "hook":
 			c.run = cmdHook
+		case "open":
+			c.run = cmdOpen
 		}
 	}
 }
@@ -135,10 +137,8 @@ func (e *Env) Run(args []string) int {
 	}
 	cmd := lookupCommand(cmdName)
 	if cmd == nil {
-		// In the finished CLI, any non-reserved word is the direct launch
-		// form `cwm <repo>`; that launcher arrives with stage B.
-		fmt.Fprintf(e.Stderr, "cwm: repo launch '%s' is not implemented in this stage\n", cmdName)
-		return ExitNotImp
+		// Direct launch form: `cwm <repo> [new|last] [claude args...]`.
+		return e.runDirect(cmdName, rest)
 	}
 	if cmd.run == nil {
 		fmt.Fprintf(e.Stderr, "cwm %s: not implemented in this stage (stage %s)\n", cmd.name, string(cmd.stage))

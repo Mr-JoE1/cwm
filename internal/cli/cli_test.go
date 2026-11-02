@@ -77,7 +77,7 @@ func TestHelpTopics(t *testing.T) {
 	}{
 		{"version", "usage: cwm version", false},
 		{"help", "usage: cwm help [command]", false},
-		{"open", "usage: cwm open <repo> [new|last]", true},
+		{"open", "usage: cwm open <repo> [new|last]", false},
 		{"init", "usage: cwm init [--migrate] [--account <name>]", true},
 		{"doctor", "usage: cwm doctor [--net]", false},
 		{"list", "usage: cwm list", false},
@@ -130,26 +130,27 @@ func TestNotImplementedCommands(t *testing.T) {
 	}
 }
 
-func TestRepoLaunchNotImplemented(t *testing.T) {
+func TestRepoLaunchDirectForm(t *testing.T) {
+	// Stage B2: the direct launch form dispatches to the launcher. In a
+	// sandbox without a workspace every case fails with a helpful error.
 	tests := []struct {
 		name string
 		arg  string
+		want string
 	}{
-		{"plain repo name", "alpha"},
-		{"reserved statusline", "statusline"},
-		{"reserved gui", "gui"},
+		{"plain repo name", "alpha", "cwm init"},
+		{"reserved statusline", "statusline", "reserved"},
+		{"reserved gui", "gui", "reserved"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CWM_HOME", t.TempDir())
 			got := runCLI(t, tt.arg)
-			if got.code != ExitNotImp {
-				t.Fatalf("code = %d, want %d", got.code, ExitNotImp)
+			if got.code != ExitError {
+				t.Fatalf("code = %d, want %d", got.code, ExitError)
 			}
-			if !strings.Contains(got.err, "not implemented in this stage") {
-				t.Errorf("stderr = %q, want 'not implemented in this stage'", got.err)
-			}
-			if !strings.Contains(got.err, tt.arg) {
-				t.Errorf("stderr = %q, want it to name %q", got.err, tt.arg)
+			if !strings.Contains(got.err, tt.want) {
+				t.Errorf("stderr = %q, want it to contain %q", got.err, tt.want)
 			}
 		})
 	}
