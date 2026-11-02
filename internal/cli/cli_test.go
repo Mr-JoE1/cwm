@@ -78,7 +78,7 @@ func TestHelpTopics(t *testing.T) {
 		{"version", "usage: cwm version", false},
 		{"help", "usage: cwm help [command]", false},
 		{"open", "usage: cwm open <repo> [new|last]", false},
-		{"init", "usage: cwm init [--migrate] [--account <name>]", true},
+		{"init", "usage: cwm init [--migrate] [--account <name>]", false},
 		{"doctor", "usage: cwm doctor [--net]", false},
 		{"list", "usage: cwm list", false},
 		{"wip", "usage: cwm wip [status]", false},

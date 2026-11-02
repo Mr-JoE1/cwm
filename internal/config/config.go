@@ -26,10 +26,22 @@ const (
 
 var accountNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
+// Login is the identity read from an account's .claude.json after
+// `claude auth login` (the oauthAccount object). Every field is optional.
+type Login struct {
+	Email            string `toml:"email,omitempty"`
+	AccountUUID      string `toml:"account_uuid,omitempty"`
+	OrganizationName string `toml:"organization_name,omitempty"`
+	Plan             string `toml:"plan,omitempty"`
+}
+
 // Account is one [[account]] table: a named login with its private dir.
 type Account struct {
 	Name string `toml:"name"`
 	Dir  string `toml:"dir"`
+	// Login carries the identity extracted at `account add` time (nil until
+	// a login produced one).
+	Login *Login `toml:"login,omitempty"`
 }
 
 // ExpandedDir returns Dir with a leading ~ expanded to the user home.
@@ -181,4 +193,16 @@ func (c *Config) SetDefaultAccount(name string) error {
 	}
 	c.DefaultAccount = name
 	return nil
+}
+
+// SetAccountLogin attaches login identity to an existing account.
+func (c *Config) SetAccountLogin(name string, lg Login) error {
+	for i := range c.Accounts {
+		if c.Accounts[i].Name == name {
+			l := lg
+			c.Accounts[i].Login = &l
+			return nil
+		}
+	}
+	return fmt.Errorf("config: account %q not found", name)
 }

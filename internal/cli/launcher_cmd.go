@@ -31,7 +31,7 @@ func cmdOpen(e *Env, args []string) error {
 		return fmt.Errorf("repo name %q is reserved by cwm commands — rename the repo (an explicit escape flag arrives in v0.3)", repo)
 	}
 	mode, extra := parseMode(args[1:])
-	return launcher.Open(repo, mode, extra, e.Stdout, e.Stderr)
+	return launcher.Open(repo, mode, extra, e.Account, e.Stdout, e.Stderr)
 }
 
 // runDirect implements `cwm <repo> [new|last] ...` for non-command words.

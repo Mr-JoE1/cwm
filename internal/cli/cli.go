@@ -102,6 +102,10 @@ func init() {
 			c.run = cmdHook
 		case "open":
 			c.run = cmdOpen
+		case "init":
+			c.run = cmdInit
+		case "account":
+			c.run = cmdAccount
 		}
 	}
 }

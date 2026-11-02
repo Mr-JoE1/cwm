@@ -13,8 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/manifest"
 	"github.com/Mr-JoE1/cwm/internal/storage"
+	"github.com/Mr-JoE1/cwm/internal/workspace"
 )
 
 // Mode selects how claude is launched for the repo.
@@ -43,8 +45,9 @@ func ReposRoot() (string, error) {
 
 // Open prepares repo for work and execs claude; it returns only on error.
 // On success the process is replaced (unix) or exits with the claude exit
-// code (windows).
-func Open(repo string, mode Mode, extra []string, stdout, stderr io.Writer) error {
+// code (windows). account selects the launch dir ("" = the configured
+// default).
+func Open(repo string, mode Mode, extra []string, account string, stdout, stderr io.Writer) error {
 	layout, err := storage.NewLayout()
 	if err != nil {
 		return err
@@ -85,9 +88,14 @@ func Open(repo string, mode Mode, extra []string, stdout, stderr io.Writer) erro
 
 	syncHints(repoDir, stdout)
 
-	// Stage B: the workspace itself is the config dir. Stage C replaces this
-	// with the assembled launch/<account> dir (workspace + credentials, D11).
-	if err := os.Setenv("CLAUDE_CONFIG_DIR", ws); err != nil {
+	// Stage C: with accounts configured, claude runs against the assembled
+	// launch/<account> dir (workspace + credentials, D11). Without any
+	// account the workspace itself is the config dir (stage B behavior).
+	launchDir, err := resolveConfigDir(layout, account)
+	if err != nil {
+		return err
+	}
+	if err := os.Setenv("CLAUDE_CONFIG_DIR", launchDir); err != nil {
 		return fmt.Errorf("launcher: set CLAUDE_CONFIG_DIR: %w", err)
 	}
 	if err := os.Setenv("CLAUDE_CODE_PROJECT_DIR_NAME", repo); err != nil {
@@ -103,6 +111,36 @@ func Open(repo string, mode Mode, extra []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	return execClaude(bin, args)
+}
+
+// resolveConfigDir picks the dir claude should treat as CLAUDE_CONFIG_DIR:
+// the assembled launch/<account> dir when any account exists, the raw
+// workspace dir when none does (pre-account stage B mode).
+func resolveConfigDir(layout *storage.Layout, account string) (string, error) {
+	cfg, err := config.Load(layout.ConfigPath())
+	if err != nil {
+		return "", fmt.Errorf("launcher: %w", err)
+	}
+	acct := account
+	if acct == "" {
+		acct = cfg.DefaultAccount
+	}
+	if len(cfg.Accounts) == 0 {
+		if acct == "" {
+			return layout.WorkspaceDir(), nil
+		}
+		return "", fmt.Errorf("launcher: unknown account %q (no accounts configured — run `cwm init --account <name>`)", acct)
+	}
+	if acct == "" {
+		return "", fmt.Errorf("launcher: no default account — run `cwm account use <name>`")
+	}
+	if _, ok := cfg.Account(acct); !ok {
+		return "", fmt.Errorf("launcher: unknown account %q (see: cwm account list)", acct)
+	}
+	if err := workspace.EnsureLaunch(layout, cfg, acct); err != nil {
+		return "", fmt.Errorf("launcher: assemble launch dir: %w", err)
+	}
+	return filepath.Join(layout.LaunchDir(), acct), nil
 }
 
 // claudeArgs builds the claude argv: --mcp-config when the workspace has
