@@ -3,6 +3,23 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-03
+
+- **D12 — usage lens v0.2 = identity + login freshness only.** The account
+  list shows who you are logged in as and how fresh that login is; live usage
+  numbers are deferred — the underlying endpoint is undocumented and needs
+  research, and cwm never fabricates data.
+- **D13 — MCP = `workspace/mcp.json` + `--mcp-config` at launch.** cwm manages
+  server entries in `workspace/mcp.json` (`cwm mcp add|list|remove`) and
+  appends `--mcp-config` when launching; the account's `.claude.json` is
+  never rewritten by cwm.
+- **D14 — link modes symlink/junction/copy, probed at init** and stored in
+  `config.toml` (`link_mode = auto|symlink|junction|copy`); launch-dir
+  assembly uses the probed mode per item type.
+- **D15 — hooks are `cwm hook` subcommands.** The generated `settings.json`
+  invokes `<abs cwm binary> hook session-start|session-end`; the bash hooks
+  remain for the legacy kit only.
+
 ## 2026-11-02 (second session)
 
 - **D10 — cwm is all-in-one, not a ccam companion.** cwm absorbs every

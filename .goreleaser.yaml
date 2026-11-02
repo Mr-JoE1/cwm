@@ -1,0 +1,32 @@
+version: 2
+
+project_name: cwm
+
+builds:
+  - id: cwm
+    main: ./cmd/cwm
+    binary: cwm
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/Mr-JoE1/cwm/internal/cli.Version={{.Version}}
+        -X github.com/Mr-JoE1/cwm/internal/cli.Commit={{.Commit}}
+
+archives:
+  - id: cwm
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256

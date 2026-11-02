@@ -38,56 +38,77 @@ switch Claude accounts freely, sync across your machines, resume anywhere.
 
 ## Install
 
+**Release binary** (recommended) — download the latest archive from
+[GitHub Releases](https://github.com/Mr-JoE1/cwm/releases) (Linux and Windows,
+amd64 and arm64), unpack it, put `cwm` on your `PATH`.
+
+**go install** (Go ≥ 1.25):
+
 ```sh
-git clone git@github.com:Mr-JoE1/cwm.git ~/cwm && cd ~/cwm
-./bootstrap.sh          # idempotent — safe to re-run
-exec bash               # pick up new PATH + CLAUDE_CONFIG_DIR
+go install github.com/Mr-JoE1/cwm/cmd/cwm@latest
 ```
 
-Windows (PowerShell 5.1):
+**From source:**
 
-```powershell
-git clone git@github.com:Mr-JoE1/cwm.git $env:USERPROFILE\cwm
-cd $env:USERPROFILE\cwm
-powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
-# open a NEW terminal so PATH + CLAUDE_CONFIG_DIR take effect
+```sh
+git clone https://github.com/Mr-JoE1/cwm.git
+cd cwm
+go build -o cwm ./cmd/cwm
 ```
 
-**Prerequisites:** Claude Code ≥ 2.1.234, git, an SSH key with access to your
-GitHub repos. [Syncthing](https://syncthing.net) on every device for sync.
-Bootstrap on both machines, then pair Syncthing on the `~/.claude-me` /
-`%USERPROFILE%\.claude-me` folder.
+**Prerequisites:** Claude Code ≥ 2.1.234 (verified by `cwm init` and `cwm doctor`),
+git, an SSH key with access to your GitHub repos.
+[Syncthing](https://syncthing.net) on every device, if you want cross-device sync.
 
 ## Quick start
 
 ```sh
-cwm                    # list workspace projects: session counts + last-modified
-cwm myproject          # clone from GitHub (SSH) if missing, then resume picker
-cwm myproject new      # fresh session in that repo
-cwm myproject last     # continue the latest session
-cwm --wip              # push dirty work to sync/<hostname> right now
-cwm doctor             # local health checks (--net adds an SSH probe)
+cwm init                 # scaffold ~/.cwm: workspace, accounts, launch, backups
+cwm account add main     # attach a login — runs `claude auth login` into ~/.cwm/accounts/main
+cwm open myproject       # clone on demand if missing, then the resume picker
 ```
 
-The full first-run flow: run `bootstrap` → pair Syncthing → `cwm <repo>`.
-Everything else (clone-on-demand, session resume, WIP branches) is automatic.
-
-Coming with the account system (v0.2+):
+Day to day:
 
 ```sh
-cwm account add work        # attach a login to your workspace
-cwm account list            # per-account usage, plan, status
-cwm --account work myproject  # launch a repo under a specific account
-cwm import                  # migrate from ~/.claude — or from ccam profiles
+cwm myproject            # short form of `cwm open myproject`
+cwm myproject new|last   # fresh session / continue the latest one
+cwm list                 # workspace projects: session counts + last-modified
+cwm account list         # email, plan and login freshness per account
+cwm --account work myproject   # launch under a specific account
+cwm mcp add fetch -- npx -y @modelcontextprotocol/server-fetch
+cwm wip                  # push dirty work to sync/<hostname> right now
+cwm doctor               # local health checks (--net adds an SSH probe)
 ```
+
+The full first-run flow: `cwm init` → `cwm account add main` → `cwm open <repo>`.
+Everything else (clone-on-demand, session resume, WIP branches) is automatic.
+
+## Migration
+
+Already have a setup? cwm imports it. Nothing is deleted, sources are left
+untouched, and backups land in `~/.cwm/backups/`.
+
+- **From the v0.1 bash kit** (`~/.claude-me` workspace): `cwm init --migrate`
+  copies workspace items into `~/.cwm/workspace/`, imports your login as
+  account `main`, and leaves `~/.claude-me` untouched as a backup.
+- **From any Claude config dir** (default `~/.claude`): `cwm import --from <dir>`
+  copies workspace items and imports the login as a new account.
+- **From ccam**: `cwm import --ccam` reads `~/.local/share/ccam/profiles/*/`
+  (each becomes an account with its credentials) and
+  `~/.local/share/ccam/groups/<g>/` (shared items land in the workspace).
+
+Add `--dry-run` to any migration command to print the plan without touching
+the filesystem.
 
 ## How it works
 
 ```
 +--------------+                        +----------------+
 |   Linux      |   Syncthing P2P        |   Windows      |
-| ~/.claude-me/|<---------------------->| %USERPROFILE%\ |
-|  projects/   |   (no cloud, ever)     |  .claude-me\   |
+| ~/.cwm/      |<---------------------->| %USERPROFILE%\ |
+|  workspace/  |   (no cloud, ever)     |  .cwm\         |
+|  projects/   |                        |  workspace\    |
 |  skills/     |                        |  projects\     |
 |  repos.tsv   |                        |  repos.tsv     |
 +------+-------+                        +--------+-------+
@@ -107,7 +128,7 @@ resume silently breaks. cwm pins `CLAUDE_CODE_PROJECT_DIR_NAME=<repo>` (Claude
 Code ≥ 2.1.234), so every OS writes the same `projects/<repo>/` folder — no
 path rewriting, ever.
 
-### The account model (v0.2 target)
+### The account model (v0.2)
 
 ```
 ~/.cwm/
@@ -128,19 +149,20 @@ vs `personal`) are supported by creating more than one.
 
 | Synced (your workspace) | Local (per machine) |
 |---|---|
-| `projects/` — sessions + memory | `settings.json` (absolute hook paths) |
-| `skills/`, `agents/`, `commands/`, `rules/`, `plugins/` | `logs/` |
-| `scheduled-tasks/`, `history.jsonl` | caches, `shell-snapshots/`, `todos/` |
-| `repos.tsv`, `.claude.json`, `.credentials.json` | `debug/`, `statsig/`, OS junk |
+| `projects/` — sessions + memory | `accounts/<name>/` — `.credentials.json`, `.claude.json` |
+| `skills/`, `agents/`, `commands/`, `rules/`, `plugins/`, `output-styles/` | `launch/<account>/` + generated `settings.json` (absolute hook paths) |
+| `scheduled-tasks/`, `history.jsonl`, `CLAUDE.md` | `logs/`, `backups/`, caches, `shell-snapshots/`, `todos/` |
+| `repos.tsv`, `mcp.json` | `debug/`, `statsig/`, OS junk |
 
-The split is enforced by the `.stignore` shipped in the repo and installed by
-bootstrap.
+The split is enforced by the `.stignore` that `cwm init` writes into the
+workspace folder.
 
 ## Roadmap
 
-- **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README *(this release)*
-- **v0.2** — Go core: single binary, configurable workspace dir, **account system**
-  (add/switch/usage, launch-dir assembly), migration from `~/.claude` and ccam profiles
+- **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README
+- **v0.2** — Go core: single binary, configurable workspace dir, **account
+  system** (add/switch/usage, launch-dir assembly), migration from `~/.claude`
+  and ccam profiles *(this release)*
 - **v0.3** — Syncthing pairing automated via its REST API
 - **v0.4** — session browser + WIP UX (dirty-repo view, pull hints)
 - **v0.5** — embedded localhost web UI (wizard, dashboard, sessions, accounts); CLI stays first-class
@@ -154,9 +176,10 @@ cwm is **not built on and does not depend on ccam** — it is an independent,
 all-in-one toolkit. It borrows engineering patterns ccam proved (plan → backup →
 mutate, atomic writes, doctor, fake-binary E2E tests) and covers everything
 ccam does — multiple accounts, switching, per-account usage, import — as a
-subset of its workspace model. ccam users can move over with `cwm import`
-(v0.2). Credit where due: ccam's account-switching design is excellent; cwm
-started from the question "what if the workspace, not the account, came first?"
+subset of its workspace model. ccam users can move over with
+`cwm import --ccam`. Credit where due: ccam's account-switching design is
+excellent; cwm started from the question "what if the workspace, not the
+account, came first?"
 
 > **Terms note:** whether using more than one Claude account is allowed depends
 > on Anthropic's terms for each account. cwm never merges or hides account
@@ -166,3 +189,33 @@ started from the question "what if the workspace, not the account, came first?"
 
 MIT — see [LICENSE](LICENSE). cwm is an unofficial community tool and is not
 affiliated with or endorsed by Anthropic.
+
+## Legacy: the v0.1 bash kit
+
+<details>
+<summary>Collapsed — the bash-kit install and how to move off it</summary>
+
+cwm v0.1 shipped as a bash kit (`bin/`, `hooks/`, `templates/`,
+`bootstrap.*`) using `~/.claude-me` as the workspace. It stays in-tree,
+untouched and passing, as a fallback for one more release and is removed
+in v1.0.
+
+```sh
+git clone git@github.com:Mr-JoE1/cwm.git ~/cwm && cd ~/cwm
+./bootstrap.sh          # idempotent — safe to re-run
+exec bash               # pick up new PATH + CLAUDE_CONFIG_DIR
+```
+
+Windows (PowerShell 5.1):
+
+```powershell
+git clone git@github.com:Mr-JoE1/cwm.git $env:USERPROFILE\cwm
+cd $env:USERPROFILE\cwm
+powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
+# open a NEW terminal so PATH + CLAUDE_CONFIG_DIR take effect
+```
+
+Moving to the Go binary is one command: `cwm init --migrate` (see
+[Migration](#migration) above). The bash kit keeps working until v1.0.
+
+</details>
