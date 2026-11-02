@@ -1,35 +1,39 @@
 # cwm — Claude Workspace Manager
 
-Carry your Claude Code workspace with you: sessions, memory, skills and MCP
-config in one private folder — synced across your machines, decoupled from any
-login. **Your workspace stays yours: local, portable, account-independent.**
+The all-in-one toolkit for your Claude Code setup: **accounts, workspace and devices
+in one tool.** Sessions, memory, skills and MCP config in a private workspace you own —
+switch Claude accounts freely, sync across your machines, resume anywhere.
 
-> **ccam switches accounts; cwm carries the workspace.**
+> One tool: your accounts, your workspace, your devices.
 
 ## Why cwm
 
-- **Privacy, local-first** — sessions, memory, skills and MCP config live in
-  your own `~/.claude-me` folder, not the default shared `~/.claude`. Nothing
-  is uploaded anywhere; sync is peer-to-peer.
-- **Account-independent** — sessions are keyed to the workspace folder + a
-  pinned project name, not to the login. Switch, share or rotate Claude
-  accounts without touching your workspace.
-- **Cross-OS sync** — Linux and Windows read and write the *same* session
-  folders via Syncthing P2P. Resume on the other machine exactly where you
-  left off.
-- **Repos on demand** — every repo you open is remembered in a small manifest;
-  on another device `cwm <repo>` clones it and drops you into the resume
-  picker.
+- **All-in-one** — everything account switchers do (multiple logins, switching,
+  per-account usage, import) *plus* the layer they all lack: a portable, account-independent
+  workspace with cross-device sync. No second tool needed.
+- **Workspace-first, not account-first** — account switchers make *accounts* the primary
+  object and bolt sharing on top. cwm inverts it: your **workspace** (sessions, memory,
+  skills) is the primary object, and accounts are pluggable logins attached to it.
+  Switch, share or rotate accounts — the workspace never notices.
+- **Privacy, local-first** — your workspace lives in your own folder, not the default
+  shared `~/.claude`. Nothing is uploaded anywhere; sync is peer-to-peer.
+- **Cross-OS sync** — Linux and Windows read and write the *same* session folders via
+  Syncthing P2P. Resume on the other machine exactly where you left off.
+- **Repos on demand** — every repo you open is remembered in a small manifest; on another
+  device `cwm <repo>` clones it from GitHub and drops you into the resume picker.
 
 ## The gap
 
-| Need | ccam | dotsync + ccsync + session-roam | raw Syncthing | **cwm** |
+| Need | ccam & other switchers | dotsync + ccsync + session-roam | raw Syncthing | **cwm** |
 |---|---|---|---|---|
-| Switch Claude accounts | yes | no | no | n/a (works alongside) |
-| Workspace private + relocatable | no | partial (dotfiles only) | no | **yes** (`CLAUDE_CONFIG_DIR`) |
+| Switch Claude accounts | yes | no | no | **yes** — accounts attached to your workspace |
+| Same workspace on every account | partial (per-item sharing) | no | no | **yes** — workspace-first |
+| Workspace private + relocatable | no | partial (dotfiles only) | no | **yes** |
+| Sync across devices | no | partial (mac-first, path-fragile) | manual | **yes** (P2P, automated) |
 | Same session folder on every OS | no | partial (path rewriting) | no — slugs differ per OS | **yes** (name pinning) |
 | Repo clone-on-demand + resume | no | partial | no | **yes** (`repos.tsv` + `cwm <repo>`) |
 | WIP handoff between devices | no | manual branches | no | **yes** (`sync/<host>` auto-push) |
+| GUI for non-terminal users | no | no | web (sync only) | **yes** (planned v0.5) |
 | Cloud service required | no | mixed | no | **no — P2P only** |
 
 ## Install
@@ -68,6 +72,15 @@ cwm doctor             # local health checks (--net adds an SSH probe)
 The full first-run flow: run `bootstrap` → pair Syncthing → `cwm <repo>`.
 Everything else (clone-on-demand, session resume, WIP branches) is automatic.
 
+Coming with the account system (v0.2+):
+
+```sh
+cwm account add work        # attach a login to your workspace
+cwm account list            # per-account usage, plan, status
+cwm --account work myproject  # launch a repo under a specific account
+cwm import                  # migrate from ~/.claude — or from ccam profiles
+```
+
 ## How it works
 
 ```
@@ -94,6 +107,23 @@ resume silently breaks. cwm pins `CLAUDE_CODE_PROJECT_DIR_NAME=<repo>` (Claude
 Code ≥ 2.1.234), so every OS writes the same `projects/<repo>/` folder — no
 path rewriting, ever.
 
+### The account model (v0.2 target)
+
+```
+~/.cwm/
+├── workspace/          # your content: projects/, skills/, memory, CLAUDE.md
+│                       #   → synced P2P between your devices
+├── accounts/<name>/    # logins only: .credentials.json + .claude.json
+│                       #   → per machine, never synced by default
+└── launch/<account>/   # assembled at launch: workspace items + that
+                        #   account's credentials → set as CLAUDE_CONFIG_DIR
+```
+
+Every account attached to a workspace sees the *same* sessions, memory and
+skills — that is the point of account independence. Credentials stay separate
+per account, exactly as Claude Code expects. Multiple workspaces (e.g. `work`
+vs `personal`) are supported by creating more than one.
+
 ## What syncs / what stays local
 
 | Synced (your workspace) | Local (per machine) |
@@ -109,20 +139,28 @@ bootstrap.
 ## Roadmap
 
 - **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README *(this release)*
-- **v0.2** — configurable workspace dir + migration from `~/.claude-me`
+- **v0.2** — Go core: single binary, configurable workspace dir, **account system**
+  (add/switch/usage, launch-dir assembly), migration from `~/.claude` and ccam profiles
 - **v0.3** — Syncthing pairing automated via its REST API
-- **v0.4** — session hygiene: merge/dedup legacy path-slug folders
-- **v0.5** — embedded localhost web UI (Go binary, Syncthing model); CLI stays first-class
+- **v0.4** — session browser + WIP UX (dirty-repo view, pull hints)
+- **v0.5** — embedded localhost web UI (wizard, dashboard, sessions, accounts); CLI stays first-class
 - **v1.0** — stable CLI + GUI, complete docs, tagged long-term support
 
 Decisions and their rationale: [docs/PLAN.md](docs/PLAN.md).
 
-## ccam and cwm
+## Relationship to ccam
 
-They complement each other: **ccam switches accounts; cwm carries the
-workspace.** cwm makes the workspace independent of whichever account is
-active, so the two tools compose cleanly. Interop documentation is planned for
-a later release.
+cwm is **not built on and does not depend on ccam** — it is an independent,
+all-in-one toolkit. It borrows engineering patterns ccam proved (plan → backup →
+mutate, atomic writes, doctor, fake-binary E2E tests) and covers everything
+ccam does — multiple accounts, switching, per-account usage, import — as a
+subset of its workspace model. ccam users can move over with `cwm import`
+(v0.2). Credit where due: ccam's account-switching design is excellent; cwm
+started from the question "what if the workspace, not the account, came first?"
+
+> **Terms note:** whether using more than one Claude account is allowed depends
+> on Anthropic's terms for each account. cwm never merges or hides account
+> limits. Your call, your accounts.
 
 ## License
 

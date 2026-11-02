@@ -3,6 +3,25 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-02 (second session)
+
+- **D10 — cwm is all-in-one, not a ccam companion.** cwm absorbs every
+  account-switcher feature (multiple logins, switching, per-account usage,
+  import, shortcuts) as a *subset* of its workspace model. No dependency on
+  ccam or any other tool; "use ccam alongside cwm" positioning is withdrawn.
+  README rewritten accordingly.
+- **D11 — workspace-first account architecture.** The workspace (sessions,
+  memory, skills) is the primary object; accounts are pluggable logins
+  attached to it. Layout: `~/.cwm/workspace/` (synced content) +
+  `~/.cwm/accounts/<name>/` (credentials only, never synced by default) +
+  `~/.cwm/launch/<account>/` (assembled at launch — workspace items +
+  that account's credentials — and set as `CLAUDE_CONFIG_DIR`). All accounts
+  attached to a workspace share it fully by default; isolation comes from
+  creating separate workspaces, not from per-item sharing matrices.
+  Open question for v0.2 implementation: Windows file-symlink constraint for
+  shared single files (junctions cover dirs; dev-mode or copy-sync needed for
+  `CLAUDE.md` / `history.jsonl` / `settings.json`).
+
 ## 2026-11-02
 
 - **D1 — product name `cwm`** (Claude Workspace Manager), repo `Mr-JoE1/cwm`,
