@@ -137,6 +137,6 @@ func printMigrateHint(stdout io.Writer) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude-me")); err == nil {
-		fmt.Fprintf(stdout, "note: found ~/.claude-me (legacy bash-kit workspace) — `cwm init --migrate` (v0.2-C2) will be able to import it\n")
+		fmt.Fprintf(stdout, "note: found ~/.claude-me (legacy bash-kit workspace) — run `cwm init --migrate` to import it\n")
 	}
 }

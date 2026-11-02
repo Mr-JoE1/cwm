@@ -71,8 +71,8 @@ type command struct {
 var commands = []*command{
 	{name: "version", short: "print version information"},
 	{name: "help", args: "[command]", short: "help for cwm or a command"},
-	{name: "init", args: "[--migrate] [--account <name>]", short: "create the cwm workspace skeleton", stage: 'C'},
-	{name: "import", args: "[--from <dir>] [--ccam]", short: "import an existing claude config dir or ccam profiles", stage: 'C'},
+	{name: "init", args: "[--migrate] [--account <name>] [--yes]", short: "create the cwm workspace skeleton", stage: 'C'},
+	{name: "import", args: "[--from <dir>] [--ccam] [--account <name>] [--yes]", short: "import an existing claude config dir or ccam profiles", stage: 'C'},
 	{name: "open", args: "<repo> [new|last]", short: "open a repo (clone on demand) and launch claude", stage: 'B'},
 	{name: "list", short: "list workspace projects with session counts", stage: 'B'},
 	{name: "wip", args: "[status]", short: "run the WIP auto-push now; 'wip status' lists sync branches", stage: 'B'},
@@ -103,9 +103,13 @@ func init() {
 		case "open":
 			c.run = cmdOpen
 		case "init":
-			c.run = cmdInit
+			c.run = initWithMigrate
 		case "account":
 			c.run = cmdAccount
+		case "import":
+			c.run = cmdImport
+		case "mcp":
+			c.run = cmdMcp
 		}
 	}
 }
