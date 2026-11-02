@@ -1,0 +1,25 @@
+// claude-workspace-kit Syncthing ignore policy.
+// Machine-specific + regenerable state stays local; everything else in
+// ~/.claude-me syncs (sessions, skills, repos.tsv, .claude.json, ...).
+// (?d) = safe to delete when the parent is deleted on a remote device.
+(?d)cache
+(?d)debug
+(?d)telemetry
+(?d)statsig
+(?d)shell-snapshots
+(?d)session-env
+(?d)paste-cache
+(?d)file-history
+(?d)backups
+(?d)downloads
+(?d)ide
+(?d)chrome
+(?d)todos
+(?d)tasks
+(?d)sessions
+(?d)worktrees
+(?d)logs
+settings.json
+settings.local.json
+.DS_Store
+Thumbs.db

@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# cl — private Claude Code workspace launcher.
+#
+# WHY: sessions must key off the config dir + a pinned project name
+# (CLAUDE_CODE_PROJECT_DIR_NAME), not the OS-specific path slug, so Windows and
+# Linux share one projects/<name>/ folder. Plain `claude` does not pin the name,
+# so always launch through `cl`.
+set -euo pipefail
+
+CLAUDE_ME="$HOME/.claude-me"
+
+if [[ ! -d "$CLAUDE_ME" ]]; then
+    echo "error: $CLAUDE_ME does not exist." >&2
+    echo "Run the kit bootstrap script first, or pair Syncthing so the workspace" >&2
+    echo "folder is restored, then retry." >&2
+    exit 1
+fi
+
+export CLAUDE_CONFIG_DIR="$CLAUDE_ME"
+
+sanitize_host() {
+    local h
+    h=$(hostname 2>/dev/null || true)
+    h=${h%%.*}
+    h=$(printf '%s' "$h" | tr -c 'A-Za-z0-9-' '-')
+    while [[ "$h" == -* ]]; do h=${h#-}; done
+    while [[ "$h" == *- ]]; do h=${h%-}; done
+    printf '%s' "${h:-unknown}"
+}
+
+repo_url() { # name → url on stdout; rc 1 if unknown
+    local name="$1" key val
+    [[ -f "$CLAUDE_ME/repos.tsv" ]] || return 1
+    while IFS=$'\t' read -r key val; do
+        if [[ "$key" == "$name" && -n "$val" ]]; then
+            printf '%s\n' "$val"
+            return 0
+        fi
+    done < "$CLAUDE_ME/repos.tsv"
+    return 1
+}
+
+known_names() {
+    if [[ -f "$CLAUDE_ME/repos.tsv" ]]; then
+        cut -f1 "$CLAUDE_ME/repos.tsv" | sort -u
+    fi
+    return 0
+}
+
+list_projects() {
+    echo "workspace projects ($CLAUDE_ME/projects):"
+    local d name count latest when found=0
+    for d in "$CLAUDE_ME"/projects/*/; do
+        [[ -d "$d" ]] || continue
+        found=1
+        name=${d%/}
+        name=${name##*/}
+        count=$(find "$d" -maxdepth 1 -type f -name '*.jsonl' 2>/dev/null | wc -l | tr -d ' ')
+        when="never"
+        latest=$(find "$d" -maxdepth 1 -type f -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -rn | head -n1)
+        latest=${latest%%.*}
+        if [[ -n "${latest:-}" ]]; then
+            when=$(date -d "@$latest" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '?')
+        fi
+        printf '%-24s %4s session(s)  last: %s\n' "$name" "$count" "$when"
+    done
+    if [[ "$found" -eq 0 ]]; then
+        echo "  (none yet — open a repo via 'cl <name> new' to create one)"
+    fi
+}
+
+usage() {
+    cat <<'EOF'
+usage:
+  cl                  list workspace projects
+  cl <name>           clone on demand if missing, then claude --resume (picker)
+  cl <name> new       fresh session in that repo
+  cl <name> last      continue the latest session (claude --continue)
+  cl --wip            run the WIP auto-push now (same as the SessionEnd hook)
+  cl <other args...>  passed through to claude; project name is pinned only
+                      when the cwd is inside ~/repos
+EOF
+}
+
+sync_hint() { # repo-dir → one-line hint if another host pushed WIP we lack
+    local mine ref br count
+    mine=$(sanitize_host)
+    (
+        cd "$1" || exit 0
+        git fetch -q origin >/dev/null 2>&1 || exit 0
+        # sync branch names are sanitized to [A-Za-z0-9-], safe to word-split
+        for ref in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/sync/'); do
+            br=${ref##*/}
+            if [[ "$br" == "$mine" ]]; then continue; fi
+            if count=$(git rev-list --count "HEAD..$ref" 2>/dev/null) && [[ "${count:-0}" -gt 0 ]]; then
+                printf 'hint: sync branch %s has commits not on this branch (run: git pull origin %s)\n' "$br" "$br"
+                exit 0
+            fi
+        done
+    ) || true
+}
+
+launch() { # name mode(resume|new|last)
+    local name="$1" mode="$2" repo url
+    repo="$HOME/repos/$name"
+    if [[ ! -d "$repo" ]]; then
+        if url=$(repo_url "$name"); then
+            echo "cloning $url -> $repo"
+            git clone "$url" "$repo"
+        else
+            echo "error: unknown project '$name' — no $repo and no entry in $CLAUDE_ME/repos.tsv" >&2
+            echo "known projects:" >&2
+            known_names | sed 's/^/  /' >&2
+            exit 1
+        fi
+    fi
+    cd "$repo"
+    export CLAUDE_CODE_PROJECT_DIR_NAME="$name"
+    sync_hint "$repo"
+    case "$mode" in
+        resume) exec claude --resume ;;
+        new)    exec claude ;;
+        last)   exec claude --continue ;;
+    esac
+}
+
+passthrough() {
+    local rel="" pin
+    if [[ "$PWD" == "$HOME/repos" ]]; then
+        rel=""
+    elif [[ "$PWD/" == "$HOME/repos/"* ]]; then
+        rel="${PWD#"$HOME/repos/"}"
+    fi
+    pin="${rel%%/*}"
+    if [[ -n "$pin" ]]; then
+        export CLAUDE_CODE_PROJECT_DIR_NAME="$pin"
+    else
+        # outside ~/repos: plain claude with just the private config dir
+        unset CLAUDE_CODE_PROJECT_DIR_NAME || true
+    fi
+    exec claude "$@"
+}
+
+run_wip() {
+    local hook="$CLAUDE_ME/hooks/session-end.sh"
+    if [[ -f "$hook" ]]; then
+        bash "$hook"
+    else
+        echo "error: WIP hook not found at $hook — re-run the kit bootstrap" >&2
+        return 1
+    fi
+}
+
+if [[ $# -eq 0 ]]; then
+    list_projects
+    usage
+    exit 0
+fi
+
+if [[ "$1" == "--wip" ]]; then
+    run_wip
+    exit $?
+fi
+
+if [[ "$1" == -* ]]; then
+    passthrough "$@"
+fi
+
+name="$1"
+case "${2-}" in
+    "")   launch "$name" resume ;;
+    new)  launch "$name" new ;;
+    last) launch "$name" last ;;
+    *)    passthrough "$@" ;;
+esac
