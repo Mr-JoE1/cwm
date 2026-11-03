@@ -3,6 +3,22 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-03 (v0.3)
+
+- **D16 — deletions SYNC (normal semantics); the safety net is staggered
+  versioning, 30 days** (`cleanInterval` 3600, `maxAge` 2592000). The v0.1
+  bash-kit advice "ignore-delete ON" is withdrawn: with versioning active,
+  cascading deletes are recoverable from `.stversions`, while ignore-delete
+  causes worse failure modes (orphans accumulate on peers).
+- **D17 — cwm never supervises the syncthing daemon.** It discovers a
+  running instance (GUI+API read from `config.xml`); `cwm pair --start`
+  spawns ONE detached `syncthing serve --no-browser` process when none is
+  running — no supervision, no autostart. Users running syncthing as a
+  service (the recommended setup) are untouched.
+- **D18 — folder ID is the fixed string `cwm-workspace`**, identical on
+  every device — it is the folder identity. The local PATH differs per
+  device and that is fine.
+
 ## 2026-11-03
 
 - **D12 — usage lens v0.2 = identity + login freshness only.** The account

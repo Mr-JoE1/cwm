@@ -58,7 +58,9 @@ go build -o cwm ./cmd/cwm
 
 **Prerequisites:** Claude Code ≥ 2.1.234 (verified by `cwm init` and `cwm doctor`),
 git, an SSH key with access to your GitHub repos.
-[Syncthing](https://syncthing.net) on every device, if you want cross-device sync.
+[Syncthing](https://syncthing.net) on each device for cross-device sync —
+installing and pairing it is handled by [`cwm pair`](#device-sync-v03), no
+manual Syncthing setup.
 
 ## Quick start
 
@@ -157,13 +159,58 @@ vs `personal`) are supported by creating more than one.
 The split is enforced by the `.stignore` that `cwm init` writes into the
 workspace folder.
 
+## Device sync (v0.3)
+
+Two devices, four steps, zero Syncthing UI:
+
+1. **Install Syncthing on both devices** and run it as a service —
+   `sudo apt install syncthing` (then `systemctl --user enable --now syncthing`)
+   on Linux, `winget install Syncthing.Syncthing` on Windows.
+2. **On device A:** `cwm pair` — prints A's device ID and what to run on B.
+3. **On device B:** `cwm pair <A-id> <name>`.
+4. **On device A:** `cwm pair <B-id> <name>`.
+
+Both sides must run the exchange once — then data flows. Every command is
+idempotent; re-running is always safe. On a machine without the service,
+`cwm pair --start` spawns one detached `syncthing serve --no-browser` for the
+session — cwm never installs or supervises the daemon for you.
+
+Check sync health at any time:
+
+```sh
+cwm devices
+DEVICE       NAME     CONNECTED  ADDRESS             IN       OUT      COMPLETION
+7A2FQK…      tower    yes        192.168.1.20:22000  412 MiB  38 MiB   100%
+HX9B3C…      laptop   yes        192.168.1.21:22000  0 B      397 MiB  94%
+```
+
+With no peers yet it prints: *(no paired devices yet — run `cwm pair` on both
+devices)*.
+
+<details>
+<summary>Syncthing troubleshooting</summary>
+
+- **"syncthing config has no API key"** — Syncthing has never written its
+  config. Start it once (`systemctl --user start syncthing` or plain
+  `syncthing`) so it generates `config.xml`, then re-run `cwm pair`.
+- **Service vs `--start`** — the service (step 1) is the recommended setup;
+  cwm just finds the running instance. `cwm pair --start` is the fallback for
+  machines without one: it spawns a single detached
+  `syncthing serve --no-browser` — no supervision, no autostart.
+- **Non-default endpoint** — GUI moved, TLS enabled, or API key kept
+  elsewhere? Set `CWM_SYNCTHING_URL` and `CWM_SYNCTHING_API_KEY` to point
+  cwm at the right endpoint.
+
+</details>
+
 ## Roadmap
 
 - **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README
 - **v0.2** — Go core: single binary, configurable workspace dir, **account
   system** (add/switch/usage, launch-dir assembly), migration from `~/.claude`
-  and ccam profiles *(this release)*
-- **v0.3** — Syncthing pairing automated via its REST API
+  and ccam profiles
+- **v0.3** — Syncthing pairing automated via its REST API (`cwm pair`,
+  `cwm devices`) *(this release)*
 - **v0.4** — session browser + WIP UX (dirty-repo view, pull hints)
 - **v0.5** — embedded localhost web UI (wizard, dashboard, sessions, accounts); CLI stays first-class
 - **v1.0** — stable CLI + GUI, complete docs, tagged long-term support
@@ -198,7 +245,9 @@ affiliated with or endorsed by Anthropic.
 cwm v0.1 shipped as a bash kit (`bin/`, `hooks/`, `templates/`,
 `bootstrap.*`) using `~/.claude-me` as the workspace. It stays in-tree,
 untouched and passing, as a fallback for one more release and is removed
-in v1.0.
+in v1.0. Its sync setup relied on **manual Syncthing pairing** in the
+Syncthing UI (and its old `ignore-delete` advice is withdrawn) — the Go
+tooling pairs devices itself: see [Device sync (v0.3)](#device-sync-v03).
 
 ```sh
 git clone git@github.com:Mr-JoE1/cwm.git ~/cwm && cd ~/cwm
