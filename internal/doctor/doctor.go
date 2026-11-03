@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/Mr-JoE1/cwm/internal/storage"
+	"github.com/Mr-JoE1/cwm/internal/syncthing"
 )
 
 // report accumulates check outcomes; the prefixes align exactly like the
@@ -47,10 +48,12 @@ func (r *report) fail(format string, args ...any) {
 // standing in for the bash kit's grep-based scanning (no jq allowed).
 var quotedStringRe = regexp.MustCompile(`"([^"\\]*(?:\\.[^"\\]*)*)"`)
 
-// Run executes the 11 checks against root ("" resolves $CWM_HOME / ~/.cwm)
+// Run executes the 12 checks against root ("" resolves $CWM_HOME / ~/.cwm)
 // and writes the report to w. It returns false when at least one FAIL was
 // recorded — the caller then exits 1, like bin/doctor.sh. netProbe adds the
-// SSH probe (check 11); without it ssh is never invoked.
+// SSH probe (check 11); without it ssh is never invoked. Check 12 (syncthing
+// reachability) is a local HTTP call and always runs (warn only: sync is
+// optional per machine, D17).
 func Run(w io.Writer, root string, netProbe bool) bool {
 	if root == "" {
 		layout, err := storage.NewLayout()
@@ -199,6 +202,16 @@ func Run(w io.Writer, root string, netProbe bool) bool {
 			}
 			r.warn("ssh git@github.com failed — check your SSH key (%s)", reason)
 		}
+	}
+
+	// 12. syncthing API reachable (optional per machine: `cwm pair` sets
+	// sync up — never FAIL, D17).
+	if ep, err := syncthing.Discover(); err != nil {
+		r.warn("syncthing not reachable (optional per machine — cwm pair sets it up): %v", err)
+	} else if err := syncthing.NewClient(ep).Ping(); err != nil {
+		r.warn("syncthing not reachable (optional per machine — cwm pair sets it up): %v", err)
+	} else {
+		r.ok("syncthing API reachable at %s", ep.BaseURL)
 	}
 
 	fmt.Fprintf(w, "doctor: %d ok, %d warn, %d fail\n", r.nOK, r.nWarn, r.nFail)

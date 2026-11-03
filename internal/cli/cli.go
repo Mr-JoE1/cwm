@@ -34,6 +34,7 @@ const (
 var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
+	"pair", "devices",
 }
 
 // IsReserved reports whether name is reserved.
@@ -80,6 +81,8 @@ var commands = []*command{
 	{name: "account", args: "add|list|use|remove", short: "manage claude accounts", stage: 'C'},
 	{name: "mcp", args: "add|list|remove", short: "manage workspace mcp.json servers", stage: 'C'},
 	{name: "hook", args: "session-start|session-end", short: "hook entry points (wired from settings.json)", stage: 'B'},
+	{name: "pair", args: "[--start] [<device-id> [name]]", short: "pair this workspace with another device (syncthing)"},
+	{name: "devices", short: "list paired devices and their sync health"},
 }
 
 // Command implementations are wired in init to avoid an initialization cycle
@@ -110,6 +113,10 @@ func init() {
 			c.run = cmdImport
 		case "mcp":
 			c.run = cmdMcp
+		case "pair":
+			c.run = cmdPair
+		case "devices":
+			c.run = cmdDevices
 		}
 	}
 }

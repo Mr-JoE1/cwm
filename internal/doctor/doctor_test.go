@@ -2,11 +2,16 @@ package doctor
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/Mr-JoE1/cwm/internal/syncthing"
 )
 
 // stubBin creates a bin dir with the named executable stubs (sh scripts) and
@@ -107,8 +112,8 @@ func TestDoctorHealthyWorkspace(t *testing.T) {
 	if strings.Contains(got, "FAIL:") {
 		t.Errorf("healthy workspace must have no FAIL lines:\n%s", got)
 	}
-	if !regexp.MustCompile(`(?m)^doctor: 10 ok, 0 warn, 0 fail$`).MatchString(got) {
-		t.Errorf("summary line wrong:\n%s", got)
+	if !regexp.MustCompile(`(?m)^doctor: 10 ok, 1 warn, 0 fail$`).MatchString(got) {
+		t.Errorf("summary line wrong (10 ok + syncthing warn, no syncthing configured in the sandbox):\n%s", got)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("default mode must never invoke ssh, but the ssh stub was called")
@@ -252,8 +257,8 @@ func TestDoctorNetProbeSuccess(t *testing.T) {
 	} else if !strings.Contains(string(data), "-T git@github.com") {
 		t.Errorf("ssh stub args = %q, want BatchMode/ConnectTimeout/-T git@github.com", string(data))
 	}
-	if !regexp.MustCompile(`(?m)^doctor: 11 ok, 0 warn, 0 fail$`).MatchString(got) {
-		t.Errorf("summary must count 11 oks with --net:\n%s", got)
+	if !regexp.MustCompile(`(?m)^doctor: 11 ok, 1 warn, 0 fail$`).MatchString(got) {
+		t.Errorf("summary must count 11 oks plus the syncthing warn with --net:\n%s", got)
 	}
 }
 
@@ -280,5 +285,43 @@ func TestDoctorEmptyRootResolvesEnvHome(t *testing.T) {
 	Run(&out, "", false) // root "" must resolve $CWM_HOME, not crash
 	if !strings.Contains(out.String(), filepath.Join(root, "workspace")) {
 		t.Errorf("output should reference %s:\n%s", filepath.Join(root, "workspace"), out.String())
+	}
+}
+
+func TestDoctorSyncthingUnreachableWarns(t *testing.T) {
+	root := healthyWorkspace(t)
+	// Both env overrides set: discovery is deterministic, the port refuses
+	// connections immediately — no real daemon, no timeouts.
+	t.Setenv(syncthing.EnvURL, "http://127.0.0.1:1")
+	t.Setenv(syncthing.EnvAPIKey, "test")
+
+	var out strings.Builder
+	if !Run(&out, root, false) {
+		t.Fatalf("unreachable syncthing is a warn, never a FAIL (exit stays 0):\n%s", out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "warn: syncthing not reachable (optional per machine — cwm pair sets it up)") {
+		t.Errorf("output missing syncthing warn:\n%s", got)
+	}
+	if strings.Contains(got, "FAIL:") {
+		t.Errorf("check 12 must never FAIL:\n%s", got)
+	}
+}
+
+func TestDoctorSyncthingReachableOK(t *testing.T) {
+	root := healthyWorkspace(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ping":"pong"}`)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv(syncthing.EnvURL, srv.URL)
+	t.Setenv(syncthing.EnvAPIKey, "test")
+
+	var out strings.Builder
+	if !Run(&out, root, false) {
+		t.Fatalf("reachable syncthing must not fail doctor:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "ok:   syncthing API reachable at "+srv.URL) {
+		t.Errorf("output missing syncthing ok line:\n%s", out.String())
 	}
 }
