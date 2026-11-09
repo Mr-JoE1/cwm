@@ -76,10 +76,12 @@ Day to day:
 cwm myproject            # short form of `cwm open myproject`
 cwm myproject new|last   # fresh session / continue the latest one
 cwm list                 # workspace projects: session counts + last-modified
+cwm sessions             # every workspace session, newest first (--pick to resume)
 cwm account list         # email, plan and login freshness per account
 cwm --account work myproject   # launch under a specific account
 cwm mcp add fetch -- npx -y @modelcontextprotocol/server-fetch
 cwm wip                  # push dirty work to sync/<hostname> right now
+cwm wip dirty            # repos with uncommitted work (before switching devices)
 cwm doctor               # local health checks (--net adds an SSH probe)
 ```
 
@@ -203,6 +205,52 @@ devices)*.
 
 </details>
 
+## Find and resume sessions (v0.4)
+
+Fresh device, workspace synced, nothing cloned yet — every session is already
+browsable, because the rows come from the synced `projects/*/<uuid>.jsonl`
+files themselves, not from any local clone:
+
+```sh
+cwm sessions
+```
+
+```text
+N  project  id        first prompt                      msgs  branch       modified
+1  alpha    3f2c81a4  fix the flaky e2e test on resume  42    feat/resume  4h ago
+2  alpha    9b41c0de  refactor launcher pin logic       17    main         2d ago
+3  beta     c07d52bb  draft API notes for sync hints    0                  2026-11-01
+```
+
+Resume one with a single command:
+
+```sh
+cwm sessions --pick      # print the table, pick a row interactively
+cwm sessions --pick 1    # or resolve row 1 directly
+```
+
+The picked row opens through the same launcher as `cwm open`: the repo
+**clones on demand** if it isn't on this machine yet, the session-folder name
+is pinned, and `claude --resume <session-id>` starts with the full
+conversation context. `cwm sessions <project>` filters to one project,
+`--limit K` caps the rows, and `--json` emits one object per session for
+scripting.
+
+Before switching devices, check what hasn't been pushed yet:
+
+```sh
+cwm wip dirty
+```
+
+```text
+repo   changed            last commit
+gamma  1 changed file(s)  fix: guard nil account in launch
+```
+
+Only repos present under the repos root are scanned — a repo that isn't
+cloned on this machine is clean by definition here. No rows means everything
+is committed and safe to walk away from.
+
 ## Roadmap
 
 - **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README
@@ -210,8 +258,9 @@ devices)*.
   system** (add/switch/usage, launch-dir assembly), migration from `~/.claude`
   and ccam profiles
 - **v0.3** — Syncthing pairing automated via its REST API (`cwm pair`,
-  `cwm devices`) *(this release)*
-- **v0.4** — session browser + WIP UX (dirty-repo view, pull hints)
+  `cwm devices`)
+- **v0.4** — session browser + WIP UX (`cwm sessions --pick`,
+  `cwm wip dirty`) *(this release)*
 - **v0.5** — embedded localhost web UI (wizard, dashboard, sessions, accounts); CLI stays first-class
 - **v1.0** — stable CLI + GUI, complete docs, tagged long-term support
 

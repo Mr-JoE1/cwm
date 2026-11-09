@@ -3,6 +3,21 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-04 (v0.4)
+
+- **D19 — session discovery: raw `projects/*/<uuid>.jsonl` at depth 1 is the
+  source of truth.** `sessions-index.json` is enrichment only — a missing,
+  stale or malformed index never hides a session; the raw scan still lists
+  it. Subagents (`agent-*.jsonl`) and sidechains (`isSidechain` index
+  entries) are excluded.
+- **D20 — the resume path reuses the launcher passthrough.** `cwm sessions
+  --pick [N]` resolves a row and launches `claude --resume <id>` through the
+  existing `Open` path — no second launch path; clone-on-demand, name pinning
+  and sync hints apply unchanged.
+- **D21 — `cwm wip dirty` scans the repos root only.** Repos absent locally
+  are clean by definition on that machine — the view answers "what should I
+  push before switching devices", not "what is dirty anywhere".
+
 ## 2026-11-03 (v0.3)
 
 - **D16 — deletions SYNC (normal semantics); the safety net is staggered
