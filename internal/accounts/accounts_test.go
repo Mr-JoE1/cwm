@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,9 @@ func newTestEnv(t *testing.T) (*storage.Layout, *config.Config) {
 }
 
 func TestAddRegistersAccountWithIdentity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	stubClaude(t, "dev@example.com")
 	l, cfg := newTestEnv(t)
 	var out bytes.Buffer
@@ -85,6 +89,9 @@ func TestAddInvalidName(t *testing.T) {
 }
 
 func TestAddDuplicate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	stubClaude(t, "dev@example.com")
 	l, cfg := newTestEnv(t)
 	if err := Add(l, cfg, "main", &bytes.Buffer{}); err != nil {
@@ -96,6 +103,9 @@ func TestAddDuplicate(t *testing.T) {
 }
 
 func TestAddWithoutIdentityWarnsAndKeepsAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	// Stub that succeeds at login but writes no credentials.
 	bin := t.TempDir()
 	script := "#!/bin/sh\nexit 0\n"
@@ -118,6 +128,9 @@ func TestAddWithoutIdentityWarnsAndKeepsAccount(t *testing.T) {
 }
 
 func TestAddLoginFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho boom >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {

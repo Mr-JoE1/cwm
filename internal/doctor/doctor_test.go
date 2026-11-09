@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -84,6 +85,9 @@ func healthyWorkspace(t *testing.T) string {
 }
 
 func TestDoctorHealthyWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	_, marker := sshStub(t, "Hi fake! You've successfully authenticated, but GitHub does not provide shell access.")
 
@@ -121,6 +125,9 @@ func TestDoctorHealthyWorkspace(t *testing.T) {
 }
 
 func TestDoctorMissingWorkspaceFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := t.TempDir()
 	t.Setenv("CWM_HOME", root) // keep storage.ClaudeBin's cache inside the sandbox
 	_, marker := sshStub(t, "irrelevant")
@@ -203,6 +210,9 @@ func TestDoctorLegacySessionFolders(t *testing.T) {
 }
 
 func TestDoctorOldClaudeVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	stubBin(t, map[string]string{"claude": "#!/bin/sh\necho '2.1.100 (Claude Code)'\n"})
 
@@ -217,6 +227,9 @@ func TestDoctorOldClaudeVersion(t *testing.T) {
 }
 
 func TestDoctorClaudeNotOnPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	// Replace PATH with a stub dir that has no claude at all.
 	bin := t.TempDir()
@@ -230,6 +243,9 @@ func TestDoctorClaudeNotOnPath(t *testing.T) {
 }
 
 func TestDoctorMalformedReposTSV(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	writeFile(t, filepath.Join(root, "workspace", "repos.tsv"), "alpha\thttps://x/alpha\nbadline-no-tab\n")
 
@@ -241,6 +257,9 @@ func TestDoctorMalformedReposTSV(t *testing.T) {
 }
 
 func TestDoctorNetProbeSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	_, marker := sshStub(t, "Hi fake! You've successfully authenticated, but GitHub does not provide shell access.")
 
@@ -263,6 +282,9 @@ func TestDoctorNetProbeSuccess(t *testing.T) {
 }
 
 func TestDoctorNetProbeFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	sshStub(t, "fake@example.com: Permission denied (publickey).")
 
@@ -277,6 +299,9 @@ func TestDoctorNetProbeFailure(t *testing.T) {
 }
 
 func TestDoctorEmptyRootResolvesEnvHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := t.TempDir()
 	t.Setenv("CWM_HOME", root)
 	sshStub(t, "unreachable")
@@ -289,6 +314,9 @@ func TestDoctorEmptyRootResolvesEnvHome(t *testing.T) {
 }
 
 func TestDoctorSyncthingUnreachableWarns(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	// Both env overrides set: discovery is deterministic, the port refuses
 	// connections immediately — no real daemon, no timeouts.
@@ -309,6 +337,9 @@ func TestDoctorSyncthingUnreachableWarns(t *testing.T) {
 }
 
 func TestDoctorSyncthingReachableOK(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	root := healthyWorkspace(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"ping":"pong"}`)

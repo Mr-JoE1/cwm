@@ -3,6 +3,14 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-09 (v0.4.1)
+
+- **D22 — CI platform contract.** windows-latest runs build/vet/platform-logic
+  tests; POSIX-stub behavioral tests skip on windows with an explicit message
+  (coverage stays on ubuntu, incl. e2e); real-Windows junction/linker
+  verification is an opt-in integration test (`CWM_WIN_INTEGRATION=1`) to run
+  on a real Windows box, not CI.
+
 ## 2026-11-04 (v0.4)
 
 - **D19 — session discovery: raw `projects/*/<uuid>.jsonl` at depth 1 is the

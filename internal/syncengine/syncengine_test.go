@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -136,8 +137,11 @@ func TestMyID(t *testing.T) {
 
 func TestEnsureFolderCreatesAndIsIdempotent(t *testing.T) {
 	f := newFakeSyncthing(t)
+	// filepath.Clean (used by the engine) is GOOS-dependent, so the test
+	// path must be built the same way on every OS.
+	ws := filepath.Join(t.TempDir(), "ws")
 
-	changed, err := EnsureFolder(f.client(), "/tmp/ws")
+	changed, err := EnsureFolder(f.client(), ws)
 	if err != nil {
 		t.Fatalf("EnsureFolder: %v", err)
 	}
@@ -150,7 +154,7 @@ func TestEnsureFolderCreatesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("folders = %d, want 1", len(cfg.Folders))
 	}
 	folder := cfg.Folders[0]
-	if folder.ID != FolderID || folder.Path != "/tmp/ws" || folder.Type != "sendreceive" {
+	if folder.ID != FolderID || folder.Path != ws || folder.Type != "sendreceive" {
 		t.Errorf("folder = %+v", folder)
 	}
 	if folder.Versioning.Type != "staggered" ||
@@ -166,7 +170,7 @@ func TestEnsureFolderCreatesAndIsIdempotent(t *testing.T) {
 	}
 
 	puts := f.putCount()
-	changed, err = EnsureFolder(f.client(), "/tmp/ws")
+	changed, err = EnsureFolder(f.client(), ws)
 	if err != nil {
 		t.Fatalf("second EnsureFolder: %v", err)
 	}
@@ -181,6 +185,7 @@ func TestEnsureFolderCreatesAndIsIdempotent(t *testing.T) {
 func TestEnsureFolderFixesPathVersioningIgnoreDelete(t *testing.T) {
 	ig := true
 	f := newFakeSyncthing(t)
+	ws := filepath.Join(t.TempDir(), "ws")
 	f.setConfig(syncthing.Config{
 		Devices: []syncthing.Device{{DeviceID: fakeMyID}},
 		Folders: []syncthing.Folder{{
@@ -194,7 +199,7 @@ func TestEnsureFolderFixesPathVersioningIgnoreDelete(t *testing.T) {
 		}},
 	})
 
-	changed, err := EnsureFolder(f.client(), "/tmp/ws")
+	changed, err := EnsureFolder(f.client(), ws)
 	if err != nil {
 		t.Fatalf("EnsureFolder: %v", err)
 	}
@@ -203,8 +208,8 @@ func TestEnsureFolderFixesPathVersioningIgnoreDelete(t *testing.T) {
 	}
 
 	folder := f.config().Folders[0]
-	if folder.Path != "/tmp/ws" {
-		t.Errorf("path = %q, want /tmp/ws", folder.Path)
+	if folder.Path != ws {
+		t.Errorf("path = %q, want %q", folder.Path, ws)
 	}
 	if folder.Versioning.Type != "staggered" ||
 		folder.Versioning.Params["cleanInterval"] != "3600" ||
@@ -216,7 +221,7 @@ func TestEnsureFolderFixesPathVersioningIgnoreDelete(t *testing.T) {
 	}
 
 	puts := f.putCount()
-	changed, err = EnsureFolder(f.client(), "/tmp/ws")
+	changed, err = EnsureFolder(f.client(), ws)
 	if err != nil {
 		t.Fatalf("second EnsureFolder: %v", err)
 	}
@@ -227,8 +232,9 @@ func TestEnsureFolderFixesPathVersioningIgnoreDelete(t *testing.T) {
 
 func TestPairAddsBothDevicesAndIsIdempotent(t *testing.T) {
 	f := newFakeSyncthing(t)
+	ws := filepath.Join(t.TempDir(), "ws")
 
-	changed, err := Pair(f.client(), fakePeerID, "laptop", "/tmp/ws")
+	changed, err := Pair(f.client(), fakePeerID, "laptop", ws)
 	if err != nil {
 		t.Fatalf("Pair: %v", err)
 	}
@@ -254,11 +260,11 @@ func TestPairAddsBothDevicesAndIsIdempotent(t *testing.T) {
 	if !folderHasDevice(folder, fakeMyID) || !folderHasDevice(folder, fakePeerID) {
 		t.Errorf("folder devices = %+v, want local AND peer", folder.Devices)
 	}
-	if folder.Path != "/tmp/ws" || folder.Versioning.Type != "staggered" {
+	if folder.Path != ws || folder.Versioning.Type != "staggered" {
 		t.Errorf("folder = %+v", folder)
 	}
 
-	changed, err = Pair(f.client(), fakePeerID, "laptop", "/tmp/ws")
+	changed, err = Pair(f.client(), fakePeerID, "laptop", ws)
 	if err != nil {
 		t.Fatalf("second Pair: %v", err)
 	}

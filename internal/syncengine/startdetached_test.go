@@ -1,14 +1,12 @@
-//go:build !windows
-
 package syncengine
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -26,6 +24,9 @@ func TestStartDetachedMissingBinary(t *testing.T) {
 }
 
 func TestStartDetachedSpawnsStubWithoutWaiting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
 	dir := t.TempDir()
 	// The stub records its own PID, then keeps running for 30s — proving
 	// StartDetached returned without waiting for it.
@@ -55,9 +56,12 @@ func TestStartDetachedSpawnsStubWithoutWaiting(t *testing.T) {
 		t.Errorf("stdio log not created under $CWM_HOME/logs: %v", err)
 	}
 
-	// Clean up the detached child.
-	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-		t.Logf("kill stub pid %d: %v", pid, err)
+	// Clean up the detached child (portable kill; only reached on unix
+	// where the spawn test runs).
+	if p, err := os.FindProcess(pid); err == nil {
+		if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			t.Logf("kill stub pid %d: %v", pid, err)
+		}
 	}
 }
 

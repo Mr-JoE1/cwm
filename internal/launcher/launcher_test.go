@@ -73,7 +73,10 @@ func TestClaudeArgsMCPAndExtra(t *testing.T) {
 
 func TestReposRoot(t *testing.T) {
 	home := t.TempDir()
+	// os.UserHomeDir reads HOME on unix but USERPROFILE on windows —
+	// isolate both so the test cannot see the real runner home (D22).
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv(ReposRootEnv, "")
 	got, err := ReposRoot()
 	if err != nil {
