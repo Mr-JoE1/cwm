@@ -34,7 +34,7 @@ const (
 var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
-	"pair", "devices",
+	"pair", "devices", "sessions",
 }
 
 // IsReserved reports whether name is reserved.
@@ -76,7 +76,8 @@ var commands = []*command{
 	{name: "import", args: "[--from <dir>] [--ccam] [--account <name>] [--yes]", short: "import an existing claude config dir or ccam profiles", stage: 'C'},
 	{name: "open", args: "<repo> [new|last]", short: "open a repo (clone on demand) and launch claude", stage: 'B'},
 	{name: "list", short: "list workspace projects with session counts", stage: 'B'},
-	{name: "wip", args: "[status]", short: "run the WIP auto-push now; 'wip status' lists sync branches", stage: 'B'},
+	{name: "sessions", args: "[project] [--pick [N]] [--limit K] [--json]", short: "list and resume workspace sessions"},
+	{name: "wip", args: "[status]", short: "run the WIP auto-push now; 'wip status' lists sync branches, 'wip dirty' lists repos with uncommitted work", stage: 'B'},
 	{name: "doctor", args: "[--net]", short: "run workspace health checks (--net adds an SSH probe)", stage: 'B'},
 	{name: "account", args: "add|list|use|remove", short: "manage claude accounts", stage: 'C'},
 	{name: "mcp", args: "add|list|remove", short: "manage workspace mcp.json servers", stage: 'C'},
@@ -117,6 +118,8 @@ func init() {
 			c.run = cmdPair
 		case "devices":
 			c.run = cmdDevices
+		case "sessions":
+			c.run = cmdSessions
 		}
 	}
 }

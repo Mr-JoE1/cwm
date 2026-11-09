@@ -56,6 +56,9 @@ func cmdHook(e *Env, args []string) error {
 }
 
 func cmdWip(e *Env, args []string) error {
+	if len(args) > 0 && args[0] == "dirty" {
+		return e.runWipDirty(args[1:])
+	}
 	layout, dir, err := layoutAndDir()
 	if err != nil {
 		return err
