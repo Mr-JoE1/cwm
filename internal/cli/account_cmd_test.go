@@ -107,6 +107,9 @@ func TestAccountRemoveDryRun(t *testing.T) {
 
 func TestInitMigrateNotImplemented(t *testing.T) {
 	t.Setenv("CWM_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	var out, errOut bytes.Buffer
 	e := &Env{Stdout: &out, Stderr: &errOut, Stdin: strings.NewReader("")}
 	code := e.Run([]string{"init", "--migrate"})
