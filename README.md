@@ -38,17 +38,39 @@ switch Claude accounts freely, sync across your machines, resume anywhere.
 
 ## Install
 
-**Release binary** (recommended) — download the latest archive from
-[GitHub Releases](https://github.com/Mr-JoE1/cwm/releases) (Linux and Windows,
-amd64 and arm64), unpack it, put `cwm` on your `PATH`.
+**Linux:** download the latest `cwm_<version>_linux_<arch>.tar.gz` from
+[GitHub Releases](https://github.com/Mr-JoE1/cwm/releases) (amd64 and arm64),
+unpack it, and put `cwm` on your `PATH`.
 
-**Windows: SmartScreen warning?** Release binaries aren't code-signed yet, so
-Windows may show *"SmartScreen prevented an unrecognized app"* or Defender may
-quarantine `cwm.exe` (a false positive common to new unsigned Go binaries).
-Check the zip against `checksums.txt`, then right-click the zip → **Properties**
-→ **Unblock** *before* extracting (or run `Unblock-File` on it). See
-[docs/WINDOWS-SMARTSCREEN.md](docs/WINDOWS-SMARTSCREEN.md) for all the
-options and how to report a false positive.
+**Windows:** the release binaries aren't code-signed, so how you install them
+decides whether SmartScreen shows a warning. In order of preference:
+
+1. **Scoop (recommended).** No SmartScreen prompt. Scoop's download doesn't
+   add the Mark-of-the-Web, and it checks the SHA-256 for you:
+
+   ```powershell
+   scoop bucket add cwm https://github.com/Mr-JoE1/scoop-bucket; scoop install cwm
+   ```
+
+2. **tar.gz + the built-in `tar`.** Download
+   `cwm_<version>_windows_amd64.tar.gz` (or `_arm64`) from Releases. These
+   ship with releases after v0.4.1; v0.4.1 has only the zip. Then
+   extract it **from a terminal**, not with Explorer. Windows 10/11's `tar.exe`
+   doesn't copy the Mark-of-the-Web onto `cwm.exe`:
+
+   ```powershell
+   tar -xzf .\cwm_<version>_windows_amd64.tar.gz
+   ```
+
+3. **zip (legacy).** If you extract the `.zip` with Explorer, `cwm.exe`
+   inherits the download's Mark-of-the-Web, and SmartScreen will say
+   *"prevented an unrecognized app"*. Check the zip against `checksums.txt`,
+   then right-click it → **Properties** → **Unblock** *before* extracting (or
+   run `Unblock-File` on it).
+
+If Defender quarantines `cwm.exe` (a false positive common to new unsigned Go
+binaries), see [docs/WINDOWS-SMARTSCREEN.md](docs/WINDOWS-SMARTSCREEN.md). It
+covers every free fix and how to report the false positive.
 
 **go install** (Go ≥ 1.25):
 
