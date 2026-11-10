@@ -19,6 +19,50 @@ builds:
         -s -w
         -X github.com/Mr-JoE1/cwm/internal/cli.Version={{.Version}}
         -X github.com/Mr-JoE1/cwm/internal/cli.Commit={{.Commit}}
+    # --- Windows Authenticode signing (DISABLED until a cert is obtained) ---
+    # See docs/WINDOWS-SMARTSCREEN.md. Authenticode embeds the signature
+    # INSIDE cwm.exe, so it must run as a post-build hook, i.e. before
+    # archiving and before checksums.txt is computed. (The top-level `signs:`
+    # / `binary_signs:` sections write *detached* signature files, which are
+    # right for cosign/GPG but wrong for Authenticode.)
+    # release.yml runs on ubuntu-latest, so use osslsigncode
+    # (apt-get install osslsigncode). signtool.exe needs a windows runner.
+    #
+    # hooks:
+    #   post:
+    #     - cmd: >-
+    #         sh -c 'if [ "{{ .Os }}" = "windows" ]; then
+    #           osslsigncode sign
+    #             -pkcs12 "$CWM_SIGN_PFX" -readpass "$CWM_SIGN_PASS_FILE"
+    #             -h sha256
+    #             -n "cwm" -i "https://github.com/Mr-JoE1/cwm"
+    #             -ts http://timestamp.sectigo.com
+    #             -in "{{ .Path }}" -out "{{ .Path }}.signed"
+    #           && mv "{{ .Path }}.signed" "{{ .Path }}"
+    #           && osslsigncode verify -in "{{ .Path }}"; fi'
+    #       output: true
+    #
+    # Notes:
+    # - CWM_SIGN_PFX / CWM_SIGN_PASS_FILE: written from GitHub Actions secrets
+    #   into $RUNNER_TEMP in a step before goreleaser runs, deleted afterwards.
+    #   Never commit the PFX.
+    # - Since 2023, publicly trusted code-signing keys must live on an HSM/token,
+    #   so an exportable PFX is mostly for self-hosted keys or testing. Real
+    #   options swap the -pkcs12 flags for:
+    #     * Certum cloud (SimplySign) / card: osslsigncode -pkcs11module <lib.so>
+    #       -pkcs11cert <id> -key <id>, or signtool /sha1 <thumbprint> on Windows
+    #     * Azure Artifact Signing: signtool + Azure.CodeSigning.Dlib on a
+    #       windows runner, or the azure/trusted-signing-action GitHub Action
+    #     * SignPath Foundation: no local signing. Upload the unsigned artifact
+    #       to SignPath (signpath/github-action-submit-signing-request) and
+    #       release the signed result.
+    # - Timestamp servers (RFC 3161): http://timestamp.sectigo.com,
+    #   http://time.certum.pl, http://timestamp.digicert.com
+    #   Timestamping keeps signatures valid after the cert expires (<=459 days).
+    #
+    # Equivalent with signtool on a windows runner:
+    #   signtool sign /fd sha256 /f "%CWM_SIGN_PFX%" /p "%CWM_SIGN_PASS%"
+    #     /tr http://timestamp.sectigo.com /td sha256 /d cwm "{{ .Path }}"
 
 archives:
   - id: cwm

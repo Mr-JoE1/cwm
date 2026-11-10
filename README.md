@@ -42,6 +42,14 @@ switch Claude accounts freely, sync across your machines, resume anywhere.
 [GitHub Releases](https://github.com/Mr-JoE1/cwm/releases) (Linux and Windows,
 amd64 and arm64), unpack it, put `cwm` on your `PATH`.
 
+**Windows: SmartScreen warning?** Release binaries aren't code-signed yet, so
+Windows may show *"SmartScreen prevented an unrecognized app"* or Defender may
+quarantine `cwm.exe` (a false positive common to new unsigned Go binaries).
+Check the zip against `checksums.txt`, then right-click the zip → **Properties**
+→ **Unblock** *before* extracting (or run `Unblock-File` on it). See
+[docs/WINDOWS-SMARTSCREEN.md](docs/WINDOWS-SMARTSCREEN.md) for all the
+options and how to report a false positive.
+
 **go install** (Go ≥ 1.25):
 
 ```sh
