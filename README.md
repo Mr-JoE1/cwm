@@ -45,24 +45,16 @@ unpack it, and put `cwm` on your `PATH`.
 **Windows:** the release binaries aren't code-signed, so how you install them
 decides whether SmartScreen shows a warning. In order of preference:
 
-1. **Scoop (recommended).** No SmartScreen prompt. Scoop's download doesn't
-   add the Mark-of-the-Web, and it checks the SHA-256 for you:
-
-   ```powershell
-   scoop bucket add cwm https://github.com/Mr-JoE1/scoop-bucket; scoop install cwm
-   ```
-
-2. **tar.gz + the built-in `tar`.** Download
-   `cwm_<version>_windows_amd64.tar.gz` (or `_arm64`) from Releases. These
-   ship with releases after v0.4.1; v0.4.1 has only the zip. Then
+1. **tar.gz + the built-in `tar` (recommended).** Download
+   `cwm_<version>_windows_amd64.tar.gz` (or `_arm64`) from Releases and
    extract it **from a terminal**, not with Explorer. Windows 10/11's `tar.exe`
-   doesn't copy the Mark-of-the-Web onto `cwm.exe`:
+   doesn't copy the Mark-of-the-Web onto `cwm.exe`, so no SmartScreen prompt:
 
    ```powershell
    tar -xzf .\cwm_<version>_windows_amd64.tar.gz
    ```
 
-3. **zip (legacy).** If you extract the `.zip` with Explorer, `cwm.exe`
+2. **zip (legacy).** If you extract the `.zip` with Explorer, `cwm.exe`
    inherits the download's Mark-of-the-Web, and SmartScreen will say
    *"prevented an unrecognized app"*. Check the zip against `checksums.txt`,
    then right-click it → **Properties** → **Unblock** *before* extracting (or

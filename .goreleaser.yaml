@@ -71,7 +71,7 @@ archives:
       # Windows ships BOTH formats:
       # - tar.gz: extracting it with the built-in `tar.exe` (bsdtar) does not
       #   copy the archive's Mark-of-the-Web onto cwm.exe, so SmartScreen is
-      #   never triggered. Also what the scoop bucket can point at.
+      #   never triggered.
       # - zip: kept for compatibility (existing links, Explorer users).
       # See docs/WINDOWS-SMARTSCREEN.md.
       - goos: windows

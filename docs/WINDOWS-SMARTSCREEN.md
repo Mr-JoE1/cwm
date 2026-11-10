@@ -18,29 +18,15 @@ optional, and it's at the very end.
 
 ## Free fixes (no purchase)
 
-**Always get cwm from <https://github.com/Mr-JoE1/cwm/releases>** (or through
-the scoop bucket, which points at the same files). To check a manual download
-against `checksums.txt` from the same release:
+**Always get cwm from <https://github.com/Mr-JoE1/cwm/releases>.** To check a
+manual download against `checksums.txt` from the same release:
 
 ```powershell
 Get-FileHash .\cwm_*_windows_amd64.* -Algorithm SHA256
 # compare with the matching line in checksums.txt
 ```
 
-### 1. Scoop (recommended)
-
-```powershell
-scoop bucket add cwm https://github.com/Mr-JoE1/scoop-bucket
-scoop install cwm
-```
-
-**No SmartScreen prompt.** Scoop downloads the release through .NET's HTTP
-stack (`System.Net.WebRequest`). That never writes a Mark-of-the-Web, so the
-installed `cwm.exe` carries no Zone.Identifier. Scoop also checks each
-download's SHA-256 against the manifest. Update with `scoop update cwm`. New
-to scoop? See <https://scoop.sh>. It installs per-user and doesn't need admin.
-
-### 2. tar.gz + the built-in `tar.exe`
+### 1. tar.gz + the built-in `tar.exe`
 
 Releases after v0.4.1 include `cwm_<version>_windows_amd64.tar.gz` and
 `cwm_<version>_windows_arm64.tar.gz` next to the zips. Download one, then
@@ -58,7 +44,7 @@ File Explorer's "Extract all". Explorer *does* copy the mark (see the table
 below). The same `tar` command also extracts the `.zip` without the mark:
 `tar -xf .\cwm_<version>_windows_amd64.zip`.
 
-### 3. `go install` (build it yourself)
+### 2. `go install` (build it yourself)
 
 ```sh
 go install github.com/Mr-JoE1/cwm/cmd/cwm@latest
@@ -159,7 +145,6 @@ How the mark reaches `cwm.exe` in the usual case:
 | Browser download + Explorer "Extract all" | **Yes**, so SmartScreen applies |
 | Browser download + `tar -xzf` / `tar -xf` (built-in `tar.exe`, bsdtar) | **No** |
 | Browser download + 7-Zip | **No** by default. 7-Zip has an opt-in setting to copy it. |
-| `scoop install cwm` | **No**. Scoop's .NET downloader doesn't write MOTW. |
 | `curl.exe -LO …` then extract | **No**. Command-line downloads don't add MOTW. |
 | `go install …@latest` | **No**. Built locally, never downloaded. |
 
@@ -193,7 +178,7 @@ false-positive submission in [step 5](#5-defender-deleted-or-quarantined-cwmexe-
 
 For unsigned files, reputation and false-positive clearances are tied to the
 **file hash**. Every release and architecture is a different file, so each one
-starts from zero. Scoop, `tar.exe` and `go install` avoid the SmartScreen part
+starts from zero. `tar.exe` and `go install` avoid the SmartScreen part
 for every release. For Defender, maintainers can submit each new `cwm.exe`
 (amd64 and arm64) as a *Software developer* right after publishing.
 
@@ -203,10 +188,7 @@ for every release. For Defender, maintainers can submit each new `cwm.exe`
 
 Free things that help, with no certificate:
 
-- Ship the Windows `.tar.gz` (configured in [`.goreleaser.yaml`](../.goreleaser.yaml))
-  and keep the scoop manifest (`bucket/cwm.json` in
-  <https://github.com/Mr-JoE1/scoop-bucket>) current with each release's
-  version, URLs and `checksums.txt` hashes.
+- Ship the Windows `.tar.gz` (configured in [`.goreleaser.yaml`](../.goreleaser.yaml)).
 - Submit each new `cwm.exe` to <https://www.microsoft.com/wdsi/filesubmission>
   as a **Software developer** right after publishing.
 - Embed a Windows version resource (product name, file version, description),
