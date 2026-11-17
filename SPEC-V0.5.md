@@ -47,9 +47,50 @@ binary (Syncthing model), localhost only, CLI stays first-class.
    `gui` added to ReservedNames.
 
 ### V0.5-B — actions + setup wizard
-POST `/api/sessions/resume` (spawns detached terminal running `cwm sessions --pick N`
-equivalent — platform helper), `/api/init`, `/api/account/add` (runs auth login,
-browser opens), `/api/pair`. Wizard flow: init → account → (optional) pair → done.
+
+Principle: Claude Code and `claude auth login` are interactive TUIs, so the GUI never
+hosts them — it **opens a real terminal window** running the right cwm command
+(D27). Everything else runs in-process through the same functions the CLI uses (D26).
+
+**D27 — Terminal launcher** (`internal/gui/term`, interface `Launcher{Open(argv []string) error}`):
+- argv is always an exec argument array — never a shell string built from user input.
+- Windows: `wt.exe` if on PATH (`wt.exe -- <argv>`), else `cmd.exe /c start "cwm" <argv>`
+  with each arg individually quoted via `syscall.EscapeArg`.
+- Linux: first found of `$TERMINAL`, `x-terminal-emulator`, `gnome-terminal --`,
+  `konsole -e`, `xfce4-terminal -x`, `alacritty -e`, `kitty`, `xterm -e`.
+- None found / headless → API returns 501 `{"error":"no terminal found","command":"<copyable cmd>"}`
+  and the UI shows the command with a copy button.
+- Tests use a fake Launcher; a real terminal is never spawned in tests.
+
+**New endpoints** (all POST: auth + `X-CWM-CSRF` + JSON body; strict input validation, 400 on bad input):
+- `GET /api/state` → `{initialized, accounts:[{name,email?}], deviceID?, paired:int}` — drives the wizard.
+- `GET /api/accounts` → account list (identity fields only, D12; never credentials).
+- `POST /api/init` → runs workspace init in-process (non-interactive path, no migrate);
+  idempotent; returns doctor checks afterwards.
+- `POST /api/accounts` `{name}` → name validated `^[a-z0-9][a-z0-9-]{0,31}$`; opens a
+  terminal running `cwm account add <name>` (login happens there); UI polls `/api/state`.
+- `POST /api/sessions/resume` `{project, id}` → project must exist in the manifest, id
+  must be a known session of that project (looked up via internal/sessions, not trusted
+  from input); opens a terminal running the D20 launcher passthrough
+  (`cwm <project> --resume <id>`, or whatever the existing passthrough form is).
+- `POST /api/pair` `{deviceID, name}` → `syncengine.ValidateDeviceID` + name validated;
+  calls `syncengine.Pair`; 503 if Syncthing unreachable. Response includes this device's ID.
+
+**UI:**
+- Wizard shown when `state.initialized == false` or no accounts:
+  1 Init → 2 Add account (button → terminal; spinner polls state until account appears)
+  → 3 Pair (optional, skippable; shows own device ID with copy button + peer-ID input)
+  → 4 Done → dashboard.
+- Sessions tab: **Resume** button per row. Devices tab: **Pair device** form.
+- Every action shows success/error inline; no silent failures.
+
+**Tests:** handler tests for every endpoint: auth, CSRF, bad JSON, each validation rule
+(path traversal / shell metachars in names rejected), unknown session id → 404, fake
+Launcher receives the exact expected argv, 501 path when Launcher reports none found.
+Launcher candidate selection unit-tested via injected PATH lookup. e2e: `/api/state`
+before and after init.
+
+Out of scope for B: account removal/switching, MCP editing, settings editing.
 
 ### V0.5-C — packaging
 nfpms `.deb`; README GUI section with screenshots; tag v0.5.0.

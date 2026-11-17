@@ -275,8 +275,8 @@ is committed and safe to walk away from.
 
 ## Web GUI (v0.5, beta)
 
-A read-only dashboard is built into the same binary — no extra install, no
-Node, nothing fetched from a CDN:
+A dashboard and setup wizard are built into the same binary — no extra
+install, no Node, nothing fetched from a CDN:
 
 ```sh
 cwm gui                  # first free port in 47800-47809, opens your browser
@@ -286,17 +286,58 @@ cwm gui --no-open        # just print the URL (headless boxes, SSH sessions)
 
 Five tabs — **Sessions**, **Projects**, **Devices**, **WIP**, **Health** —
 show the same data as `cwm sessions`, `cwm list`, `cwm devices`,
-`cwm wip dirty` and `cwm doctor`. Resuming still happens in a terminal: each
-session row shows its `cwm sessions --pick N` command (one-click resume and a
-setup wizard arrive in the next beta). Ctrl-C in the terminal stops the
-server.
+`cwm wip dirty` and `cwm doctor`. Ctrl-C in the terminal stops the server.
+
+**Setup wizard.** On a device that is not set up yet (no workspace, or no
+account), the page opens a four-step wizard instead of the tabs:
+
+1. **Initialize** — runs the same `cwm init` code in-process (plain init, no
+   migrate; safe to repeat) and shows the health checks afterwards.
+2. **Add account** — opens a terminal window running
+   `cwm account add <name>`; finish the Claude login there and the page picks
+   the account up on its own (it polls every two seconds).
+3. **Pair** (optional) — shows this device's Syncthing ID with a copy button
+   and takes the other device's ID (dashes are fine). Skippable; needs a
+   running Syncthing.
+4. **Done** — on to the dashboard.
+
+**Resume and pair from the dashboard.** Every Sessions row has a **Resume**
+button: it opens a terminal window running
+`cwm open <project> new --resume <id>` — exactly what `cwm sessions --pick N`
+runs, so clone-on-demand and project-name pinning apply. The project must be
+in the workspace manifest and the session ID must be one cwm discovered; the
+browser cannot name an arbitrary command. The Devices tab has a **Pair
+device** form that runs the same pairing code as `cwm pair <id> [name]`.
+
+**Terminal windows.** Claude Code and the Claude login are interactive, so
+the GUI never runs them in the browser — it opens a real terminal window:
+
+| OS | terminal used |
+|---|---|
+| Linux | `$TERMINAL`, else the first of `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `xterm` |
+| Windows | Windows Terminal (`wt.exe`) when installed, else a new console via `cmd /c start` |
+
+The command goes to the terminal as an argument list, never as a shell string.
+If the command fails, the window stays open until you press Enter so you can
+read the error. The window is detached: stopping `cwm gui` does not close it.
+
+**No terminal available** (a headless box over SSH, no `DISPLAY` /
+`WAYLAND_DISPLAY`, or macOS, which is not supported yet): the action answers
+`501` and the page shows the exact command with a **Copy** button. Run it in
+any terminal; the wizard notices the new account on its own.
 
 Security: the server binds to `127.0.0.1` only, and each launch gets a fresh
 random token. The printed URL carries it once (`/?t=<token>`); the page
 trades it for an HttpOnly, SameSite=Strict cookie and drops it from the
 address bar. API calls without the cookie or an `Authorization: Bearer`
 header get 401, requests with an unexpected `Host` header (DNS rebinding) get
-403, and state-changing calls also require an `X-CWM-CSRF` header.
+403, and every action is a JSON `POST` that also requires an `X-CWM-CSRF`
+header (the launch token, or the derived value the page fetches from
+`/api/csrf` so the token itself never shows up in a response). All inputs are
+checked against strict allowlists (account names
+`^[a-z0-9][a-z0-9-]{0,31}$`, Syncthing device IDs, project and session names);
+anything else gets 400. The account endpoints return identity fields only —
+name, email, plan, default, last login — never credentials.
 
 The same data is available for scripts — every view takes `--json`:
 

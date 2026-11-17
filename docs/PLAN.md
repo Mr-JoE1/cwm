@@ -5,6 +5,31 @@ details. Decisions are binding until superseded by a newer entry.
 
 ## 2026-11-17 (v0.5)
 
+- **D27 — GUI actions open a real terminal; argv arrays only.** Claude Code
+  and `claude auth login` are interactive TUIs, so the GUI never hosts them:
+  `internal/gui/term` (`Launcher{Open(argv []string) error}`) opens a
+  terminal window running the right cwm command; everything else (init,
+  pairing) runs in-process through the same functions the CLI uses (D26).
+  The argv is always an exec argument array, never a shell string built
+  from input. Windows: `wt.exe -- <argv>` when on PATH, else
+  `cmd.exe /c start "cwm" <argv>` with each argument quoted individually via
+  `syscall.EscapeArg` (characters cmd.exe expands even inside quotes —
+  `%`, `!`, `"` — are refused). Linux: `$TERMINAL` (one program name, never
+  word-split), then `x-terminal-emulator`, `gnome-terminal --`,
+  `konsole -e`, `xfce4-terminal -x`, `alacritty -e`, `kitty`, `xterm -e`;
+  no `DISPLAY`/`WAYLAND_DISPLAY` counts as headless. macOS has no terminal
+  path in v0.5 (Terminal.app only takes a command string). No terminal →
+  `501 {"error":"no terminal found","command":"<copyable cmd>"}` and the UI
+  shows the command with a copy button. The resume command is the D20
+  passthrough `cwm open <project> new --resume <id>`, with the project
+  required in the manifest and the id looked up via `internal/sessions`
+  (never trusted from input). Terminals start detached (own session /
+  process group) so Ctrl-C on `cwm gui` never reaches them, and set
+  `CWM_HOLD_ON_ERROR=1` so a failing command keeps its window open until
+  Enter. The page's CSRF header uses an HMAC of the launch token served by
+  `GET /api/csrf`, so the HttpOnly token never appears in a response body;
+  the raw token stays valid for scripted callers. Tests use a fake
+  Launcher — a real terminal is never spawned in tests.
 - **D23 — GUI stack: stdlib `net/http` + `embed`.** Static HTML/CSS/vanilla
   JS under `internal/gui/web/`, no frontend framework, no build step, no new
   Go deps (BurntSushi/toml stays the only one). The tray icon is dropped from
