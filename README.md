@@ -273,6 +273,40 @@ Only repos present under the repos root are scanned — a repo that isn't
 cloned on this machine is clean by definition here. No rows means everything
 is committed and safe to walk away from.
 
+## Web GUI (v0.5, beta)
+
+A read-only dashboard is built into the same binary — no extra install, no
+Node, nothing fetched from a CDN:
+
+```sh
+cwm gui                  # first free port in 47800-47809, opens your browser
+cwm gui --port 47850     # pick the port yourself
+cwm gui --no-open        # just print the URL (headless boxes, SSH sessions)
+```
+
+Five tabs — **Sessions**, **Projects**, **Devices**, **WIP**, **Health** —
+show the same data as `cwm sessions`, `cwm list`, `cwm devices`,
+`cwm wip dirty` and `cwm doctor`. Resuming still happens in a terminal: each
+session row shows its `cwm sessions --pick N` command (one-click resume and a
+setup wizard arrive in the next beta). Ctrl-C in the terminal stops the
+server.
+
+Security: the server binds to `127.0.0.1` only, and each launch gets a fresh
+random token. The printed URL carries it once (`/?t=<token>`); the page
+trades it for an HttpOnly, SameSite=Strict cookie and drops it from the
+address bar. API calls without the cookie or an `Authorization: Bearer`
+header get 401, requests with an unexpected `Host` header (DNS rebinding) get
+403, and state-changing calls also require an `X-CWM-CSRF` header.
+
+The same data is available for scripts — every view takes `--json`:
+
+```sh
+cwm list --json
+cwm devices --json
+cwm wip dirty --json
+cwm doctor --json        # exit code unchanged: 1 when any check fails
+```
+
 ## Roadmap
 
 - **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README

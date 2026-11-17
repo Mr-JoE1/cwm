@@ -3,6 +3,30 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-17 (v0.5)
+
+- **D23 — GUI stack: stdlib `net/http` + `embed`.** Static HTML/CSS/vanilla
+  JS under `internal/gui/web/`, no frontend framework, no build step, no new
+  Go deps (BurntSushi/toml stays the only one). The tray icon is dropped from
+  v0.5 (it needs cgo/native deps); `cwm gui` opens the default browser
+  instead (`xdg-open` / `open` / `cmd /c start`, skipped when unavailable).
+- **D24 — GUI security model.** Bind `127.0.0.1` only — never `0.0.0.0`, and
+  no flag to change it in v0.5. A random 32-byte token (crypto/rand, hex) per
+  launch; the browser opens `http://127.0.0.1:<port>/?t=<token>`, the first
+  request sets an HttpOnly SameSite=Strict cookie and redirects to `/` (token
+  stripped from the URL). Every `/api/*` request needs that cookie or
+  `Authorization: Bearer <token>`, else 401. State-changing endpoints are
+  POST-only and additionally require `X-CWM-CSRF: <token>` (else 403). The
+  `Host` header must be `127.0.0.1:<port>` or `localhost:<port>` (else 403) —
+  the DNS-rebinding guard.
+- **D25 — installers: tar.gz/zip (existing) + `.deb` via goreleaser
+  `nfpms`.** No scoop, no brew (maintainer decision); winget deferred to v1.0.
+- **D26 — one data layer.** CLI `--json` output and GUI `/api/*` bodies are
+  the same structs from `internal/status`; handlers and CLI renderers only
+  format them. `doctor.Run` builds a `[]Check` slice that the unchanged text
+  renderer prints (pinned byte-for-byte by golden files captured before the
+  refactor).
+
 ## 2026-11-09 (v0.4.1)
 
 - **D22 — CI platform contract.** windows-latest runs build/vet/platform-logic
