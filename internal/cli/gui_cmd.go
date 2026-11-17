@@ -1,12 +1,15 @@
-// Stage V0.5-A: `cwm gui` — the embedded read-only dashboard (SPEC-V0.5,
-// D23/D24). The server, auth and assets live in internal/gui; this file
-// parses flags, wires the status data sources and owns the process
-// lifecycle (print URL, open browser, Ctrl-C = graceful shutdown).
+// Stages V0.5-A/B: `cwm gui` — the embedded localhost dashboard and setup
+// wizard (SPEC-V0.5, D23/D24/D27). The server, auth and assets live in
+// internal/gui; this file parses flags, wires the status data sources and
+// the terminal launcher, and owns the process lifecycle (print URL, open
+// browser, Ctrl-C = graceful shutdown).
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"runtime"
@@ -15,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/Mr-JoE1/cwm/internal/gui"
+	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -27,7 +31,18 @@ var (
 		return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	}
 	guiOpenBrowser = gui.OpenBrowser
+	// guiLauncher opens the terminal windows behind wizard/resume (D27).
+	guiLauncher term.Launcher = term.NewSystem()
 )
+
+// guiCwmPath is argv[0] for terminal commands: this very binary, so the
+// window runs the same cwm (and CWM_HOME) as the dashboard.
+func guiCwmPath() string {
+	if p, err := os.Executable(); err == nil {
+		return p
+	}
+	return "cwm"
+}
 
 const guiUsage = "usage: cwm gui [--port N] [--no-open]"
 
@@ -92,6 +107,9 @@ func cmdGui(e *Env, args []string) error {
 		SyncClient: func() (syncengine.Client, error) {
 			return connectSyncClient(false) // the GUI never spawns syncthing
 		},
+		Launcher: guiLauncher,
+		CwmPath:  guiCwmPath(),
+		Reserved: IsReserved,
 	}, gui.Port(ln), token)
 	if err != nil {
 		_ = ln.Close()
@@ -114,3 +132,18 @@ func cmdGui(e *Env, args []string) error {
 	fmt.Fprintln(e.Stdout, "cwm gui: stopped")
 	return nil
 }
+
+// HoldOnError keeps a terminal window that `cwm gui` opened (D27) on
+// screen after a failed command: the window would otherwise close with
+// the error unread. Only when the launcher asked for it (term.HoldEnv)
+// and stdin is an interactive terminal.
+func HoldOnError(code int, getenv func(string) string, isTTY func() bool, stdin io.Reader, stderr io.Writer) {
+	if code == ExitOK || getenv(term.HoldEnv) != "1" || !isTTY() {
+		return
+	}
+	fmt.Fprintln(stderr, "\ncwm: the command above failed — press Enter to close this window")
+	_, _ = bufio.NewReader(stdin).ReadString('\n')
+}
+
+// StdinIsTTY reports whether stdin is an interactive terminal.
+func StdinIsTTY() bool { return stdinIsTTY() }

@@ -4,12 +4,16 @@
 // bind 127.0.0.1 only, a random per-launch token, token→cookie exchange on
 // first load, every /api/* request authenticated, state-changing requests
 // POST-only with an X-CWM-CSRF header, and a Host allowlist as the
-// DNS-rebinding guard.
+// DNS-rebinding guard. V0.5-B adds the setup/action endpoints (actions.go);
+// interactive work (login, claude itself) runs in a real terminal window
+// opened through the term.Launcher seam (D27).
 package gui
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
 	"encoding/hex"
@@ -17,12 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
@@ -40,6 +47,9 @@ const tokenBytes = 32
 // CSRFHeader must carry the token on every state-changing request.
 const CSRFHeader = "X-CWM-CSRF"
 
+// maxBodyBytes bounds every POST body; the action payloads are tiny.
+const maxBodyBytes = 16 << 10
+
 // defaultSessionsLimit caps /api/sessions unless ?limit= says otherwise.
 const defaultSessionsLimit = 50
 
@@ -47,12 +57,19 @@ const defaultSessionsLimit = 50
 var webFS embed.FS
 
 // Options carries everything the handlers read. SyncClient is a seam so
-// tests inject a fake syncthing; it is called per /api/devices request.
+// tests inject a fake syncthing; it is called per request that needs it.
+// Launcher opens terminal windows (D27; tests inject a fake, nil = none
+// available → 501). CwmPath is argv[0] of every terminal command ("" =
+// "cwm"). Reserved reports names cwm commands own (cli.IsReserved).
 type Options struct {
 	Version    status.Version
 	Layout     *storage.Layout
 	ReposRoot  string
 	SyncClient func() (syncengine.Client, error)
+	Launcher   term.Launcher
+	CwmPath    string
+	GOOS       string
+	Reserved   func(name string) bool
 }
 
 // Server is the dashboard http.Handler bound to one port and one token.
@@ -60,7 +77,11 @@ type Server struct {
 	opts   Options
 	port   int
 	token  string
+	csrf   string
 	static http.Handler
+	// actionMu serializes state-changing actions (init, pair, launches):
+	// two tabs double-clicking must not race the config files.
+	actionMu sync.Mutex
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -87,7 +108,17 @@ func New(opts Options, port int, token string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gui: embedded web assets: %w", err)
 	}
-	return &Server{opts: opts, port: port, token: token, static: http.FileServerFS(sub)}, nil
+	return &Server{opts: opts, port: port, token: token, csrf: deriveCSRF(token), static: http.FileServerFS(sub)}, nil
+}
+
+// deriveCSRF is the value the dashboard's JS sends as X-CWM-CSRF. It is an
+// HMAC of the launch token, so the page can be handed it (GET /api/csrf)
+// without the HttpOnly launch token ever appearing in a response body.
+// The raw launch token stays accepted for scripted (curl) callers.
+func deriveCSRF(token string) string {
+	m := hmac.New(sha256.New, []byte(token))
+	m.Write([]byte("cwm-gui-csrf-v1"))
+	return hex.EncodeToString(m.Sum(nil))
 }
 
 // URL is the launch URL carrying the token (stripped after first load).
@@ -221,6 +252,11 @@ func (s *Server) tokenEqual(got string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1
 }
 
+// csrfOK accepts the launch token or its derived CSRF value.
+func (s *Server) csrfOK(got string) bool {
+	return s.tokenEqual(got) || subtle.ConstantTimeCompare([]byte(got), []byte(s.csrf)) == 1
+}
+
 // authenticated accepts the cookie or an Authorization: Bearer header.
 func (s *Server) authenticated(r *http.Request) bool {
 	if c, err := r.Cookie(s.CookieName()); err == nil && s.tokenEqual(c.Value) {
@@ -232,22 +268,36 @@ func (s *Server) authenticated(r *http.Request) bool {
 	return false
 }
 
-// apiError is the body of every non-2xx /api/* response.
+// apiError is the body of every non-2xx /api/* response. Command is the
+// copyable terminal command when a launch could not happen (501).
 type apiError struct {
-	Error string `json:"error"`
+	Error   string `json:"error"`
+	Command string `json:"command,omitempty"`
 }
 
 // endpoint produces a status struct (or an HTTP status + error).
 type endpoint func(r *http.Request) (any, int, error)
 
-func (s *Server) endpoints() map[string]endpoint {
-	return map[string]endpoint{
-		"/api/version":  s.apiVersion,
-		"/api/projects": s.apiProjects,
-		"/api/sessions": s.apiSessions,
-		"/api/devices":  s.apiDevices,
-		"/api/wip":      s.apiWip,
-		"/api/doctor":   s.apiDoctor,
+// route is one /api path: a read-only GET handler, a POST action, or both.
+type route struct {
+	get  endpoint
+	post endpoint
+}
+
+func (s *Server) routes() map[string]route {
+	return map[string]route{
+		"/api/version":         {get: s.apiVersion},
+		"/api/projects":        {get: s.apiProjects},
+		"/api/sessions":        {get: s.apiSessions},
+		"/api/devices":         {get: s.apiDevices},
+		"/api/wip":             {get: s.apiWip},
+		"/api/doctor":          {get: s.apiDoctor},
+		"/api/csrf":            {get: s.apiCSRF},
+		"/api/state":           {get: s.apiState},
+		"/api/accounts":        {get: s.apiAccounts, post: s.apiAccountAdd},
+		"/api/init":            {post: s.apiInit},
+		"/api/sessions/resume": {post: s.apiResume},
+		"/api/pair":            {post: s.apiPair},
 	}
 }
 
@@ -264,29 +314,51 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed"})
 			return
 		}
-		if !s.tokenEqual(r.Header.Get(CSRFHeader)) {
+		if !s.csrfOK(r.Header.Get(CSRFHeader)) {
 			writeAPI(w, http.StatusForbidden, apiError{Error: "forbidden: missing or invalid " + CSRFHeader + " header"})
 			return
 		}
 	}
-	ep, ok := s.endpoints()[r.URL.Path]
+	rt, ok := s.routes()[r.URL.Path]
 	if !ok {
 		writeAPI(w, http.StatusNotFound, apiError{Error: "no such endpoint " + r.URL.Path})
 		return
 	}
-	// Every V0.5-A endpoint is a read-only snapshot; POST actions arrive
-	// with V0.5-B.
+	ep := rt.get
 	if !readOnly {
-		w.Header().Set("Allow", "GET, HEAD")
-		writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (read-only endpoint)"})
+		ep = rt.post
+	}
+	if ep == nil {
+		if readOnly {
+			w.Header().Set("Allow", "POST")
+			writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (action endpoint: POST only)"})
+		} else {
+			w.Header().Set("Allow", "GET, HEAD")
+			writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (read-only endpoint)"})
+		}
 		return
+	}
+	if !readOnly {
+		mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mt != "application/json" {
+			writeAPI(w, http.StatusUnsupportedMediaType, apiError{Error: "POST body must be Content-Type: application/json"})
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		s.actionMu.Lock()
+		defer s.actionMu.Unlock()
 	}
 	body, code, err := ep(r)
 	if err != nil {
-		writeAPI(w, code, apiError{Error: err.Error()})
+		resp := apiError{Error: err.Error()}
+		var ce *commandError
+		if errors.As(err, &ce) {
+			resp.Command = ce.command
+		}
+		writeAPI(w, code, resp)
 		return
 	}
-	writeAPI(w, http.StatusOK, body)
+	writeAPI(w, code, body)
 }
 
 func writeAPI(w http.ResponseWriter, code int, v any) {

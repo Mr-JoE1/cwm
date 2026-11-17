@@ -6,12 +6,18 @@
 package test
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -793,5 +799,92 @@ func TestWipDirtyJSON(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0]["name"] != "dirtyone" || rows[0]["changed"] != float64(1) || rows[0]["lastCommit"] == "" {
 		t.Errorf("rows = %v", rows)
+	}
+}
+
+// V0.5-B: the setup wizard's data source through the real binary — a live
+// `cwm gui` on loopback, /api/state before and after POST /api/init.
+func TestGuiStateBeforeAndAfterInit(t *testing.T) {
+	e := newEnv(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	cmd := exec.Command(cwmBin, "gui", "--no-open", "--port", strconv.Itoa(port))
+	cmd.Dir = e.home
+	cmd.Env = e.childEnv("CWM_SYNCTHING_URL=http://127.0.0.1:1", "CWM_SYNCTHING_API_KEY=test")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := cmd.Process.Signal(os.Interrupt); err != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	})
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read gui banner: %v", err)
+	}
+	m := regexp.MustCompile(`http://127\.0\.0\.1:(\d+)/\?t=([0-9a-f]{64})`).FindStringSubmatch(line)
+	if m == nil || m[1] != strconv.Itoa(port) {
+		t.Fatalf("banner lacks the tokenized URL: %q", line)
+	}
+	base, token := "http://127.0.0.1:"+m[1], m[2]
+	go func() { _, _ = io.Copy(io.Discard, stdout) }()
+
+	call := func(method, path, body string, csrf bool) (int, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(method, base+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if csrf {
+			req.Header.Set("X-CWM-CSRF", token)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var v map[string]any
+		data, _ := io.ReadAll(res.Body)
+		if err := json.Unmarshal(data, &v); err != nil {
+			t.Fatalf("%s %s: invalid JSON %q", method, path, data)
+		}
+		return res.StatusCode, v
+	}
+
+	code, st := call("GET", "/api/state", "", false)
+	if code != 200 || st["initialized"] != false || st["syncthing"] != false {
+		t.Fatalf("state before init = %d %v", code, st)
+	}
+	if code, _ := call("POST", "/api/init", "{}", false); code != http.StatusForbidden {
+		t.Errorf("init without CSRF = %d, want 403", code)
+	}
+	code, res := call("POST", "/api/init", "{}", true)
+	if code != 200 || res["initialized"] != true {
+		t.Fatalf("init = %d %v", code, res)
+	}
+	if checks, ok := res["checks"].([]any); !ok || len(checks) == 0 {
+		t.Errorf("init returned no doctor checks: %v", res)
+	}
+	code, st = call("GET", "/api/state", "", false)
+	if code != 200 || st["initialized"] != true {
+		t.Fatalf("state after init = %d %v", code, st)
+	}
+	if _, err := os.Stat(filepath.Join(e.root, "config.toml")); err != nil {
+		t.Errorf("init did not write config.toml under CWM_HOME: %v", err)
 	}
 }

@@ -7,5 +7,7 @@ import (
 )
 
 func main() {
-	os.Exit(cwm.Run(os.Args[1:], os.Stdout, os.Stderr))
+	code := cwm.Run(os.Args[1:], os.Stdout, os.Stderr)
+	cwm.HoldOnError(code, os.Getenv, cwm.StdinIsTTY, os.Stdin, os.Stderr)
+	os.Exit(code)
 }
