@@ -84,6 +84,7 @@ var commands = []*command{
 	{name: "hook", args: "session-start|session-end", short: "hook entry points (wired from settings.json)", stage: 'B'},
 	{name: "pair", args: "[--start] [<device-id> [name]]", short: "pair this workspace with another device (syncthing)"},
 	{name: "devices", args: "[--json]", short: "list paired devices and their sync health"},
+	{name: "gui", args: "[--port N] [--no-open]", short: "serve the local web dashboard on 127.0.0.1 (beta)"},
 }
 
 // Command implementations are wired in init to avoid an initialization cycle
@@ -120,6 +121,8 @@ func init() {
 			c.run = cmdDevices
 		case "sessions":
 			c.run = cmdSessions
+		case "gui":
+			c.run = cmdGui
 		}
 	}
 }

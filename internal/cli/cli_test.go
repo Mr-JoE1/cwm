@@ -140,8 +140,16 @@ func TestRepoLaunchDirectForm(t *testing.T) {
 	}{
 		{"plain repo name", "alpha", "cwm init"},
 		{"reserved statusline", "statusline", "reserved"},
-		{"reserved gui", "gui", "reserved"},
 	}
+	// `gui` is a real subcommand since v0.5-A; it stays reserved as a repo
+	// name, which `cwm open gui` must still reject.
+	t.Run("reserved gui via open", func(t *testing.T) {
+		t.Setenv("CWM_HOME", t.TempDir())
+		got := runCLI(t, "open", "gui")
+		if got.code != ExitError || !strings.Contains(got.err, "reserved") {
+			t.Fatalf("cwm open gui: code = %d err = %q, want reserved error", got.code, got.err)
+		}
+	})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CWM_HOME", t.TempDir())
@@ -230,6 +238,7 @@ func TestEveryReservedNameHasCLIHandling(t *testing.T) {
 	// the sweep never touches the real ~/.cwm or the cwm repo itself.
 	t.Setenv("CWM_HOME", t.TempDir())
 	t.Chdir(t.TempDir())
+	stubGui(t) // `cwm gui` must neither block nor open a browser here
 	for _, r := range ReservedNames {
 		got := runCLI(t, r)
 		switch {

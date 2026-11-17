@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>cwm dashboard</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">cwm</span>
+    <span class="title">workspace dashboard</span>
+    <span class="beta">beta · read-only</span>
+  </div>
+  <button type="button" id="refresh" class="btn">Refresh</button>
+</header>
+
+<div id="auth-banner" class="banner banner-error" hidden>
+  Not authorized. Open the link printed by <code>cwm gui</code> in your terminal —
+  it carries this launch's one-time token.
+</div>
+
+<nav class="tabs" role="tablist" aria-label="Dashboard sections">
+  <button type="button" role="tab" class="tab" id="tab-sessions" data-tab="sessions" aria-controls="panel-sessions">Sessions</button>
+  <button type="button" role="tab" class="tab" id="tab-projects" data-tab="projects" aria-controls="panel-projects">Projects</button>
+  <button type="button" role="tab" class="tab" id="tab-devices" data-tab="devices" aria-controls="panel-devices">Devices</button>
+  <button type="button" role="tab" class="tab" id="tab-wip" data-tab="wip" aria-controls="panel-wip">WIP</button>
+  <button type="button" role="tab" class="tab" id="tab-health" data-tab="health" aria-controls="panel-health">Health</button>
+</nav>
+
+<main>
+  <section class="panel" role="tabpanel" id="panel-sessions" aria-labelledby="tab-sessions" hidden>
+    <div class="panel-head">
+      <h2>Sessions</h2>
+      <input type="search" id="sessions-filter" class="filter" placeholder="Filter by project or prompt" aria-label="Filter sessions">
+    </div>
+    <p class="hint">Every session in the synced workspace, newest first. Resume one from a terminal with the command in the last column — the repo clones on demand.</p>
+    <div class="content" data-content="sessions"></div>
+  </section>
+
+  <section class="panel" role="tabpanel" id="panel-projects" aria-labelledby="tab-projects" hidden>
+    <div class="panel-head"><h2>Projects</h2></div>
+    <p class="hint">Workspace session folders and their session counts (same data as <code>cwm list</code>).</p>
+    <div class="content" data-content="projects"></div>
+  </section>
+
+  <section class="panel" role="tabpanel" id="panel-devices" aria-labelledby="tab-devices" hidden>
+    <div class="panel-head"><h2>Devices</h2></div>
+    <p class="hint">Paired Syncthing peers and their workspace sync progress (same data as <code>cwm devices</code>).</p>
+    <div class="content" data-content="devices"></div>
+  </section>
+
+  <section class="panel" role="tabpanel" id="panel-wip" aria-labelledby="tab-wip" hidden>
+    <div class="panel-head"><h2>Uncommitted work</h2></div>
+    <p class="hint">Local clones with uncommitted changes — push these before switching devices (same data as <code>cwm wip dirty</code>).</p>
+    <div class="content" data-content="wip"></div>
+  </section>
+
+  <section class="panel" role="tabpanel" id="panel-health" aria-labelledby="tab-health" hidden>
+    <div class="panel-head"><h2>Health</h2></div>
+    <p class="hint">Workspace health checks (same data as <code>cwm doctor</code>; the SSH probe never runs from the GUI).</p>
+    <div class="content" data-content="health"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span id="version">cwm</span>
+  <span>localhost only · close the terminal or press Ctrl-C there to stop</span>
+</footer>
+</body>
+</html>
