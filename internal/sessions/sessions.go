@@ -66,6 +66,25 @@ func ResolvePick(wsProjectsDir string, project string, n int) (Session, error) {
 	return list[n-1], nil
 }
 
+// Find looks up session id within project using the same discovery as
+// List (D19: raw files are the truth; subagents and sidechains are never
+// found). Callers validate project and id first; ok=false means unknown.
+func Find(wsProjectsDir string, project string, id string) (Session, bool, error) {
+	if project == "" || id == "" {
+		return Session{}, false, nil
+	}
+	list, err := List(wsProjectsDir, project, 0)
+	if err != nil {
+		return Session{}, false, err
+	}
+	for _, s := range list {
+		if s.ID == id {
+			return s, true, nil
+		}
+	}
+	return Session{}, false, nil
+}
+
 func projectDirs(wsProjectsDir string, project string) ([]string, error) {
 	if project != "" {
 		info, err := os.Stat(filepath.Join(wsProjectsDir, project))

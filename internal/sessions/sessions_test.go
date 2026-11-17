@@ -295,3 +295,23 @@ func TestListMissingProjectsDir(t *testing.T) {
 		t.Fatal("List on missing projects dir should error")
 	}
 }
+
+func TestFind(t *testing.T) {
+	projects, _ := buildWorkspace(t)
+	if s, ok, err := Find(projects, "alpha", idA1); err != nil || !ok || s.ID != idA1 || s.Project != "alpha" {
+		t.Fatalf("Find alpha/%s = %+v %v %v", idA1, s, ok, err)
+	}
+	for _, tc := range []struct{ project, id string }{
+		{"alpha", idB1},           // belongs to beta
+		{"alpha", idSide},         // sidechain
+		{"alpha", "agent-worker"}, // subagent
+		{"alpha", idGhost},        // index-only, no file
+		{"nope", idA1},
+		{"", idA1},
+		{"alpha", ""},
+	} {
+		if _, ok, err := Find(projects, tc.project, tc.id); ok || err != nil {
+			t.Errorf("Find(%q, %q) = ok %v err %v, want not found", tc.project, tc.id, ok, err)
+		}
+	}
+}

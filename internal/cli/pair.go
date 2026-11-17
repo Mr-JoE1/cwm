@@ -172,59 +172,31 @@ func pairStatus(e *Env, cl syncengine.Client, ws string) error {
 }
 
 // pairPeer is `cwm pair <device-id> [name]`: link with the peer, then
-// report exactly what changed.
+// report exactly what changed (status.Pair is shared with the GUI, D26).
 func pairPeer(e *Env, cl syncengine.Client, ws, peerID, name string) error {
-	peerKnown, folderShared, err := pairPreState(cl, peerID)
+	res, err := status.Pair(cl, peerID, name, ws)
 	if err != nil {
 		return err
 	}
-	changed, err := syncengine.Pair(cl, peerID, name, ws)
-	if err != nil {
-		return err
-	}
-	if !changed {
+	if !res.Changed {
 		fmt.Fprintln(e.Stdout, "already paired — nothing to do")
 		return nil
 	}
-	if !peerKnown {
+	if res.AddedDevice {
 		if name != "" {
 			fmt.Fprintf(e.Stdout, "added device %s (%s)\n", shortDeviceID(peerID), name)
 		} else {
 			fmt.Fprintf(e.Stdout, "added device %s\n", shortDeviceID(peerID))
 		}
 	}
-	if !folderShared {
+	if res.SharedFolder {
 		fmt.Fprintf(e.Stdout, "shared folder %s with %s\n", syncengine.FolderID, shortDeviceID(peerID))
 	}
-	if peerKnown && folderShared {
+	if !res.AddedDevice && !res.SharedFolder {
 		fmt.Fprintln(e.Stdout, "updated workspace folder config")
 	}
 	fmt.Fprintln(e.Stdout, "done — check `cwm devices` to watch them sync")
 	return nil
-}
-
-// pairPreState reports what a Pair call still has to do.
-func pairPreState(cl syncengine.Client, peerID string) (peerKnown, folderShared bool, err error) {
-	cfg, err := cl.GetConfig()
-	if err != nil {
-		return false, false, err
-	}
-	for _, d := range cfg.Devices {
-		if d.DeviceID == peerID {
-			peerKnown = true
-		}
-	}
-	for _, f := range cfg.Folders {
-		if f.ID != syncengine.FolderID {
-			continue
-		}
-		for _, fd := range f.Devices {
-			if fd.DeviceID == peerID {
-				folderShared = true
-			}
-		}
-	}
-	return peerKnown, folderShared, nil
 }
 
 // shortDeviceID truncates a device ID to its 7-char short form.

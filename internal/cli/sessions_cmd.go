@@ -140,7 +140,8 @@ func listSessions(projectsDir, project string, limit int) []sessions.Session {
 // openSession resumes s through the single launch path (clone-on-demand,
 // pinning and sync hints all apply).
 func openSession(e *Env, s sessions.Session) error {
-	return launcher.Open(s.Project, launcher.ModeNew, []string{"--resume", s.ID}, e.Account, e.Stdout, e.Stderr)
+	mode, extra := launcher.ResumeArgs(s.ID)
+	return launcher.Open(s.Project, mode, extra, e.Account, e.Stdout, e.Stderr)
 }
 
 // pickSession prints the table, then prompts on stdin for a row number:

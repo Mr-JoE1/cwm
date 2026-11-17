@@ -28,6 +28,20 @@ const (
 	ModeLast   Mode = "last"   // claude --continue (latest session)
 )
 
+// ResumeArgs is the D20 passthrough: resuming a known session is a plain
+// launch (ModeNew) with `--resume <id>` handed to claude verbatim, so
+// clone-on-demand, name pinning and sync hints apply unchanged.
+func ResumeArgs(id string) (Mode, []string) {
+	return ModeNew, []string{"--resume", id}
+}
+
+// ResumeCLIArgs is the cwm argv (without the program) that performs the
+// same launch from a terminal: `cwm open <project> new --resume <id>`.
+func ResumeCLIArgs(project, id string) []string {
+	mode, extra := ResumeArgs(id)
+	return append([]string{"open", project, string(mode)}, extra...)
+}
+
 // ReposRootEnv overrides the canonical clone root (default ~/repos).
 const ReposRootEnv = "CWM_REPOS_ROOT"
 

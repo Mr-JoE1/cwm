@@ -131,8 +131,11 @@ func renderTable(w io.Writer, infos []Info) error {
 	return tw.Flush()
 }
 
-// jsonAccount is the --json shape of one account row.
-type jsonAccount struct {
+// Row is the machine-readable shape of one account: identity fields and
+// login freshness only (D12) — never the account dir or any credential.
+// `cwm account list --json` and the GUI's /api/accounts both serialize it
+// (D26).
+type Row struct {
 	Name      string `json:"name"`
 	Email     string `json:"email"`
 	Plan      string `json:"plan"`
@@ -140,18 +143,23 @@ type jsonAccount struct {
 	LastLogin string `json:"last_login,omitempty"`
 }
 
-func renderJSON(w io.Writer, infos []Info) error {
-	out := make([]jsonAccount, 0, len(infos))
+// Rows converts gathered infos to their machine-readable rows (non-nil).
+func Rows(infos []Info) []Row {
+	out := make([]Row, 0, len(infos))
 	for _, in := range infos {
-		row := jsonAccount{Name: in.Name, Email: in.Email, Plan: in.Plan, Default: in.Default}
+		row := Row{Name: in.Name, Email: in.Email, Plan: in.Plan, Default: in.Default}
 		if !in.LastLogin.IsZero() {
 			row.LastLogin = in.LastLogin.Format(time.RFC3339)
 		}
 		out = append(out, row)
 	}
+	return out
+}
+
+func renderJSON(w io.Writer, infos []Info) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return enc.Encode(Rows(infos))
 }
 
 // Use points the default account at name. cfg is mutated in memory; the
