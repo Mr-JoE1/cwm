@@ -16,6 +16,7 @@ import (
 
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 	"github.com/Mr-JoE1/cwm/internal/sessions"
+	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
 
@@ -204,28 +205,11 @@ func writeSessionsTable(w io.Writer, list []sessions.Session, now time.Time) {
 	printAlignedTable(w, rows)
 }
 
-type sessionJSON struct {
-	Project     string `json:"project"`
-	ID          string `json:"id"`
-	FirstPrompt string `json:"firstPrompt"`
-	Summary     string `json:"summary"`
-	Messages    int    `json:"messages"`
-	Branch      string `json:"branch"`
-	Modified    string `json:"modified"`
-}
-
+// writeSessionsJSON emits one status.Session object per line (the v0.4
+// JSONL contract; the GUI serves the same struct, D26).
 func writeSessionsJSON(w io.Writer, list []sessions.Session) error {
 	for _, s := range list {
-		obj := sessionJSON{
-			Project:     s.Project,
-			ID:          s.ID,
-			FirstPrompt: s.FirstPrompt,
-			Summary:     s.Summary,
-			Messages:    s.Messages,
-			Branch:      s.Branch,
-			Modified:    s.Modified.Format(time.RFC3339),
-		}
-		data, err := json.Marshal(obj)
+		data, err := json.Marshal(status.FromSession(s))
 		if err != nil {
 			return fmt.Errorf("encode session %s: %w", s.ID, err)
 		}

@@ -3,13 +3,14 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/doctor"
+	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/wip"
 )
@@ -88,71 +89,84 @@ func wipSummary(res wip.EndResult) string {
 }
 
 func cmdDoctor(e *Env, args []string) error {
-	net := false
-	switch {
-	case len(args) == 0:
-	case len(args) == 1 && args[0] == "--net":
-		net = true
-	default:
-		return fmt.Errorf("usage: cwm doctor [--net]")
+	net, asJSON := false, false
+	for _, a := range args {
+		switch a {
+		case "--net":
+			net = true
+		case "--json":
+			asJSON = true
+		default:
+			return fmt.Errorf("usage: cwm doctor [--net] [--json]")
+		}
 	}
-	if !doctor.Run(e.Stdout, "", net) {
+	checks := status.Doctor("", net)
+	healthy := true
+	if asJSON {
+		if err := writeJSON(e.Stdout, checks); err != nil {
+			return err
+		}
+		_, _, nFail := doctor.Counts(checks)
+		healthy = nFail == 0
+	} else {
+		healthy = doctor.Render(e.Stdout, checks)
+	}
+	if !healthy {
 		return silentExit{code: ExitError}
 	}
 	return nil
 }
 
-func cmdList(e *Env, _ []string) error {
+func cmdList(e *Env, args []string) error {
+	asJSON, err := onlyJSONFlag(args, "usage: cwm list [--json]")
+	if err != nil {
+		return err
+	}
 	layout, err := storage.NewLayout()
 	if err != nil {
 		return err
 	}
-	ws := layout.WorkspaceDir()
-	if info, err := os.Stat(ws); err != nil || !info.IsDir() {
-		return fmt.Errorf("workspace %s does not exist — run `cwm init` or pair Syncthing so the folder is restored ('cwm doctor' can diagnose)", ws)
-	}
-	projects := filepath.Join(ws, "projects")
-	fmt.Fprintf(e.Stdout, "workspace projects (%s):\n", projects)
-	entries, err := os.ReadDir(projects)
+	projects, err := status.Projects(layout)
 	if err != nil {
+		return err
+	}
+	if asJSON {
+		return writeJSON(e.Stdout, projects)
+	}
+	fmt.Fprintf(e.Stdout, "workspace projects (%s):\n", status.ProjectsDir(layout))
+	if len(projects) == 0 {
 		fmt.Fprintln(e.Stdout, "  (none yet — open a repo via 'cwm open <name> new' to create one)")
 		return nil
 	}
-	found := false
-	for _, ent := range entries {
-		if !ent.IsDir() {
-			continue
+	for _, p := range projects {
+		when := "never"
+		if !p.Modified.IsZero() {
+			when = p.Modified.Format("2006-01-02 15:04")
 		}
-		found = true
-		count, when := projectStats(filepath.Join(projects, ent.Name()))
-		fmt.Fprintf(e.Stdout, "%-24s %4d session(s)  last: %s\n", ent.Name(), count, when)
-	}
-	if !found {
-		fmt.Fprintln(e.Stdout, "  (none yet — open a repo via 'cwm open <name> new' to create one)")
+		fmt.Fprintf(e.Stdout, "%-24s %4d session(s)  last: %s\n", p.Name, p.Sessions, when)
 	}
 	return nil
 }
 
-// projectStats counts *.jsonl session files at depth 1 and returns the
-// newest mtime formatted like the bash kit's listing.
-func projectStats(dir string) (int, string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, "never"
+// onlyJSONFlag accepts an empty arg list or a lone --json.
+func onlyJSONFlag(args []string, usage string) (bool, error) {
+	switch {
+	case len(args) == 0:
+		return false, nil
+	case len(args) == 1 && args[0] == "--json":
+		return true, nil
+	default:
+		return false, errors.New(usage)
 	}
-	count := 0
-	var latest time.Time
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".jsonl") {
-			continue
-		}
-		count++
-		if info, err := ent.Info(); err == nil && info.ModTime().After(latest) {
-			latest = info.ModTime()
-		}
+}
+
+// writeJSON emits v as indented JSON plus a trailing newline — the shape is
+// the status struct itself, identical to the GUI's /api/* body (D26).
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return fmt.Errorf("write json: %w", err)
 	}
-	if latest.IsZero() {
-		return count, "never"
-	}
-	return count, latest.Format("2006-01-02 15:04")
+	return nil
 }

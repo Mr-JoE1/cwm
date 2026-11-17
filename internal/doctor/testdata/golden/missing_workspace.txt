@@ -1,0 +1,11 @@
+FAIL: workspace dir missing (<ROOT>/workspace) — run `cwm init` or pair Syncthing so the folder is restored
+warn: settings.json missing — hooks not wired (generated when a launch dir is assembled; run `cwm init`)
+warn: no hook scripts in <ROOT>/workspace/hooks — the Go kit wires hooks via settings.json; the bash-kit fallback needs the bootstrap
+warn: .stignore missing — sync not configured (re-run the cwm bootstrap)
+warn: claude not on PATH — install Claude Code
+warn: CLAUDE_CONFIG_DIR not exported in ~/.bashrc or ~/.profile — run `cwm init` or the cwm bootstrap
+warn: repos.tsv not readable — no repos recorded yet (open a repo via cwm to create it)
+ok:   no session folders yet (<ROOT>/workspace/projects absent — created on first launch)
+ok:   no WIP log yet (no sync/<host> pushes recorded)
+warn: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
+doctor: 2 ok, 7 warn, 1 fail

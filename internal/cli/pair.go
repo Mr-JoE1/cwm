@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
@@ -59,16 +60,20 @@ func cmdPair(e *Env, args []string) error {
 }
 
 func cmdDevices(e *Env, args []string) error {
-	if len(args) != 0 {
-		return fmt.Errorf("usage: cwm devices")
+	asJSON, err := onlyJSONFlag(args, "usage: cwm devices [--json]")
+	if err != nil {
+		return err
 	}
 	cl, err := connectSyncClient(false) // no --start: devices never spawns
 	if err != nil {
 		return err
 	}
-	rows, err := syncengine.DevicesReport(cl)
+	rows, err := status.Devices(cl)
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		return writeJSON(e.Stdout, rows)
 	}
 	if len(rows) == 0 {
 		fmt.Fprintln(e.Stdout, "(no paired devices yet — run cwm pair on both devices)")

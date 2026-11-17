@@ -75,15 +75,15 @@ var commands = []*command{
 	{name: "init", args: "[--migrate] [--account <name>] [--yes]", short: "create the cwm workspace skeleton", stage: 'C'},
 	{name: "import", args: "[--from <dir>] [--ccam] [--account <name>] [--yes]", short: "import an existing claude config dir or ccam profiles", stage: 'C'},
 	{name: "open", args: "<repo> [new|last]", short: "open a repo (clone on demand) and launch claude", stage: 'B'},
-	{name: "list", short: "list workspace projects with session counts", stage: 'B'},
+	{name: "list", args: "[--json]", short: "list workspace projects with session counts", stage: 'B'},
 	{name: "sessions", args: "[project] [--pick [N]] [--limit K] [--json]", short: "list and resume workspace sessions"},
-	{name: "wip", args: "[status]", short: "run the WIP auto-push now; 'wip status' lists sync branches, 'wip dirty' lists repos with uncommitted work", stage: 'B'},
-	{name: "doctor", args: "[--net]", short: "run workspace health checks (--net adds an SSH probe)", stage: 'B'},
+	{name: "wip", args: "[status] | dirty [--json]", short: "run the WIP auto-push now; 'wip status' lists sync branches, 'wip dirty' lists repos with uncommitted work", stage: 'B'},
+	{name: "doctor", args: "[--net] [--json]", short: "run workspace health checks (--net adds an SSH probe)", stage: 'B'},
 	{name: "account", args: "add|list|use|remove", short: "manage claude accounts", stage: 'C'},
 	{name: "mcp", args: "add|list|remove", short: "manage workspace mcp.json servers", stage: 'C'},
 	{name: "hook", args: "session-start|session-end", short: "hook entry points (wired from settings.json)", stage: 'B'},
 	{name: "pair", args: "[--start] [<device-id> [name]]", short: "pair this workspace with another device (syncthing)"},
-	{name: "devices", short: "list paired devices and their sync health"},
+	{name: "devices", args: "[--json]", short: "list paired devices and their sync health"},
 }
 
 // Command implementations are wired in init to avoid an initialization cycle

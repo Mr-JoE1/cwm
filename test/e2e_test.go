@@ -697,3 +697,101 @@ func TestWipDirty(t *testing.T) {
 		t.Fatalf("clean world: exit %d\nstdout: %s\nstderr: %s", res.code, res.stdout, res.errs)
 	}
 }
+
+// V0.5-A: --json views come from internal/status (D26).
+func TestListJSON(t *testing.T) {
+	e := newEnv(t)
+	e.healthyWorkspace()
+	res := e.run(e.home, "list", "--json")
+	if res.code != 0 {
+		t.Fatalf("list --json: exit %d\nstderr: %s", res.code, res.errs)
+	}
+	var rows []struct {
+		Name     string `json:"name"`
+		Sessions int    `json:"sessions"`
+		Modified string `json:"modified"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &rows); err != nil {
+		t.Fatalf("list --json is not a JSON array: %v\n%s", err, res.stdout)
+	}
+	if len(rows) != 1 || rows[0].Name != "alpha" || rows[0].Sessions != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if _, err := time.Parse(time.RFC3339, rows[0].Modified); err != nil {
+		t.Errorf("modified %q is not RFC 3339: %v", rows[0].Modified, err)
+	}
+}
+
+func TestDoctorJSON(t *testing.T) {
+	e := newEnv(t)
+	e.healthyWorkspace()
+	marker := filepath.Join(e.home, "ssh-marker")
+	e.stub("ssh", "#!/bin/sh\necho ssh-invoked >> "+marker+"\n")
+	unreachable := []string{"CWM_SYNCTHING_URL=http://127.0.0.1:1", "CWM_SYNCTHING_API_KEY=test"}
+
+	res := e.runWith(e.home, unreachable, "doctor", "--json")
+	if res.code != 0 {
+		t.Fatalf("healthy doctor --json: exit %d\n%s", res.code, res.stdout)
+	}
+	type check struct {
+		Name   string   `json:"name"`
+		Status string   `json:"status"`
+		Detail string   `json:"detail"`
+		Lines  []string `json:"lines"`
+	}
+	var checks []check
+	if err := json.Unmarshal([]byte(res.stdout), &checks); err != nil {
+		t.Fatalf("doctor --json is not a JSON array: %v\n%s", err, res.stdout)
+	}
+	byName := map[string]check{}
+	for _, c := range checks {
+		if c.Status == "fail" {
+			t.Errorf("healthy workspace reported a fail: %+v", c)
+		}
+		byName[c.Name] = c
+	}
+	if byName["workspace"].Status != "ok" || byName["syncthing"].Status != "warn" {
+		t.Errorf("checks = %+v", checks)
+	}
+	if len(byName["wip-log"].Lines) != 1 {
+		t.Errorf("wip-log lines = %+v", byName["wip-log"])
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Error("doctor --json invoked ssh in default mode")
+	}
+
+	// Exit-code semantics are unchanged: any fail → exit 1.
+	if err := os.RemoveAll(e.workspace()); err != nil {
+		t.Fatal(err)
+	}
+	res = e.runWith(e.home, unreachable, "doctor", "--json")
+	if res.code != 1 {
+		t.Fatalf("doctor --json without workspace: exit %d, want 1", res.code)
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &checks); err != nil || checks[0].Status != "fail" {
+		t.Errorf("failing doctor --json: %v %+v", err, checks)
+	}
+}
+
+func TestWipDirtyJSON(t *testing.T) {
+	e := newEnv(t)
+	_, origin := e.seedRepo("dirtyone", map[string]string{"README.md": "x\n"})
+	if err := os.MkdirAll(e.repos, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.git(e.home, "clone", "-q", origin, filepath.Join(e.repos, "dirtyone"))
+	if err := os.WriteFile(filepath.Join(e.repos, "dirtyone", "wip.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := e.run(e.home, "wip", "dirty", "--json")
+	if res.code != 0 {
+		t.Fatalf("wip dirty --json: exit %d\n%s", res.code, res.errs)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(res.stdout), &rows); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, res.stdout)
+	}
+	if len(rows) != 1 || rows[0]["name"] != "dirtyone" || rows[0]["changed"] != float64(1) || rows[0]["lastCommit"] == "" {
+		t.Errorf("rows = %v", rows)
+	}
+}
