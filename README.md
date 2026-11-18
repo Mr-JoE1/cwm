@@ -1,523 +1,208 @@
-# cwm — Claude Workspace Manager
+<div align="center">
 
-The all-in-one toolkit for your Claude Code setup: **accounts, workspace and devices
-in one tool.** Sessions, memory, skills and MCP config in a private workspace you own —
-switch Claude accounts freely, sync across your machines, resume anywhere.
+<a href="https://github.com/Mr-JoE1/cwm">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/cwm-logo-on-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/brand/cwm-logo-on-light.svg">
+    <img alt="cwm" src="docs/brand/cwm-logo-on-light.svg" width="280">
+  </picture>
+</a>
 
-> One tool: your accounts, your workspace, your devices.
+<h3>Claude Workspace Manager</h3>
 
-## Why cwm
+<p><strong>Your Claude Code workspace on every device, under any account.</strong></p>
+<p>Sessions, memory, skills and MCP servers in a private folder you own,<br>synced peer-to-peer between your machines and independent of any login.</p>
 
-- **All-in-one** — everything account switchers do (multiple logins, switching,
-  per-account usage, import) *plus* the layer they all lack: a portable, account-independent
-  workspace with cross-device sync. No second tool needed.
-- **Workspace-first, not account-first** — account switchers make *accounts* the primary
-  object and bolt sharing on top. cwm inverts it: your **workspace** (sessions, memory,
-  skills) is the primary object, and accounts are pluggable logins attached to it.
-  Switch, share or rotate accounts — the workspace never notices.
-- **Privacy, local-first** — your workspace lives in your own folder, not the default
-  shared `~/.claude`. Nothing is uploaded anywhere; sync is peer-to-peer.
-- **Cross-OS sync** — Linux and Windows read and write the *same* session folders via
-  Syncthing P2P. Resume on the other machine exactly where you left off.
-- **Repos on demand** — every repo you open is remembered in a small manifest; on another
-  device `cwm <repo>` clones it from GitHub and drops you into the resume picker.
+[![Latest release](https://img.shields.io/github/v/release/Mr-JoE1/cwm?sort=semver&display_name=tag&color=00c27a&label=release)](https://github.com/Mr-JoE1/cwm/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/Mr-JoE1/cwm/ci.yml?branch=main&label=CI&logo=github)](https://github.com/Mr-JoE1/cwm/actions/workflows/ci.yml?query=branch%3Amain) [![License: MIT](https://img.shields.io/github/license/Mr-JoE1/cwm?color=blue)](LICENSE) [![Go version](https://img.shields.io/github/go-mod/go-version/Mr-JoE1/cwm?logo=go&logoColor=white)](go.mod) [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-555)](https://github.com/Mr-JoE1/cwm/wiki/Installation) [![Downloads](https://img.shields.io/github/downloads/Mr-JoE1/cwm/total?color=00b8d4)](https://github.com/Mr-JoE1/cwm/releases) [![GitHub stars](https://img.shields.io/github/stars/Mr-JoE1/cwm?style=flat&color=e535b8)](https://github.com/Mr-JoE1/cwm/stargazers)
 
-## The gap
+<p>
+  <a href="https://github.com/Mr-JoE1/cwm/wiki"><b>📖 Docs</b></a> ·
+  <a href="#install"><b>⬇️ Install</b></a> ·
+  <a href="https://github.com/Mr-JoE1/cwm/wiki/Dashboard-Tour"><b>🖥️ Dashboard</b></a> ·
+  <a href="CONTRIBUTING.md"><b>🤝 Contributing</b></a> ·
+  <a href="SECURITY.md"><b>🛡️ Security</b></a>
+</p>
 
-| Need | ccam & other switchers | dotsync + ccsync + session-roam | raw Syncthing | **cwm** |
-|---|---|---|---|---|
-| Switch Claude accounts | yes | no | no | **yes** — accounts attached to your workspace |
-| Same workspace on every account | partial (per-item sharing) | no | no | **yes** — workspace-first |
-| Workspace private + relocatable | no | partial (dotfiles only) | no | **yes** |
-| Sync across devices | no | partial (mac-first, path-fragile) | manual | **yes** (P2P, automated) |
-| Same session folder on every OS | no | partial (path rewriting) | no — slugs differ per OS | **yes** (name pinning) |
-| Repo clone-on-demand + resume | no | partial | no | **yes** (`repos.tsv` + `cwm <repo>`) |
-| WIP handoff between devices | no | manual branches | no | **yes** (`sync/<host>` auto-push) |
-| GUI for non-terminal users | no | no | web (sync only) | **yes** (`cwm gui`, beta) |
-| Cloud service required | no | mixed | no | **no — P2P only** |
+</div>
 
 ## Install
 
-**One line, per user — no sudo, no admin.** The installer downloads the latest
-release for your OS and CPU, verifies it against the release's
-`checksums.txt` (and refuses to install on any mismatch), puts `cwm` on your
-`PATH`, runs `cwm init`, starts the dashboard agent at every login and opens
-the dashboard in your browser.
-
-**Linux / macOS:**
-
 ```sh
-curl -fsSL https://mr-joe1.github.io/cwm/install.sh | sh
-```
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://mr-joe1.github.io/cwm/install.ps1 | iex
-```
-
-Options (`install.sh` flags after `sh -s --`; on Windows use environment
-variables, or the scriptblock form for parameters):
-
-| what | install.sh | install.ps1 |
-|---|---|---|
-| a specific release | `--version v0.6.0` | `$env:CWM_VERSION='v0.6.0'` / `-Version v0.6.0` |
-| no autostart at login | `--no-service` | `$env:CWM_NO_SERVICE='1'` / `-NoService` |
-| don't open the dashboard | `--no-open` | `$env:CWM_NO_OPEN='1'` / `-NoOpen` |
-| uninstall (keeps `~/.cwm`) | `--uninstall` | `$env:CWM_UNINSTALL='1'` / `-Uninstall` |
-
-```sh
-curl -fsSL https://mr-joe1.github.io/cwm/install.sh | sh -s -- --version v0.6.0 --no-service
+curl -fsSL https://mr-joe1.github.io/cwm/install.sh | sh        # Linux / macOS
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://mr-joe1.github.io/cwm/install.ps1))) -Version v0.6.0 -NoService
+irm https://mr-joe1.github.io/cwm/install.ps1 | iex             # Windows (PowerShell)
 ```
 
-Where things go: `~/.local/bin/cwm` on Linux/macOS (one marked `export PATH=…`
-line in `~/.profile`, plus `~/.bashrc` / `~/.zshrc` / `~/.zprofile` if they
-exist); `%LOCALAPPDATA%\cwm\bin\cwm.exe` and `cwmd.exe` on Windows (added to
-your user `Path`). The scripts are plain text — read them first if you like:
-[install.sh](scripts/install.sh), [install.ps1](scripts/install.ps1).
+Per user, with no sudo and no admin rights. Every download is SHA-256-checked against the release's `checksums.txt`, and nothing is installed if the check fails.
 
-### Always-on dashboard (v0.6)
+> [!NOTE]
+> The one-line installers go live with **v0.6.0**, which is merged on `main` but not tagged yet. Until then, run `go install github.com/Mr-JoE1/cwm/cmd/cwm@main` (Go ≥ 1.25) or grab the [v0.5.0 release](https://github.com/Mr-JoE1/cwm/releases/latest). Archives, `.deb`, checksums and uninstalling: **[Installation guide](https://github.com/Mr-JoE1/cwm/wiki/Installation)**.
 
-```sh
-cwm dashboard            # open the dashboard (starts the agent in the background if needed)
-cwm service install      # start the agent at login and open the dashboard once per login
-cwm service install --no-open   # agent at login, but don't open the browser
-cwm service status|start|stop|uninstall
-cwm service rotate-token # new dashboard key; old links, bookmarks and cookies stop working
-cwm agent                # run the agent in the foreground (what the autostart runs)
-```
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>1 · The dashboard opens</h4>
+      <p>The installer runs <code>cwm init</code>, sets up autostart at login and opens the local dashboard.</p>
+    </td>
+    <td width="33%" valign="top">
+      <h4>2 · Add an account</h4>
+      <p>The setup wizard walks you through the Claude login. Add more any time; they all share one workspace.</p>
+    </td>
+    <td width="33%" valign="top">
+      <h4>3 · Pair &amp; resume</h4>
+      <p>Optionally pair another device, then resume any session anywhere. Repos clone on demand.</p>
+    </td>
+  </tr>
+</table>
 
-The agent is per user and single-instance: starting it again just opens the
-running one. Its key lives in `~/.cwm/server.toml` (mode 0600) and survives
-restarts, so a bookmarked dashboard keeps working. It binds `127.0.0.1` only;
-`cwm agent --bind 0.0.0.0 --allow-host nas.lan` exposes it on the network
-(plain HTTP — put TLS in front). Autostart is user-level everywhere: a
-systemd `--user` unit plus an XDG autostart entry on Linux, a Task Scheduler
-logon task on Windows (running the windowless `cwmd.exe` — double-click it,
-or `cwm.exe`, to open the dashboard), LaunchAgents on macOS. Dashboard behind
-Docker or another host? `cwm service install --open-only --url
-http://127.0.0.1:47800` only opens that URL at login.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/gui-sessions-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-sessions-light.png">
+    <img alt="The cwm dashboard: every workspace session from every device, newest first, with a Resume button per row" src="docs/img/gui-sessions-dark.png" width="100%">
+  </picture>
+</p>
 
-### Manual downloads
+## Why cwm
 
-All archives, `.deb` packages and `checksums.txt` are on
-[GitHub Releases](https://github.com/Mr-JoE1/cwm/releases):
-`cwm_<version>_<os>_<arch>.tar.gz` for linux, darwin and windows (amd64 and
-arm64), `.zip` for Windows.
+Claude Code keeps your sessions, memory, skills and MCP setup in one config folder on one machine, tied to one login. Switching accounts splits your history, a new computer starts from zero, and copied sessions don't resume on another OS because their folder names come from OS-specific paths.
 
-**Linux (Debian/Ubuntu):** `cwm` lands in `/usr/bin`, and `git` + `syncthing`
-are pulled in as recommended packages:
+**cwm makes the workspace the main thing.** Your sessions, memory, skills, agents, commands and MCP servers live in a private folder you own. Claude accounts are logins that plug into it, so switching accounts changes nothing else. The folder syncs directly between your own devices with [Syncthing](https://syncthing.net), with no cloud in between, and session folders are pinned so Linux, Windows and macOS all resume the same conversations.
 
-```sh
-sudo apt install ./cwm_<version>_linux_amd64.deb
-```
+## Features
 
-**Windows:** the release binaries aren't code-signed. The one-line installer
-avoids SmartScreen prompts (script downloads carry no Mark-of-the-Web). For a
-manual download, extract the tar.gz **from a terminal** with the built-in
-`tar` (`tar -xzf .\cwm_<version>_windows_amd64.tar.gz`), which doesn't copy
-the Mark-of-the-Web either. If you extract the `.zip` with Explorer, check it
-against `checksums.txt`, then right-click → **Properties** → **Unblock**
-before extracting. If Defender quarantines `cwm.exe` (a false positive common
-to new unsigned Go binaries), see
-[docs/WINDOWS-SMARTSCREEN.md](docs/WINDOWS-SMARTSCREEN.md).
+<table>
+  <tr>
+    <td width="33%" valign="top"><h4>🔀 Multiple accounts</h4><p>Add, list and switch Claude logins. Launch any project under any account with <code>--account</code>.</p></td>
+    <td width="33%" valign="top"><h4>🔒 Private workspace</h4><p>Everything lives in <code>~/.cwm</code> (or wherever you choose), apart from any single login.</p></td>
+    <td width="33%" valign="top"><h4>🔄 Device sync</h4><p>Peer-to-peer over Syncthing. <code>cwm pair</code> does the setup. Credentials never sync.</p></td>
+  </tr>
+  <tr>
+    <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click; the repo clones if it's missing.</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, WIP and Health. Dark/light themes, live updates, phone layout.</p></td>
+    <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
+  </tr>
+  <tr>
+    <td valign="top"><h4>🧩 MCP servers</h4><code>cwm mcp add</code> once, and the server is there on every device and every account.</td>
+    <td valign="top"><h4>🌿 WIP handoff</h4><p>Uncommitted work is pushed to a <code>sync/&lt;host&gt;</code> branch when a session ends.</p></td>
+    <td valign="top"><h4>🩺 Health checks</h4><code>cwm doctor</code> and the Health tab check Claude Code, the workspace, Syncthing and SSH.</td>
+  </tr>
+  <tr>
+    <td valign="top"><h4>📦 One binary</h4><p>Linux, Windows and macOS on amd64 and arm64. No runtime, no Node, no CDN.</p></td>
+    <td valign="top"><h4>📥 Bring your setup</h4><p>Import an existing Claude config folder, with a dry run and backups first.</p></td>
+    <td valign="top"><h4>🛡️ Local only</h4><p>No telemetry, no cloud. The dashboard listens on localhost behind a token.</p></td>
+  </tr>
+</table>
 
-**go install** (Go ≥ 1.25):
+## Screenshots
 
-```sh
-go install github.com/Mr-JoE1/cwm/cmd/cwm@latest
-```
+<table>
+  <tr>
+    <td width="68%" valign="top" align="center">
+      <img alt="Health tab, dark theme: cwm doctor checks with ok, warn and fail status pills" src="docs/img/gui-health-dark.png" width="100%"><br>
+      <sub><b>Health</b>: the <code>cwm doctor</code> checks at a glance</sub>
+    </td>
+    <td width="32%" valign="top" align="center" rowspan="2">
+      <img alt="Sessions tab on a phone: each session as a card with a full-width Resume button" src="docs/img/gui-sessions-mobile-dark.png" width="100%"><br>
+      <sub><b>Mobile</b>: tables turn into cards</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="68%" valign="top" align="center">
+      <img alt="Setup wizard, light theme: step 1, initialize the workspace" src="docs/img/gui-wizard-light.png" width="100%"><br>
+      <sub><b>Setup wizard</b>: init, account login and pairing</sub>
+    </td>
+  </tr>
+</table>
 
-**From source:**
+## cwm vs. a manual setup
 
-```sh
-git clone https://github.com/Mr-JoE1/cwm.git
-cd cwm
-go build -o cwm ./cmd/cwm
-```
-
-**Prerequisites:** Claude Code ≥ 2.1.234 (verified by `cwm init` and `cwm doctor`),
-git, an SSH key with access to your GitHub repos.
-[Syncthing](https://syncthing.net) on each device for cross-device sync —
-installing and pairing it is handled by [`cwm pair`](#device-sync-v03), no
-manual Syncthing setup.
+|  | Claude Code on its own | By hand (symlinks, copied folders, DIY sync) | **cwm** |
+|---|---|---|---|
+| Several accounts, one shared history | one config folder per account | symlink each item yourself | ✅ accounts attach to one workspace |
+| Sessions synced across devices | — | set up sync and ignore rules yourself | ✅ `cwm pair`, ignore rules included |
+| Resume on another OS | — (folder names differ per OS) | rename or rewrite paths | ✅ session folders pinned per repo |
+| Credentials kept out of sync | n/a | easy to get wrong | ✅ stored outside the synced folder |
+| Repos cloned on demand | — | — | ✅ from the synced repo list |
+| Browse all sessions + dashboard | per project folder | — | ✅ `cwm sessions` and the web UI |
 
 ## Quick start
 
 ```sh
-cwm init                 # scaffold ~/.cwm: workspace, accounts, launch, backups
-cwm account add main     # attach a login — runs `claude auth login` into ~/.cwm/accounts/main
-cwm open myproject       # clone on demand if missing, then the resume picker
+cwm account add main          # attach a Claude login (or use the dashboard wizard)
+cwm myproject                 # open ~/repos/myproject: clone on demand, then the resume picker
+cwm sessions --pick           # every session, newest first: pick one to resume
+cwm pair                      # pair this device with another one
+cwm doctor                    # health checks
 ```
 
-Day to day:
-
-```sh
-cwm myproject            # short form of `cwm open myproject`
-cwm myproject new|last   # fresh session / continue the latest one
-cwm list                 # workspace projects: session counts + last-modified
-cwm sessions             # every workspace session, newest first (--pick to resume)
-cwm account list         # email, plan and login freshness per account
-cwm --account work myproject   # launch under a specific account
-cwm mcp add fetch -- npx -y @modelcontextprotocol/server-fetch
-cwm wip                  # push dirty work to sync/<hostname> right now
-cwm wip dirty            # repos with uncommitted work (before switching devices)
-cwm doctor               # local health checks (--net adds an SSH probe)
-```
-
-The full first-run flow: `cwm init` → `cwm account add main` → `cwm open <repo>`.
-Everything else (clone-on-demand, session resume, WIP branches) is automatic.
-
-## Migration
-
-Already have a setup? cwm imports it. Nothing is deleted, sources are left
-untouched, and backups land in `~/.cwm/backups/`.
-
-- **From the v0.1 bash kit** (`~/.claude-me` workspace): `cwm init --migrate`
-  copies workspace items into `~/.cwm/workspace/`, imports your login as
-  account `main`, and leaves `~/.claude-me` untouched as a backup.
-- **From any Claude config dir** (default `~/.claude`): `cwm import --from <dir>`
-  copies workspace items and imports the login as a new account.
-- **From ccam**: `cwm import --ccam` reads `~/.local/share/ccam/profiles/*/`
-  (each becomes an account with its credentials) and
-  `~/.local/share/ccam/groups/<g>/` (shared items land in the workspace).
-
-Add `--dry-run` to any migration command to print the plan without touching
-the filesystem.
-
-## How it works
-
-```
-+--------------+                        +----------------+
-|   Linux      |   Syncthing P2P        |   Windows      |
-| ~/.cwm/      |<---------------------->| %USERPROFILE%\ |
-|  workspace/  |   (no cloud, ever)     |  .cwm\         |
-|  projects/   |                        |  workspace\    |
-|  skills/     |                        |  projects\     |
-|  repos.tsv   |                        |  repos.tsv     |
-+------+-------+                        +--------+-------+
-       |                                         |
-       |  cwm <repo> pins                        |
-       |  CLAUDE_CODE_PROJECT_DIR_NAME=<repo>     |
-+------v-----------------------+     +-----------v-----------------+
-| ~/repos/<repo>               |<--->| ~\repos\<repo>              |
-| cloned on demand from GitHub | SSH | cloned on demand from GitHub |
-+------------------------------+     +-----------------------------+
-```
-
-Claude Code names session folders after the *absolute path* of the project,
-slugified per OS — so the same repo gets `projects/-home-me-repos-alpha/` on
-Linux and `projects/C--Users-me-repos-alpha/` on Windows, and cross-device
-resume silently breaks. cwm pins `CLAUDE_CODE_PROJECT_DIR_NAME=<repo>` (Claude
-Code ≥ 2.1.234), so every OS writes the same `projects/<repo>/` folder — no
-path rewriting, ever.
-
-### The account model (v0.2)
-
-```
-~/.cwm/
-├── workspace/          # your content: projects/, skills/, memory, CLAUDE.md
-│                       #   → synced P2P between your devices
-├── accounts/<name>/    # logins only: .credentials.json + .claude.json
-│                       #   → per machine, never synced by default
-└── launch/<account>/   # assembled at launch: workspace items + that
-                        #   account's credentials → set as CLAUDE_CONFIG_DIR
-```
-
-Every account attached to a workspace sees the *same* sessions, memory and
-skills — that is the point of account independence. Credentials stay separate
-per account, exactly as Claude Code expects. Multiple workspaces (e.g. `work`
-vs `personal`) are supported by creating more than one.
-
-## What syncs / what stays local
-
-| Synced (your workspace) | Local (per machine) |
-|---|---|
-| `projects/` — sessions + memory | `accounts/<name>/` — `.credentials.json`, `.claude.json` |
-| `skills/`, `agents/`, `commands/`, `rules/`, `plugins/`, `output-styles/` | `launch/<account>/` + generated `settings.json` (absolute hook paths) |
-| `scheduled-tasks/`, `history.jsonl`, `CLAUDE.md` | `logs/`, `backups/`, caches, `shell-snapshots/`, `todos/` |
-| `repos.tsv`, `mcp.json` | `debug/`, `statsig/`, OS junk |
-
-The split is enforced by the `.stignore` that `cwm init` writes into the
-workspace folder.
-
-## Device sync (v0.3)
-
-Two devices, four steps, zero Syncthing UI:
-
-1. **Install Syncthing on both devices** and run it as a service —
-   `sudo apt install syncthing` (then `systemctl --user enable --now syncthing`)
-   on Linux, `winget install Syncthing.Syncthing` on Windows.
-2. **On device A:** `cwm pair` — prints A's device ID and what to run on B.
-3. **On device B:** `cwm pair <A-id> <name>`.
-4. **On device A:** `cwm pair <B-id> <name>`.
-
-Both sides must run the exchange once — then data flows. Every command is
-idempotent; re-running is always safe. On a machine without the service,
-`cwm pair --start` spawns one detached `syncthing serve --no-browser` for the
-session — cwm never installs or supervises the daemon for you.
-
-Check sync health at any time:
-
-```sh
-cwm devices
-DEVICE       NAME     CONNECTED  ADDRESS             IN       OUT      COMPLETION
-7A2FQK…      tower    yes        192.168.1.20:22000  412 MiB  38 MiB   100%
-HX9B3C…      laptop   yes        192.168.1.21:22000  0 B      397 MiB  94%
-```
-
-With no peers yet it prints: *(no paired devices yet — run `cwm pair` on both
-devices)*.
-
-<details>
-<summary>Syncthing troubleshooting</summary>
-
-- **"syncthing config has no API key"** — Syncthing has never written its
-  config. Start it once (`systemctl --user start syncthing` or plain
-  `syncthing`) so it generates `config.xml`, then re-run `cwm pair`.
-- **Service vs `--start`** — the service (step 1) is the recommended setup;
-  cwm just finds the running instance. `cwm pair --start` is the fallback for
-  machines without one: it spawns a single detached
-  `syncthing serve --no-browser` — no supervision, no autostart.
-- **Non-default endpoint** — GUI moved, TLS enabled, or API key kept
-  elsewhere? Set `CWM_SYNCTHING_URL` and `CWM_SYNCTHING_API_KEY` to point
-  cwm at the right endpoint.
-
-</details>
-
-## Find and resume sessions (v0.4)
-
-Fresh device, workspace synced, nothing cloned yet — every session is already
-browsable, because the rows come from the synced `projects/*/<uuid>.jsonl`
-files themselves, not from any local clone:
-
-```sh
-cwm sessions
-```
-
-```text
-N  project  id        first prompt                      msgs  branch       modified
-1  alpha    3f2c81a4  fix the flaky e2e test on resume  42    feat/resume  4h ago
-2  alpha    9b41c0de  refactor launcher pin logic       17    main         2d ago
-3  beta     c07d52bb  draft API notes for sync hints    0                  2026-11-01
-```
-
-Resume one with a single command:
-
-```sh
-cwm sessions --pick      # print the table, pick a row interactively
-cwm sessions --pick 1    # or resolve row 1 directly
-```
-
-The picked row opens through the same launcher as `cwm open`: the repo
-**clones on demand** if it isn't on this machine yet, the session-folder name
-is pinned, and `claude --resume <session-id>` starts with the full
-conversation context. `cwm sessions <project>` filters to one project,
-`--limit K` caps the rows, and `--json` emits one object per session for
-scripting.
-
-Before switching devices, check what hasn't been pushed yet:
-
-```sh
-cwm wip dirty
-```
-
-```text
-repo   changed            last commit
-gamma  1 changed file(s)  fix: guard nil account in launch
-```
-
-Only repos present under the repos root are scanned — a repo that isn't
-cloned on this machine is clean by definition here. No rows means everything
-is committed and safe to walk away from.
-
-## Web GUI (beta)
-
-A dashboard and setup wizard are built into the same binary — no extra
-install, no Node, nothing fetched from a CDN. It ships in every release
-archive and in the `.deb` (`sudo apt install ./cwm_<version>_linux_amd64.deb`):
-
-```sh
-cwm gui                  # first free port in 47800-47809, opens your browser
-cwm gui --port 47850     # pick the port yourself
-cwm gui --no-open        # just print the URL (headless boxes, SSH sessions)
-```
-
-![Sessions tab (dark theme): every workspace session, newest first, with a Resume button per row](docs/img/gui-sessions-dark.png)
-
-Five tabs — **Sessions**, **Projects**, **Devices**, **WIP**, **Health** —
-show the same data as `cwm sessions`, `cwm list`, `cwm devices`,
-`cwm wip dirty` and `cwm doctor`. Ctrl-C in the terminal stops the server.
-
-**Look and feel (v0.7).** Dark "cyber" theme by default, plus a light theme;
-the header switch picks **system / dark / light** and remembers the choice,
-with no flash on load. A subtle animated network background sits behind the
-content. It runs at most 30 fps, pauses when the tab is hidden, freezes after
-30 s without input (so an idle dashboard uses no CPU for it), shows a still
-frame under *reduce motion*, and turns off with the ✦ button. Actions report
-through toasts; when no terminal can be opened, the toast carries the command
-with a **Copy** button. The page updates itself: live over server-sent
-events when the running cwm provides them, otherwise every 15 s while
-visible. Down to phone width, tables turn into cards.
-
-| Keys | |
-|---|---|
-| `1`–`5` | switch tab |
-| `/` | filter sessions |
-| `t` | cycle theme (system → dark → light) |
-| `b` | background animation on/off |
-| `r` | refresh |
-| `?` | all shortcuts |
-
-<img src="docs/img/gui-sessions-mobile-dark.png" alt="Sessions tab on a phone (390 px wide): each session as a card with a full-width Resume button" width="260">
-
-Logo, palette and usage rules: [docs/brand](docs/brand/README.md).
-
-| Projects (light) | Health (light) |
-|---|---|
-| ![Projects tab, light theme: session folders with session counts and last activity](docs/img/gui-projects-light.png) | ![Health tab, light theme: the cwm doctor checks with ok/warn/fail status pills](docs/img/gui-health-light.png) |
-
-**Setup wizard.** On a device that is not set up yet (no workspace, or no
-account), the page opens a four-step wizard instead of the tabs:
-
-1. **Initialize** — runs the same `cwm init` code in-process (plain init, no
-   migrate; safe to repeat) and shows the health checks afterwards.
-2. **Add account** — opens a terminal window running
-   `cwm account add <name>`; finish the Claude login there and the page picks
-   the account up on its own (it polls every two seconds).
-3. **Pair** (optional) — shows this device's Syncthing ID with a copy button
-   and takes the other device's ID (dashes are fine). Skippable; needs a
-   running Syncthing.
-4. **Done** — on to the dashboard.
-
-![Setup wizard on a fresh device (dark theme), step 1: Initialize the workspace](docs/img/gui-wizard-dark.png)
-
-**Resume and pair from the dashboard.** Every Sessions row has a **Resume**
-button: it opens a terminal window running
-`cwm open <project> new --resume <id>` — exactly what `cwm sessions --pick N`
-runs, so clone-on-demand and project-name pinning apply. The project must be
-in the workspace manifest and the session ID must be one cwm discovered; the
-browser cannot name an arbitrary command. The Devices tab has a **Pair
-device** form that runs the same pairing code as `cwm pair <id> [name]`.
-
-**Terminal windows.** Claude Code and the Claude login are interactive, so
-the GUI never runs them in the browser — it opens a real terminal window:
-
-| OS | terminal used |
-|---|---|
-| Linux | `$TERMINAL`, else the first of `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `xterm` |
-| Windows | Windows Terminal (`wt.exe`) when installed, else a new console via `cmd /c start` |
-| macOS | Terminal.app, driven through `osascript` |
-
-The command goes to the terminal as an argument list, never as a shell string.
-If the command fails, the window stays open until you press Enter so you can
-read the error. The window is detached: stopping `cwm gui` does not close it.
-
-On macOS the GUI opens Terminal.app (via `osascript`).
-
-**No terminal available** (a headless box over SSH, no `DISPLAY` /
-`WAYLAND_DISPLAY`): the action answers
-`501` and the page shows the exact command with a **Copy** button. Run it in
-any terminal; the wizard notices the new account on its own.
-
-Security: the server binds to `127.0.0.1` only (since v0.6 the agent takes
-an explicit `--bind` for anything else), and it is protected by a random
-token — per launch in v0.5, persistent in `~/.cwm/server.toml` since v0.6. The printed URL carries it once (`/?t=<token>`); the page
-trades it for an HttpOnly, SameSite=Strict cookie and drops it from the
-address bar. API calls without the cookie or an `Authorization: Bearer`
-header get 401, requests with an unexpected `Host` header (DNS rebinding) get
-403, and every action is a JSON `POST` that also requires an `X-CWM-CSRF`
-header (the launch token, or the derived value the page fetches from
-`/api/csrf` so the token itself never shows up in a response). All inputs are
-checked against strict allowlists (account names
-`^[a-z0-9][a-z0-9-]{0,31}$`, Syncthing device IDs, project and session names);
-anything else gets 400. The account endpoints return identity fields only —
-name, email, plan, default, last login — never credentials.
-
-The same data is available for scripts — every view takes `--json`:
-
-```sh
-cwm list --json
-cwm devices --json
-cwm wip dirty --json
-cwm doctor --json        # exit code unchanged: 1 when any check fails
-```
-
-## Roadmap
-
-- **v0.1** — cwm rebrand, `cwm doctor`, MIT license, product README
-- **v0.2** — Go core: single binary, configurable workspace dir, **account
-  system** (add/switch/usage, launch-dir assembly), migration from `~/.claude`
-  and ccam profiles
-- **v0.3** — Syncthing pairing automated via its REST API (`cwm pair`,
-  `cwm devices`)
-- **v0.4** — session browser + WIP UX (`cwm sessions --pick`,
-  `cwm wip dirty`)
-- **v0.5** — embedded localhost web UI: `cwm gui` dashboard, setup wizard,
-  resume/pair from the browser, `--json` on every view, `.deb` packages;
-  CLI stays first-class *(shipped as beta)*
-- **v0.6** — one-line install (`install.sh` / `install.ps1`, checksum-verified,
-  per user), always-on agent (`cwm agent`, `cwm dashboard`, persistent token,
-  live `/api/events`), autostart at login on all three OSes (`cwm service`),
-  windowless `cwmd.exe`, macOS builds *(in progress — this branch)*
-- **v0.7** — cyber UI + brand; **v0.8** — Docker hub mode; **v0.9** — web
-  terminal (see [docs/ARCH-V2.md](docs/ARCH-V2.md))
-- **v1.0** — stable CLI + GUI, complete docs, tagged long-term support
-
-Decisions and their rationale: [docs/PLAN.md](docs/PLAN.md).
-
-## Relationship to ccam
-
-cwm is **not built on and does not depend on ccam** — it is an independent,
-all-in-one toolkit. It borrows engineering patterns ccam proved (plan → backup →
-mutate, atomic writes, doctor, fake-binary E2E tests) and covers everything
-ccam does — multiple accounts, switching, per-account usage, import — as a
-subset of its workspace model. ccam users can move over with
-`cwm import --ccam`. Credit where due: ccam's account-switching design is
-excellent; cwm started from the question "what if the workspace, not the
-account, came first?"
-
-> **Terms note:** whether using more than one Claude account is allowed depends
-> on Anthropic's terms for each account. cwm never merges or hides account
-> limits. Your call, your accounts.
+Every command takes `--help`, and every view takes `--json`. Full list: **[CLI Reference](https://github.com/Mr-JoE1/cwm/wiki/CLI-Reference)**.
+
+## Documentation
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>👤 <a href="https://github.com/Mr-JoE1/cwm/wiki/User-Guide">User Guide</a></h4>
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Getting-Started">Getting started</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Installation">Installation</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/First-Time-Setup">Setup wizard</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Device-Sync">Device sync</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Auto-Start-and-Service">Autostart</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Troubleshooting">Troubleshooting</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/FAQ">FAQ</a>
+    </td>
+    <td width="50%" valign="top">
+      <h4>🛠 <a href="https://github.com/Mr-JoE1/cwm/wiki/Developer-Guide">Developer Guide</a></h4>
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Architecture">Architecture</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Building-and-Testing">Building &amp; testing</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Local-API-Reference">Local API</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Security-Model">Security model</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Decision-Log">Decision log</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Roadmap">Roadmap</a>
+    </td>
+  </tr>
+</table>
+
+## Privacy & security
+
+- **Local only, no telemetry.** No server, no analytics, nothing phones home. Sync runs directly between your devices.
+- **Credentials stay on the machine.** Logins live outside the synced folder, and the dashboard API never returns them.
+- **Localhost dashboard.** Bound to `127.0.0.1`, with a per-user token, CSRF checks on every action, a DNS-rebinding guard and strict input allowlists.
+- **Verified installs.** The installers check SHA-256 against `checksums.txt` and refuse to install on a mismatch.
+
+Details: [Privacy & Data](https://github.com/Mr-JoE1/cwm/wiki/Privacy-and-Data) · [Security Model](https://github.com/Mr-JoE1/cwm/wiki/Security-Model). Found a vulnerability? Please report it privately, as described in **[SECURITY.md](SECURITY.md)**.
+
+## Contributing
+
+Bug reports, ideas, docs fixes and pull requests are welcome. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+<a href="https://github.com/Mr-JoE1/cwm/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=Mr-JoE1/cwm">
+</a>
+
+### Star history
+
+<a href="https://star-history.com/#Mr-JoE1/cwm&amp;Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Mr-JoE1/cwm&amp;type=Date&amp;theme=dark">
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Mr-JoE1/cwm&amp;type=Date">
+    <img alt="Star history chart for Mr-JoE1/cwm" src="https://api.star-history.com/svg?repos=Mr-JoE1/cwm&amp;type=Date" width="600">
+  </picture>
+</a>
 
 ## License
 
-MIT — see [LICENSE](LICENSE). cwm is an unofficial community tool and is not
-affiliated with or endorsed by Anthropic.
+MIT, see [LICENSE](LICENSE). cwm is an unofficial community tool, not affiliated with or endorsed by Anthropic.
 
-## Legacy: the v0.1 bash kit
+---
 
-<details>
-<summary>Collapsed — the bash-kit install and how to move off it</summary>
+<div align="center">
 
-cwm v0.1 shipped as a bash kit (`bin/`, `hooks/`, `templates/`,
-`bootstrap.*`) using `~/.claude-me` as the workspace. It stays in-tree,
-untouched and passing, as a fallback for one more release and is removed
-in v1.0. Its sync setup relied on **manual Syncthing pairing** in the
-Syncthing UI (and its old `ignore-delete` advice is withdrawn) — the Go
-tooling pairs devices itself: see [Device sync (v0.3)](#device-sync-v03).
+**If cwm saves you time, please [⭐ star the repo](https://github.com/Mr-JoE1/cwm/stargazers).** It helps others find it.
 
-```sh
-git clone git@github.com:Mr-JoE1/cwm.git ~/cwm && cd ~/cwm
-./bootstrap.sh          # idempotent — safe to re-run
-exec bash               # pick up new PATH + CLAUDE_CONFIG_DIR
-```
+Designed &amp; developed by **Maher**<br> [GitHub](https://github.com/Mr-JoE1) · [X](https://x.com/MrJ0_3) · [LinkedIn](https://www.linkedin.com/in/mr-joe1)
 
-Windows (PowerShell 5.1):
-
-```powershell
-git clone git@github.com:Mr-JoE1/cwm.git $env:USERPROFILE\cwm
-cd $env:USERPROFILE\cwm
-powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
-# open a NEW terminal so PATH + CLAUDE_CONFIG_DIR take effect
-```
-
-Moving to the Go binary is one command: `cwm init --migrate` (see
-[Migration](#migration) above). The bash kit keeps working until v1.0.
-
-</details>
+</div>
