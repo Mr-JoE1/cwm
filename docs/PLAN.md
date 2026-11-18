@@ -3,6 +3,100 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-18 (v0.6 — one-line install + always-on, SPEC-V0.6)
+
+- **D31 — the agent is the GUI server, made persistent.** `cwm agent` reuses
+  `internal/gui` unchanged in its API and adds `internal/agent`: a persistent
+  token in `<cwm home>/server.toml` (0600, atomic write; on Windows the user
+  profile ACL is the protection), the bound port written back so `cwm
+  dashboard` finds it (saved port first, then 47800–47809), and a
+  single-instance OS file lock (`flock` / share-mode-0 `CreateFile`, both
+  released by the kernel when the process dies — no stale-lock cleanup). A
+  second launch probes the running agent (`GET /api/agent` with the
+  token), opens the browser there and exits 0. `cwm gui` is the foreground
+  agent with the browser opened — **contract change:** the token now
+  survives restarts (was per launch); the agent cookie gets Max-Age 30 days
+  so a bookmarked `/` keeps working. `cwm service rotate-token` rewrites the
+  token and the running agent picks it up by polling server.toml (2 s):
+  old cookies, bookmarks, Bearer tokens and open SSE streams die at once.
+  The agent never logs the token (journald / launchd / agent.log); only
+  `cwm gui` and `cwm dashboard --no-open` print the sign-in link.
+- **D32 — non-loopback only by the explicit flag.** The bind address comes
+  only from `--bind` (never from server.toml or env; the recorded bind is
+  informational), prints a plain-HTTP warning, and the Host allow-list
+  grows by exactly the concrete bind IP plus each `--allow-host` (`H` =
+  `H:<port>`, `H:P` exact). Wildcard addresses are never an allowed Host.
+  `cwm gui` keeps refusing `--bind`.
+- **D33 — live updates via SSE from a cheap snapshot diff; additive endpoints.**
+  `GET /api/events`: `hello` (snapshot + agent info), an immediate and then
+  15-second `heartbeat`, and `state {changed, snapshot}` when a 5-second
+  snapshot (initialized, account names, project/session counts, newest
+  session mtime — no network, no git; cached server-wide) differs. Streams
+  end on client disconnect, agent shutdown (request contexts derive from
+  the serve context) or token rotation. Also new: `GET /api/agent`,
+  unauthenticated `GET /healthz` (`{"app":"cwm","ok":true}`) and a
+  server-rendered no-JS `GET /login` (form → `/?t=`), which lives in Go so
+  the v0.7 frontend rewrite can link to it without owning it.
+- **D34 — autostart is per user and split into agent + opener.** Linux:
+  systemd `--user` unit `cwm-agent.service` (`agent --no-open`,
+  `Restart=on-failure`) plus XDG autostart `cwm-dashboard.desktop`
+  (`cwm dashboard --wait 30`) — the opener runs inside the graphical session,
+  which a user unit may start before; without a systemd user session
+  (detected from the filesystem: `systemctl` on PATH + the manager socket)
+  the desktop entry alone starts the agent. Windows: a Task Scheduler task
+  from generated UTF-16 XML whose LogonTrigger and principal are the current
+  user (a standard user may create that; an any-user `/SC ONLOGON` needs
+  admin), LeastPrivilege, InteractiveToken, no time limit, IgnoreNew,
+  restart on failure, running `cwmd.exe agent --open`; when schtasks refuses,
+  the HKCU Run key via `reg.exe`. macOS: two LaunchAgents (agent with
+  `KeepAlive.SuccessfulExit=false`, opener with `RunAtLoad` only) loaded with
+  `launchctl bootstrap gui/<uid>`. `--open-only --url U` installs just the
+  opener running `cwm service open-url U` (waits up to 120 s for U). All files
+  come from `text/template`s and plans are pure data (files, Pre/Commands,
+  removals) applied through an injected Runner; tests never run real
+  systemctl/schtasks/launchctl/reg. `service install` also makes sure an
+  agent runs right away (the Windows task only fires at logon). Dry run:
+  global `--dry-run` or `CWM_SERVICE_DRYRUN=1`.
+- **D35 — Windows without consoles.** `cwmd.exe` = `cmd/cwmd` linked with
+  `-H=windowsgui` (goreleaser build id `cwmd`, shipped in the Windows
+  archives). It runs the sibling `cwm.exe` with a *hidden* console
+  (`CREATE_NO_WINDOW`) and waits for it, rather than serving in-process: a
+  GUI-subsystem process has no console, so every console child the agent
+  starts (git, syncthing, `claude --version`) would otherwise pop a window.
+  Output → `<home>/logs/agent.log`, failures → a message box. `cwm.exe`
+  double-clicked from Explorer (no args, `GetConsoleProcessList` == 1) runs
+  `cwm dashboard` instead of flashing the help; a failure keeps the window
+  open until Enter.
+- **D36 — macOS is a first-class target.** darwin amd64/arm64 tar.gz builds
+  (no .deb); the terminal launcher drives Terminal.app via `osascript … do
+  script`, superseding D27's macOS refusal: the command string is built only
+  from argv by POSIX single-quoting each element (`env CWM_HOLD_ON_ERROR=1`
+  prefix, since Terminal's new shell does not inherit our env) and then
+  escaping the line as an AppleScript literal; a unit test decodes both
+  layers back to the original argv, hostile inputs included.
+- **D37 — installers verify or refuse.** `scripts/install.sh` (POSIX sh) and
+  `scripts/install.ps1` (5.1+, ASCII, CRLF) install per user only, always
+  check the archive's SHA-256 against the release `checksums.txt` and abort
+  — before anything is written — on a mismatch, a missing entry or a missing
+  hash tool. PATH changes are single marked lines (`# added by cwm
+  installer`) / one user-Path entry, so `--uninstall` removes exactly them;
+  the workspace is never deleted. Windows uses the zip + `Expand-Archive`:
+  `Invoke-WebRequest` downloads carry no Mark-of-the-Web. The archive name is
+  pinned in `.goreleaser.yaml` because both scripts build it.
+  `scripts/test-install.sh` runs both scripts (install.ps1 under pwsh) against a
+  local fake release.
+- **D38 — CLI conveniences.** `--version`/`-v`; single-dash long flags are
+  rewritten to `--` form for global flags and cwm's own subcommands, but
+  never for the direct-launch form, `open`, `hook`, `mcp` or anything after
+  `--`, whose arguments belong to claude or other programs. `agent`,
+  `service`, `dashboard` join the reserved names.
+- **D39 — CI covers what v0.6 ships.** CI also runs on pushes to `feat/**`
+  (and manually), cross-builds and vets darwin/windows, runs the legacy bash
+  kit, shellcheck and the installer harness on ubuntu, and parses install.ps1
+  with Windows PowerShell 5.1 on windows. Pages (`pages.yml`) publishes the
+  installers from main; enabling Pages ("Source: GitHub Actions") is a
+  one-time manual repo setting.
+
 ## 2026-11-17 (v0.5)
 
 - **D27 — GUI actions open a real terminal; argv arrays only.** Claude Code
