@@ -58,7 +58,7 @@ surface — loopback-only default, CSRF + token, idle timeout, audit log.
 |---|---|---|---|
 | **v0.6** (ASAP) | One-line install + always-on | install.sh/ps1 + Pages hosting; darwin builds; `cwm agent` + persistent token + single-instance; `cwm service …` (3 OSes); `cwmd.exe`; open-browser-at-login; double-click behaviour; `--version` | Fresh Win/Linux/mac: paste one line → dashboard opens; reboot+login → dashboard opens again |
 | **v0.7** | Cyber UI + brand | Logo (SVG + favicon + icons); design tokens; dark/light/system toggle; animated canvas bg (grid/particle/glyph), transitions, toasts; SSE live updates; fix v0.5 nits | Lighthouse a11y ≥ 90; idle CPU < 2% with bg on; both themes screenshot-verified |
-| **v0.8** | Web terminal | In-dashboard terminal (PTY ⇄ WebSocket) for resume / account login / any cwm command; headless hosts no longer need the 501 fallback | Resume a session and log in to an account entirely in the browser |
+| **v0.8** | Web-only: everything in the browser | (a) In-dashboard terminal (PTY ⇄ WebSocket, xterm-style, tabs) served by the agent: Resume runs `claude --resume` inside the page, Add account runs `claude auth login` inside the page; desktop terminal launcher (D27) removed from the UI. (b) Full CLI parity in the web UI: accounts list/use/remove, MCP add/list/remove, import, WIP status/push, sessions search, pair/devices, health, service settings (autostart, open-at-login, rotate token) | A user installs with one line and never opens a terminal again: setup, login, resume, MCP, pairing all done in the browser |
 | **v1.0** | Launch | Old v0.6 items (statusline, scheduled-task portability, doctor extensions), legacy bash kit removed, docs site, real-hardware matrix (Win/Linux/mac + 2-device pair) | 100 external installs |
 
 v0.6 and v0.7 touch disjoint code (service/installer vs `internal/gui/web`) and can be built in parallel.
@@ -69,4 +69,5 @@ v0.6 and v0.7 touch disjoint code (service/installer vs `internal/gui/web`) and 
   the project landing domain exists.
 - **D30 — Dependencies:** v0.8 (web terminal) may add exactly two deps: a PTY library (with Windows ConPTY)
   and a WebSocket library. Everything else stays stdlib + BurntSushi/toml.
+- **D31 — Web-only UX:** the browser dashboard is the only user interface. No desktop terminal windows are opened from the UI; interactive Claude sessions and logins run in the in-dashboard terminal. The CLI stays for scripting and power users, but every action has a web equivalent.
 - v0.6 and v0.7 are built in parallel on separate branches and merged by the maintainer.
