@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -270,25 +271,54 @@ func TestStaticDashboard(t *testing.T) {
 			t.Errorf("dashboard missing tab %q", tab)
 		}
 	}
-	for _, asset := range []string{"/app.js", "/app.css"} {
+	for _, asset := range []string{"/app.js", "/app.css", "/theme.js", "/bg.js", "/favicon.svg"} {
 		if rec := f.do(t, "GET", asset, nil); rec.Code != http.StatusOK || rec.Body.Len() == 0 {
 			t.Errorf("GET %s = %d (%d bytes)", asset, rec.Code, rec.Body.Len())
 		}
+		if !strings.Contains(body, `"`+asset+`"`) {
+			t.Errorf("index.html does not reference %s", asset)
+		}
 	}
-	// No external CDN / remote resources anywhere in the embedded assets.
-	for _, name := range []string{"web/index.html", "web/app.js", "web/app.css"} {
+	if rec := f.do(t, "GET", "/favicon.svg", nil); !strings.HasPrefix(rec.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Errorf("favicon.svg Content-Type = %q", rec.Header().Get("Content-Type"))
+	}
+	// Every embedded asset (v0.7: theme.js, bg.js, favicon.svg too): no
+	// external CDN / remote resources, no HTML-parsing sinks in scripts,
+	// and the whole UI stays under its 150KB budget (uncompressed).
+	external := regexp.MustCompile(`(?i)(src|href)\s*=\s*["']?(https?:)?//|url\(\s*["']?(https?:)?//`)
+	sinks := regexp.MustCompile(`innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function`)
+	total := 0
+	err := fs.WalkDir(webFS, "web", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
 		data, err := webFS.ReadFile(name)
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
-		if regexp.MustCompile(`(?i)(src|href)\s*=\s*["']?(https?:)?//`).Match(data) || strings.Contains(string(data), "@import") {
+		total += len(data)
+		if external.Match(data) || strings.Contains(string(data), "@import") {
 			t.Errorf("%s references an external resource", name)
 		}
+		if strings.HasSuffix(name, ".js") && sinks.Match(data) {
+			t.Errorf("%s uses an HTML-parsing sink (%s); build DOM nodes and use textContent", name, sinks.Find(data))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	// User data must never be rendered through innerHTML.
-	js, _ := webFS.ReadFile("web/app.js")
-	if strings.Contains(string(js), "innerHTML") {
-		t.Error("app.js uses innerHTML; render API data with textContent only")
+	if total > 150<<10 {
+		t.Errorf("embedded web assets = %d bytes, budget is 150KB", total)
+	}
+	// The pre-paint theme script must be a blocking <head> script (no
+	// defer/async) so the first paint already has the right theme; inline
+	// scripts are impossible under the CSP.
+	if !strings.Contains(body, `<script src="/theme.js"></script>`) || strings.Index(body, "/theme.js") > strings.Index(body, "</head>") {
+		t.Error("theme.js must be a synchronous script in <head>")
+	}
+	if regexp.MustCompile(`<script>|\sstyle\s*=`).MatchString(body) {
+		t.Error("index.html has an inline script or style attribute (blocked by the CSP)")
 	}
 }
 
