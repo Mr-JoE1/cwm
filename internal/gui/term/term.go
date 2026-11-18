@@ -80,9 +80,7 @@ func Resolve(env Env, argv []string) (Spec, error) {
 	case "windows":
 		return resolveWindows(env, argv)
 	case "darwin":
-		// Terminal.app only takes a script/command string, which would
-		// mean building a shell string — refused by design (D27).
-		return Spec{}, fmt.Errorf("%w (macOS Terminal cannot be driven without a shell string)", ErrNoTerminal)
+		return resolveDarwin(env, argv)
 	default:
 		return resolveUnix(env, argv)
 	}
@@ -129,6 +127,40 @@ func resolveUnix(env Env, argv []string) (Spec, error) {
 		}
 	}
 	return Spec{}, fmt.Errorf("%w (none of $TERMINAL, x-terminal-emulator, gnome-terminal, konsole, xfce4-terminal, alacritty, kitty, xterm on PATH)", ErrNoTerminal)
+}
+
+// resolveDarwin drives Terminal.app through osascript (D36). Terminal only
+// accepts a command string, so the string is built — never from raw input
+// — by POSIX-single-quoting every argv element and then escaping the
+// whole line as an AppleScript string literal. checkArgv already refused
+// control characters, the only thing neither layer can carry.
+func resolveDarwin(env Env, argv []string) (Spec, error) {
+	path, err := env.LookPath("osascript")
+	if err != nil {
+		return Spec{}, fmt.Errorf("%w (osascript not on PATH)", ErrNoTerminal)
+	}
+	return Spec{Path: path, Args: []string{
+		"-e", `tell application "Terminal" to do script ` + AppleScriptString(DarwinCommand(argv)),
+		"-e", `tell application "Terminal" to activate`,
+	}}, nil
+}
+
+// DarwinCommand is the shell line Terminal runs: HoldEnv set through
+// env(1) (Terminal's new shell does not inherit our environment), then
+// each argv element as one single-quoted shell word.
+func DarwinCommand(argv []string) string {
+	words := make([]string, 0, len(argv)+2)
+	words = append(words, "env", HoldEnv+"=1")
+	for _, a := range argv {
+		words = append(words, shellQuote(a))
+	}
+	return strings.Join(words, " ")
+}
+
+// AppleScriptString renders s as an AppleScript string literal: only the
+// backslash and the double quote need escaping inside "...".
+func AppleScriptString(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 func resolveWindows(env Env, argv []string) (Spec, error) {
@@ -206,6 +238,11 @@ func shellQuote(a string) string {
 	}
 	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 }
+
+// EscapeWindowsArg quotes one argument by the Windows command-line rules
+// (CommandLineToArgvW-compatible), on every OS — for generating command
+// lines that run on Windows later (Task Scheduler, the Run key).
+func EscapeWindowsArg(s string) string { return portableEscapeArg(s) }
 
 // escapeArg is syscall.EscapeArg on Windows (wired in term_windows.go);
 // elsewhere the portable copy below keeps Resolve testable on every OS.

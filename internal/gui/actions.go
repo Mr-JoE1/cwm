@@ -105,7 +105,8 @@ func (s *Server) reserved(name string) bool {
 
 // apiCSRF hands the page its derived CSRF value (never the launch token).
 func (s *Server) apiCSRF(*http.Request) (any, int, error) {
-	return map[string]string{"csrf": s.csrf}, http.StatusOK, nil
+	_, csrf := s.currentToken()
+	return map[string]string{"csrf": csrf}, http.StatusOK, nil
 }
 
 func (s *Server) apiState(*http.Request) (any, int, error) {

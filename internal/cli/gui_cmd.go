@@ -1,8 +1,7 @@
 // Stages V0.5-A/B: `cwm gui` — the embedded localhost dashboard and setup
-// wizard (SPEC-V0.5, D23/D24/D27). The server, auth and assets live in
-// internal/gui; this file parses flags, wires the status data sources and
-// the terminal launcher, and owns the process lifecycle (print URL, open
-// browser, Ctrl-C = graceful shutdown).
+// wizard (SPEC-V0.5, D23/D24/D27). Since v0.6 it is the foreground agent
+// with the browser opened (agent_cmd.go owns the lifecycle); this file
+// keeps its flag parsing, the shared seams and the terminal-window helpers.
 package cli
 
 import (
@@ -12,17 +11,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/Mr-JoE1/cwm/internal/gui"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
-	"github.com/Mr-JoE1/cwm/internal/launcher"
-	"github.com/Mr-JoE1/cwm/internal/status"
-	"github.com/Mr-JoE1/cwm/internal/storage"
-	"github.com/Mr-JoE1/cwm/internal/syncengine"
 )
 
 // Seams for tests: the shutdown signal context and the browser opener.
@@ -78,59 +72,15 @@ func parseGuiArgs(args []string) (port int, noOpen bool, err error) {
 	return port, noOpen, nil
 }
 
+// cmdGui is `cwm agent --open` in the foreground with v0.5 wording (D31):
+// same lock, persistent token and port logic, so a second `cwm gui` just
+// opens the running dashboard. It never accepts --bind (loopback only).
 func cmdGui(e *Env, args []string) error {
 	port, noOpen, err := parseGuiArgs(args)
 	if err != nil {
 		return err
 	}
-	layout, err := storage.NewLayout()
-	if err != nil {
-		return err
-	}
-	reposRoot, err := launcher.ReposRoot()
-	if err != nil {
-		return fmt.Errorf("repos root: %w", err)
-	}
-	token, err := gui.NewToken()
-	if err != nil {
-		return err
-	}
-	ln, err := gui.Listen(port)
-	if err != nil {
-		return err
-	}
-	// gui.Serve closes ln on shutdown; only the early-error path closes it here.
-	srv, err := gui.New(gui.Options{
-		Version:   status.Version{Version: Version, Commit: Commit, OS: runtime.GOOS, Arch: runtime.GOARCH},
-		Layout:    layout,
-		ReposRoot: reposRoot,
-		SyncClient: func() (syncengine.Client, error) {
-			return connectSyncClient(false) // the GUI never spawns syncthing
-		},
-		Launcher: guiLauncher,
-		CwmPath:  guiCwmPath(),
-		Reserved: IsReserved,
-	}, gui.Port(ln), token)
-	if err != nil {
-		_ = ln.Close()
-		return err
-	}
-
-	url := srv.URL()
-	fmt.Fprintf(e.Stdout, "cwm gui (beta): serving on %s\n", url)
-	fmt.Fprintln(e.Stdout, "bound to 127.0.0.1 only; the token in the URL is this launch's key — press Ctrl-C to stop")
-	if !noOpen {
-		if err := guiOpenBrowser(url); err != nil {
-			fmt.Fprintf(e.Stderr, "cwm gui: could not open a browser (%v) — open the URL above manually\n", err)
-		}
-	}
-	ctx, stop := guiSignalContext()
-	defer stop()
-	if err := gui.Serve(ctx, ln, srv); err != nil {
-		return err
-	}
-	fmt.Fprintln(e.Stdout, "cwm gui: stopped")
-	return nil
+	return runAgent(e, agentOpts{port: port, open: !noOpen, noOpen: noOpen, gui: true})
 }
 
 // HoldOnError keeps a terminal window that `cwm gui` opened (D27) on

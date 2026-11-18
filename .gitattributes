@@ -1,0 +1,5 @@
+# Installers: install.sh must stay LF (piped to sh); install.ps1 keeps its
+# committed CRLF bytes (repo PowerShell convention) on every checkout.
+scripts/install.sh text eol=lf
+scripts/test-install.sh text eol=lf
+scripts/install.ps1 -text

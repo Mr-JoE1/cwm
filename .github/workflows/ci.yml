@@ -2,8 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # feature branches too, so a pushed branch shows CI before its PR (D39)
+    branches: [main, "feat/**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -55,3 +57,36 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: GOOS=linux GOARCH=arm64 go build ./...
+
+      - name: Cross-build + vet (darwin, windows)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          GOOS=darwin GOARCH=arm64 go build ./...
+          GOOS=darwin GOARCH=amd64 go build ./...
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
+
+      - name: Legacy bash kit
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash tests/test.sh
+
+      - name: Shellcheck installers
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: shellcheck -s sh scripts/install.sh && shellcheck scripts/test-install.sh
+
+      - name: Installer harness (install.sh + install.ps1 via pwsh)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/test-install.sh
+
+      - name: install.ps1 parses under Windows PowerShell 5.1
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors | ForEach-Object { Write-Error "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+          Write-Host "install.ps1 parses under PowerShell $($PSVersionTable.PSVersion)"
