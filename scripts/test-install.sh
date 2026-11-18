@@ -27,12 +27,12 @@ bad() {
     FAIL=$((FAIL + 1))
     printf 'FAIL %s\n' "$1"
     if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-        # Annotations are readable without log access; include the output
-        # of the failing step (newlines encoded per the workflow-command spec).
-        local o=${LAST_OUT//'%'/'%25'}
-        o=${o//$'\r'/}
-        o=${o//$'\n'/'%0A'}
-        printf '::error title=installer harness::FAIL %s%%0A%s\n' "$1" "${o: -3000}"
+        # Annotations are readable without log access: one line carrying
+        # the tail of the failing step's output.
+        local o
+        o=$(printf '%s\n' "$LAST_OUT" | tail -n 8 | tr -d '\r' | tr '\n' '|')
+        o=${o//'%'/'%25'}
+        printf '::error title=installer harness::FAIL %s :: %s\n' "$1" "$o"
     fi
 }
 check() {
@@ -173,7 +173,7 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
         local home=$1
         shift
         mkdir -p "$home"
-        env -i HOME="$home" PATH="/usr/local/bin:/usr/bin:/bin" DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+        env -i HOME="$home" PATH="/usr/local/bin:/usr/bin:/bin" \
             DOTNET_CLI_TELEMETRY_OPTOUT=1 POWERSHELL_TELEMETRY_OPTOUT=1 \
             PROCESSOR_ARCHITECTURE=AMD64 LOCALAPPDATA="$home/AppData/Local" \
             XDG_CONFIG_HOME="$home/.config" XDG_RUNTIME_DIR="$home/run" CWM_SERVICE_DRYRUN=1 \
