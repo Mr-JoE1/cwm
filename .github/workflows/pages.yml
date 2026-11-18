@@ -1,0 +1,59 @@
+name: Pages
+
+# Publishes the one-line installers (D29):
+#   https://mr-joe1.github.io/cwm/install.sh
+#   https://mr-joe1.github.io/cwm/install.ps1
+# One-time manual step: repo Settings → Pages → Source = "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/install.sh"
+      - "scripts/install.ps1"
+      - "scripts/pages/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check installers
+        run: shellcheck -s sh scripts/install.sh
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp scripts/install.sh scripts/install.ps1 scripts/pages/index.html _site/
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -11,6 +11,7 @@ builds:
     goos:
       - linux
       - windows
+      - darwin
     goarch:
       - amd64
       - arm64
@@ -64,8 +65,33 @@ builds:
     #   signtool sign /fd sha256 /f "%CWM_SIGN_PFX%" /p "%CWM_SIGN_PASS%"
     #     /tr http://timestamp.sectigo.com /td sha256 /d cwm "{{ .Path }}"
 
+  # cwmd.exe (D35): the same code linked as a Windows GUI-subsystem
+  # program, so the logon task and a double-click never open a console.
+  # Shipped next to cwm.exe in the Windows archives. (The Authenticode hook
+  # above applies here too once enabled.)
+  - id: cwmd
+    main: ./cmd/cwmd
+    binary: cwmd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - >-
+        -s -w -H=windowsgui
+        -X github.com/Mr-JoE1/cwm/internal/cli.Version={{.Version}}
+        -X github.com/Mr-JoE1/cwm/internal/cli.Commit={{.Commit}}
+
 archives:
   - id: cwm
+    ids: [cwm, cwmd]
+    # Windows archives carry cwm.exe + cwmd.exe; others only cwm.
+    allow_different_binary_count: true
+    # Pinned: scripts/install.sh and install.ps1 build this exact name.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
       # Windows ships BOTH formats:
