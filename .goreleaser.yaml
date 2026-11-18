@@ -80,3 +80,30 @@ archives:
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
+
+# Linux .deb packages (D25). goreleaser only feeds linux builds to nfpm, so
+# this yields cwm_<version>_linux_amd64.deb and _arm64.deb. They are release
+# artifacts like the archives, so they land in checksums.txt and on the
+# GitHub release automatically.
+nfpms:
+  - id: cwm-deb
+    package_name: cwm
+    ids: [cwm]
+    formats: [deb]
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    bindir: /usr/bin
+    vendor: cwm
+    homepage: https://github.com/Mr-JoE1/cwm
+    maintainer: "cwm maintainers <noreply@github.com>"
+    description: "Claude Workspace Manager: accounts, workspace and device sync for Claude Code"
+    license: MIT
+    section: utils
+    priority: optional
+    recommends:
+      - git
+      - syncthing
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/cwm/copyright
+        file_info:
+          mode: 0644
