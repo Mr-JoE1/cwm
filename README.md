@@ -33,14 +33,22 @@ switch Claude accounts freely, sync across your machines, resume anywhere.
 | Same session folder on every OS | no | partial (path rewriting) | no — slugs differ per OS | **yes** (name pinning) |
 | Repo clone-on-demand + resume | no | partial | no | **yes** (`repos.tsv` + `cwm <repo>`) |
 | WIP handoff between devices | no | manual branches | no | **yes** (`sync/<host>` auto-push) |
-| GUI for non-terminal users | no | no | web (sync only) | **yes** (planned v0.5) |
+| GUI for non-terminal users | no | no | web (sync only) | **yes** (`cwm gui`, beta) |
 | Cloud service required | no | mixed | no | **no — P2P only** |
 
 ## Install
 
-**Linux:** download the latest `cwm_<version>_linux_<arch>.tar.gz` from
-[GitHub Releases](https://github.com/Mr-JoE1/cwm/releases) (amd64 and arm64),
-unpack it, and put `cwm` on your `PATH`.
+**Linux (Debian/Ubuntu):** download `cwm_<version>_linux_amd64.deb` (or
+`_arm64.deb`) from [GitHub Releases](https://github.com/Mr-JoE1/cwm/releases)
+and install it — `cwm` lands in `/usr/bin`, and `git` + `syncthing` are
+pulled in as recommended packages:
+
+```sh
+sudo apt install ./cwm_<version>_linux_amd64.deb
+```
+
+**Linux (any distro):** download `cwm_<version>_linux_<arch>.tar.gz` (amd64
+and arm64), unpack it, and put `cwm` on your `PATH`.
 
 **Windows:** the release binaries aren't code-signed, so how you install them
 decides whether SmartScreen shows a warning. In order of preference:
@@ -276,7 +284,8 @@ is committed and safe to walk away from.
 ## Web GUI (v0.5, beta)
 
 A dashboard and setup wizard are built into the same binary — no extra
-install, no Node, nothing fetched from a CDN:
+install, no Node, nothing fetched from a CDN. It ships in every release
+archive and in the `.deb` (`sudo apt install ./cwm_<version>_linux_amd64.deb`):
 
 ```sh
 cwm gui                  # first free port in 47800-47809, opens your browser
@@ -284,9 +293,15 @@ cwm gui --port 47850     # pick the port yourself
 cwm gui --no-open        # just print the URL (headless boxes, SSH sessions)
 ```
 
+![Sessions tab: every workspace session, newest first, with a Resume button per row](docs/img/gui-sessions.png)
+
 Five tabs — **Sessions**, **Projects**, **Devices**, **WIP**, **Health** —
 show the same data as `cwm sessions`, `cwm list`, `cwm devices`,
 `cwm wip dirty` and `cwm doctor`. Ctrl-C in the terminal stops the server.
+
+| Projects | Health |
+|---|---|
+| ![Projects tab: session folders with session counts and last activity](docs/img/gui-projects.png) | ![Health tab: the cwm doctor checks with ok/warn/fail badges](docs/img/gui-health.png) |
 
 **Setup wizard.** On a device that is not set up yet (no workspace, or no
 account), the page opens a four-step wizard instead of the tabs:
@@ -300,6 +315,8 @@ account), the page opens a four-step wizard instead of the tabs:
    and takes the other device's ID (dashes are fine). Skippable; needs a
    running Syncthing.
 4. **Done** — on to the dashboard.
+
+![Setup wizard on a fresh device, step 1: Initialize the workspace](docs/img/gui-wizard.png)
 
 **Resume and pair from the dashboard.** Every Sessions row has a **Resume**
 button: it opens a terminal window running
@@ -357,8 +374,10 @@ cwm doctor --json        # exit code unchanged: 1 when any check fails
 - **v0.3** — Syncthing pairing automated via its REST API (`cwm pair`,
   `cwm devices`)
 - **v0.4** — session browser + WIP UX (`cwm sessions --pick`,
-  `cwm wip dirty`) *(this release)*
-- **v0.5** — embedded localhost web UI (wizard, dashboard, sessions, accounts); CLI stays first-class
+  `cwm wip dirty`)
+- **v0.5** — embedded localhost web UI: `cwm gui` dashboard, setup wizard,
+  resume/pair from the browser, `--json` on every view, `.deb` packages;
+  CLI stays first-class *(shipped as beta — this release)*
 - **v1.0** — stable CLI + GUI, complete docs, tagged long-term support
 
 Decisions and their rationale: [docs/PLAN.md](docs/PLAN.md).

@@ -52,6 +52,21 @@ details. Decisions are binding until superseded by a newer entry.
   renderer prints (pinned byte-for-byte by golden files captured before the
   refactor).
 
+**v0.5 closing note (2026-11-18, v0.5.0 beta).** Shipped: `cwm gui`
+(localhost dashboard with Sessions / Projects / Devices / WIP / Health tabs),
+the four-step setup wizard, Resume and Pair from the browser, `--json` on
+`list` / `devices` / `wip dirty` / `doctor`, and `.deb` packages for linux
+amd64/arm64 (goreleaser `nfpms`, binary in `/usr/bin`, recommends `git` and
+`syncthing`, listed in `checksums.txt`). Covered by tests: the D24 auth
+matrix, input validation, JSON shapes and the terminal launcher's argv
+building (fake Launcher); checked by hand: a headless Chromium render of the
+dashboard tabs and the wizard (the README screenshots, taken on fake demo
+data). Not yet verified: a real terminal window
+opening from the GUI on a Linux desktop or Windows (every check so far ran
+headless or with a fake launcher), and a full run in a real browser on
+Windows. Both stay open until v1.0; the "beta" label stays until they are
+confirmed.
+
 ## 2026-11-09 (v0.4.1)
 
 - **D22 — CI platform contract.** windows-latest runs build/vet/platform-logic

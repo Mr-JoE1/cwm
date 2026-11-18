@@ -93,7 +93,16 @@ before and after init.
 Out of scope for B: account removal/switching, MCP editing, settings editing.
 
 ### V0.5-C — packaging
-nfpms `.deb`; README GUI section with screenshots; tag v0.5.0.
+- `.goreleaser.yaml` `nfpms` (D25): `.deb` for linux amd64 + arm64, package `cwm`,
+  binary `/usr/bin/cwm`, MIT (LICENSE → `/usr/share/doc/cwm/copyright`), homepage
+  https://github.com/Mr-JoE1/cwm, maintainer `cwm maintainers <noreply@github.com>`,
+  recommends `git`, `syncthing`. File name `cwm_<version>_linux_<arch>.deb`; listed in
+  `checksums.txt` and uploaded with the archives. `dist/` gitignored.
+- README "Web GUI (v0.5, beta)": screenshots in `docs/img/` (gui-sessions, gui-projects,
+  gui-health, gui-wizard — headless Chromium 1280x800 on fake demo data only) and the
+  `sudo apt install ./cwm_<version>_linux_amd64.deb` line; roadmap marks v0.5 shipped (beta).
+- docs/PLAN.md: v0.5 closing note (shipped / not yet verified).
+- Tag `v0.5.0` only after CI on main is green (ubuntu + windows).
 
 ## Constraints (unchanged)
 Go ≥1.25, gofmt/vet clean, no panics, `%w` errors, t.TempDir, no network/real
