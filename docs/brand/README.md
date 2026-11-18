@@ -14,6 +14,7 @@ the box, so the mark stays legible at 16 px.
 |---|---|
 | `cwm-mark.svg` | Mark only, transparent. Adapts to `prefers-color-scheme` (dark/light palettes below). |
 | `cwm-logo.svg` | Mark + `cwm` wordmark, transparent, 180×64 viewBox. Adapts to `prefers-color-scheme`. |
+| `cwm-logo-on-dark.svg`, `cwm-logo-on-light.svg` | The same logo with a fixed palette (dark or light), for places that choose the variant themselves, such as the README's `<picture>` element, which follows the GitHub theme rather than the OS setting. |
 | `../../internal/gui/web/favicon.svg` | App icon: the mark on a near-black rounded tile. Same on any background (used as the dashboard favicon). |
 | `cwm-icon-512.png`, `cwm-icon-192.png`, `cwm-icon-32.png` | PNG renders of the app icon (headless Chromium). |
 | `cwm-logo-dark.png`, `cwm-logo-light.png` | Preview renders of logo + mark on both backgrounds. |
