@@ -3,6 +3,82 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-18 (v0.7)
+
+UI-only decisions for the v0.7 "cyber UI + brand" branch (`feat/v0.7-ui`),
+built in parallel with v0.6. Numbering starts at D40 so it cannot collide with
+v0.6 decisions. No `/api` contract change; the CSP is unchanged.
+
+- **D40 — brand: hexagon + prompt mark.** A hexagon (a node: one workspace,
+  many devices) framing a `>` chevron and a block cursor. Hand-written SVG,
+  wordmark glyphs as stroked paths (no font dependency), legible at 16 px,
+  single-colour friendly. The logo files adapt to `prefers-color-scheme`
+  and take `--cwm-*` overrides when inlined. The favicon is the mark on a
+  near-black tile, so it reads on any tab bar. PNG icons (512/192/32) are
+  rendered by headless Chromium. Files and palette: `docs/brand/`.
+- **D41 — design tokens, dark-first.** Every colour, radius and timing is a
+  CSS custom property. Dark "cyber" (`#05080d`, `#00ff9c`, `#00e5ff`,
+  `#ff3cd8`) is the default. The light theme darkens the same hues until all
+  text pairs pass WCAG AA (≥ 4.5:1). Only system font stacks (monospace for
+  display/UI, sans for body); no web fonts.
+- **D42 — no-flash theme via a synchronous external script.** The pre-paint
+  logic lives in `/theme.js`, loaded without `defer` in `<head>`, because the
+  D24 CSP (`script-src 'self'`) forbids inline scripts. Loosening the CSP with
+  a hash or nonce for cosmetics was rejected. Preferences: `localStorage`
+  `cwm-theme` (system | dark | light) and `cwm-bg` (on | off).
+- **D43 — the background must cost nothing when nobody is looking.** One
+  canvas with a particle network, ≤ 30 fps, DPR capped at 2, paused when
+  hidden, a still frame under reduced motion, a persisted off switch. It also
+  **freezes after 30 s without input** and resumes on any pointer, key,
+  wheel, touch or scroll. Decorative CSS loops are finite (pill pulses,
+  caret/cursor blink, one live-dot ping per refresh). Reason: in measurement,
+  every *continuously* running animation, even a 7 px dot, makes the browser
+  composite frames nonstop. That is tolerable while someone is using the
+  page, but not for a dashboard that is meant to stay open all day (v0.6
+  opens it at every login).
+- **D44 — feedback via toasts; the 501 fallback is a sticky toast.** Resume
+  results moved from an inline cell to toasts, which keeps the session table
+  aligned and stable under live refresh. The wizard and pair forms keep their
+  inline results and also toast. A 501 toast stays until it is closed and
+  carries the command with a Copy button.
+- **D45 — live updates: feature-detected SSE, else 15 s polling.** The page
+  probes `GET /api/events`. Only a 200 with `text/event-stream` opens an
+  `EventSource`; anything else polls every 15 s while visible. The event
+  vocabulary belongs to v0.6, so the client is tolerant: default or named
+  events, an optional JSON `topic|type|kind|event` field, and heartbeats
+  ignored. Bursts are coalesced, and only the affected tabs are marked stale.
+  Silent refreshes skip identical payloads, so focus, hover and scroll
+  survive. Known cosmetic effect until v0.6 merges: the probe's 404 shows up
+  as one "Failed to load resource" network line in the devtools console. It
+  is not a script error.
+- **D46 — asset rules enforced by test.** The static-asset test walks every
+  embedded file and enforces: no external references, no
+  `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write`/`eval` in any
+  script, no inline `<script>`/`style=` in `index.html`, a synchronous
+  `/theme.js`, and a 150 KB budget for all web assets (v0.7 ships about
+  84 KB). Doctor and error details render `` `cmd` `` spans as `<code>` by
+  splitting the string into text and `<code>` nodes, never by parsing HTML.
+
+**v0.7 note (2026-11-18, branch only, not merged).** Shipped on the branch:
+brand assets, both themes with system/dark/light switch, canvas background,
+toasts, skeletons, staggered reveals, typing tagline, status pills,
+shortcuts (`1`–`5`, `/`, `t`, `b`, `r`, `?`), stacked-card layout to 360 px,
+SSE/polling live updates, and the v0.5 nits (backtick → `<code>`, aligned
+badge column). Checked by hand in headless Chromium on fake demo data (temp
+HOME): Playwright behaviour checks (theme default/persistence/no-flash, 501
+toast + command, shortcuts, filter, reduced motion), zero JS errors, and
+screenshots in both themes plus mobile (`docs/img/gui-*-{dark,light}.png`).
+Idle CPU (headless Chromium, software compositing, 1280×800, 10 s windows):
+renderer main thread 0.03 % (bg on, idle > 30 s) / ≤ 0.4 % (bg off; a
+15 s poll lands in the window); whole browser process tree 0.1 % to 3.6 %
+by the same split. While the user is actively moving the mouse and the
+background animates at 30 fps: main thread ~12 %, whole browser ~65 % in
+this GPU-less VM. That number is software rendering. It is the reason for
+the D43 idle freeze. Not yet verified: CPU in a real GPU-backed desktop
+browser, a Lighthouse a11y run (target ≥ 90; contrast, labels, roles, focus
+and reduced motion were checked by hand), and SSE against the real v0.6
+`/api/events`.
+
 ## 2026-11-17 (v0.5)
 
 - **D27 — GUI actions open a real terminal; argv arrays only.** Claude Code
