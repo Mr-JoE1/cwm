@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🩺 Troubleshooting guide
+    url: https://github.com/Mr-JoE1/cwm/wiki/Troubleshooting
+    about: Every `cwm doctor` check explained, plus fixes for common install, dashboard, sync and session problems.
+  - name: ❓ FAQ
+    url: https://github.com/Mr-JoE1/cwm/wiki/FAQ
+    about: Short answers to common questions about accounts, sync, the dashboard and Windows.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/Mr-JoE1/cwm/security/advisories/new
+    about: Please report security problems privately, never in a public issue (see SECURITY.md).

@@ -1,0 +1,125 @@
+name: 🐛 Bug report
+description: Something in cwm doesn't work as documented.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+        **Security issue?** Don't file it here. Use [private vulnerability reporting](https://github.com/Mr-JoE1/cwm/security/advisories/new) instead (see SECURITY.md).
+        Please search [existing issues](https://github.com/Mr-JoE1/cwm/issues?q=is%3Aissue) and check [Troubleshooting](https://github.com/Mr-JoE1/cwm/wiki/Troubleshooting) first.
+        What to attach and how to redact it: [Reporting Issues](https://github.com/Mr-JoE1/cwm/wiki/Reporting-Issues).
+
+  - type: input
+    id: version
+    attributes:
+      label: cwm version
+      description: Output of `cwm version`
+      placeholder: "cwm 0.5.0 (linux/amd64, abc1234)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Other (say in the description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - amd64 (x86-64)
+        - arm64
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - One-line installer (install.sh / install.ps1)
+        - .deb package
+        - Release archive (tar.gz / zip)
+        - go install
+        - Built from source
+        - Legacy v0.1 bash kit
+    validations:
+      required: true
+
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`, if relevant
+      placeholder: "2.1.234"
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. cwm init
+        2. cwm account add main
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error message, if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`cwm doctor --json` output"
+      description: |
+        ⚠️ **Redact before pasting:** replace your username or home path (e.g. `/home/<you>`, `C:\Users\<you>`), email addresses, hostnames and device IDs with placeholders. Never paste tokens or credentials.
+      render: json
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Relevant output, e.g. `~/.cwm/logs/agent.log` or the terminal output. Same redaction rules as above.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I removed personal data (paths, emails, hostnames, tokens) from everything above.
+          required: true

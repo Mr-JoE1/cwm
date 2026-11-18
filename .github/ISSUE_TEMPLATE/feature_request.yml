@@ -1,0 +1,56 @@
+name: ✨ Feature request
+description: Suggest an idea or improvement for cwm.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Please check the [Roadmap](https://github.com/Mr-JoE1/cwm/wiki/Roadmap) and the [Decision Log](https://github.com/Mr-JoE1/cwm/wiki/Decision-Log) first, because it may already be planned (or deliberately ruled out).
+        Questions about using cwm are answered in the [FAQ](https://github.com/Mr-JoE1/cwm/wiki/FAQ).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: "When I switch devices I have to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should cwm do? Commands, flags, dashboard changes; whatever you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - CLI
+        - Web dashboard
+        - Accounts
+        - Device sync (Syncthing)
+        - Sessions / resume
+        - MCP
+        - Installer / autostart
+        - Docs
+        - Other
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to work on this myself (see CONTRIBUTING.md).
