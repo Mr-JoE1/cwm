@@ -38,39 +38,93 @@ switch Claude accounts freely, sync across your machines, resume anywhere.
 
 ## Install
 
-**Linux (Debian/Ubuntu):** download `cwm_<version>_linux_amd64.deb` (or
-`_arm64.deb`) from [GitHub Releases](https://github.com/Mr-JoE1/cwm/releases)
-and install it — `cwm` lands in `/usr/bin`, and `git` + `syncthing` are
-pulled in as recommended packages:
+**One line, per user — no sudo, no admin.** The installer downloads the latest
+release for your OS and CPU, verifies it against the release's
+`checksums.txt` (and refuses to install on any mismatch), puts `cwm` on your
+`PATH`, runs `cwm init`, starts the dashboard agent at every login and opens
+the dashboard in your browser.
+
+**Linux / macOS:**
+
+```sh
+curl -fsSL https://mr-joe1.github.io/cwm/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://mr-joe1.github.io/cwm/install.ps1 | iex
+```
+
+Options (`install.sh` flags after `sh -s --`; on Windows use environment
+variables, or the scriptblock form for parameters):
+
+| what | install.sh | install.ps1 |
+|---|---|---|
+| a specific release | `--version v0.6.0` | `$env:CWM_VERSION='v0.6.0'` / `-Version v0.6.0` |
+| no autostart at login | `--no-service` | `$env:CWM_NO_SERVICE='1'` / `-NoService` |
+| don't open the dashboard | `--no-open` | `$env:CWM_NO_OPEN='1'` / `-NoOpen` |
+| uninstall (keeps `~/.cwm`) | `--uninstall` | `$env:CWM_UNINSTALL='1'` / `-Uninstall` |
+
+```sh
+curl -fsSL https://mr-joe1.github.io/cwm/install.sh | sh -s -- --version v0.6.0 --no-service
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://mr-joe1.github.io/cwm/install.ps1))) -Version v0.6.0 -NoService
+```
+
+Where things go: `~/.local/bin/cwm` on Linux/macOS (one marked `export PATH=…`
+line in `~/.profile`, plus `~/.bashrc` / `~/.zshrc` / `~/.zprofile` if they
+exist); `%LOCALAPPDATA%\cwm\bin\cwm.exe` and `cwmd.exe` on Windows (added to
+your user `Path`). The scripts are plain text — read them first if you like:
+[install.sh](scripts/install.sh), [install.ps1](scripts/install.ps1).
+
+### Always-on dashboard (v0.6)
+
+```sh
+cwm dashboard            # open the dashboard (starts the agent in the background if needed)
+cwm service install      # start the agent at login and open the dashboard once per login
+cwm service install --no-open   # agent at login, but don't open the browser
+cwm service status|start|stop|uninstall
+cwm service rotate-token # new dashboard key; old links, bookmarks and cookies stop working
+cwm agent                # run the agent in the foreground (what the autostart runs)
+```
+
+The agent is per user and single-instance: starting it again just opens the
+running one. Its key lives in `~/.cwm/server.toml` (mode 0600) and survives
+restarts, so a bookmarked dashboard keeps working. It binds `127.0.0.1` only;
+`cwm agent --bind 0.0.0.0 --allow-host nas.lan` exposes it on the network
+(plain HTTP — put TLS in front). Autostart is user-level everywhere: a
+systemd `--user` unit plus an XDG autostart entry on Linux, a Task Scheduler
+logon task on Windows (running the windowless `cwmd.exe` — double-click it,
+or `cwm.exe`, to open the dashboard), LaunchAgents on macOS. Dashboard behind
+Docker or another host? `cwm service install --open-only --url
+http://127.0.0.1:47800` only opens that URL at login.
+
+### Manual downloads
+
+All archives, `.deb` packages and `checksums.txt` are on
+[GitHub Releases](https://github.com/Mr-JoE1/cwm/releases):
+`cwm_<version>_<os>_<arch>.tar.gz` for linux, darwin and windows (amd64 and
+arm64), `.zip` for Windows.
+
+**Linux (Debian/Ubuntu):** `cwm` lands in `/usr/bin`, and `git` + `syncthing`
+are pulled in as recommended packages:
 
 ```sh
 sudo apt install ./cwm_<version>_linux_amd64.deb
 ```
 
-**Linux (any distro):** download `cwm_<version>_linux_<arch>.tar.gz` (amd64
-and arm64), unpack it, and put `cwm` on your `PATH`.
-
-**Windows:** the release binaries aren't code-signed, so how you install them
-decides whether SmartScreen shows a warning. In order of preference:
-
-1. **tar.gz + the built-in `tar` (recommended).** Download
-   `cwm_<version>_windows_amd64.tar.gz` (or `_arm64`) from Releases and
-   extract it **from a terminal**, not with Explorer. Windows 10/11's `tar.exe`
-   doesn't copy the Mark-of-the-Web onto `cwm.exe`, so no SmartScreen prompt:
-
-   ```powershell
-   tar -xzf .\cwm_<version>_windows_amd64.tar.gz
-   ```
-
-2. **zip (legacy).** If you extract the `.zip` with Explorer, `cwm.exe`
-   inherits the download's Mark-of-the-Web, and SmartScreen will say
-   *"prevented an unrecognized app"*. Check the zip against `checksums.txt`,
-   then right-click it → **Properties** → **Unblock** *before* extracting (or
-   run `Unblock-File` on it).
-
-If Defender quarantines `cwm.exe` (a false positive common to new unsigned Go
-binaries), see [docs/WINDOWS-SMARTSCREEN.md](docs/WINDOWS-SMARTSCREEN.md). It
-covers every free fix and how to report the false positive.
+**Windows:** the release binaries aren't code-signed. The one-line installer
+avoids SmartScreen prompts (script downloads carry no Mark-of-the-Web). For a
+manual download, extract the tar.gz **from a terminal** with the built-in
+`tar` (`tar -xzf .\cwm_<version>_windows_amd64.tar.gz`), which doesn't copy
+the Mark-of-the-Web either. If you extract the `.zip` with Explorer, check it
+against `checksums.txt`, then right-click → **Properties** → **Unblock**
+before extracting. If Defender quarantines `cwm.exe` (a false positive common
+to new unsigned Go binaries), see
+[docs/WINDOWS-SMARTSCREEN.md](docs/WINDOWS-SMARTSCREEN.md).
 
 **go install** (Go ≥ 1.25):
 
@@ -333,18 +387,22 @@ the GUI never runs them in the browser — it opens a real terminal window:
 |---|---|
 | Linux | `$TERMINAL`, else the first of `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `xterm` |
 | Windows | Windows Terminal (`wt.exe`) when installed, else a new console via `cmd /c start` |
+| macOS | Terminal.app, driven through `osascript` |
 
 The command goes to the terminal as an argument list, never as a shell string.
 If the command fails, the window stays open until you press Enter so you can
 read the error. The window is detached: stopping `cwm gui` does not close it.
 
+On macOS the GUI opens Terminal.app (via `osascript`).
+
 **No terminal available** (a headless box over SSH, no `DISPLAY` /
-`WAYLAND_DISPLAY`, or macOS, which is not supported yet): the action answers
+`WAYLAND_DISPLAY`): the action answers
 `501` and the page shows the exact command with a **Copy** button. Run it in
 any terminal; the wizard notices the new account on its own.
 
-Security: the server binds to `127.0.0.1` only, and each launch gets a fresh
-random token. The printed URL carries it once (`/?t=<token>`); the page
+Security: the server binds to `127.0.0.1` only (since v0.6 the agent takes
+an explicit `--bind` for anything else), and it is protected by a random
+token — per launch in v0.5, persistent in `~/.cwm/server.toml` since v0.6. The printed URL carries it once (`/?t=<token>`); the page
 trades it for an HttpOnly, SameSite=Strict cookie and drops it from the
 address bar. API calls without the cookie or an `Authorization: Bearer`
 header get 401, requests with an unexpected `Host` header (DNS rebinding) get
@@ -377,7 +435,13 @@ cwm doctor --json        # exit code unchanged: 1 when any check fails
   `cwm wip dirty`)
 - **v0.5** — embedded localhost web UI: `cwm gui` dashboard, setup wizard,
   resume/pair from the browser, `--json` on every view, `.deb` packages;
-  CLI stays first-class *(shipped as beta — this release)*
+  CLI stays first-class *(shipped as beta)*
+- **v0.6** — one-line install (`install.sh` / `install.ps1`, checksum-verified,
+  per user), always-on agent (`cwm agent`, `cwm dashboard`, persistent token,
+  live `/api/events`), autostart at login on all three OSes (`cwm service`),
+  windowless `cwmd.exe`, macOS builds *(in progress — this branch)*
+- **v0.7** — cyber UI + brand; **v0.8** — Docker hub mode; **v0.9** — web
+  terminal (see [docs/ARCH-V2.md](docs/ARCH-V2.md))
 - **v1.0** — stable CLI + GUI, complete docs, tagged long-term support
 
 Decisions and their rationale: [docs/PLAN.md](docs/PLAN.md).
