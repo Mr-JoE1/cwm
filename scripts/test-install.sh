@@ -22,8 +22,23 @@ trap cleanup EXIT
 PASS=0
 FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; }
-check() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
+LAST_OUT=""
+bad() {
+    FAIL=$((FAIL + 1))
+    printf 'FAIL %s\n' "$1"
+    if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+        # Annotations are readable without log access; include the output
+        # of the failing step (newlines encoded per the workflow-command spec).
+        local o=${LAST_OUT//'%'/'%25'}
+        o=${o//$'\r'/}
+        o=${o//$'\n'/'%0A'}
+        printf '::error title=installer harness::FAIL %s%%0A%s\n' "$1" "${o: -3000}"
+    fi
+}
+check() {
+    LAST_OUT=${OUT:-}
+    if eval "$2"; then ok "$1"; else bad "$1"; fi
+}
 
 case "$(uname -s)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) echo "unsupported host"; exit 1 ;; esac
 case "$(uname -m)" in x86_64 | amd64) ARCH=amd64 ;; aarch64 | arm64) ARCH=arm64 ;; *) echo "unsupported arch"; exit 1 ;; esac
