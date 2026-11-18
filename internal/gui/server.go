@@ -24,11 +24,13 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -56,6 +58,11 @@ const defaultSessionsLimit = 50
 //go:embed web
 var webFS embed.FS
 
+// persistentCookieAge is the agent-mode cookie lifetime (D31): long enough
+// that a bookmarked dashboard keeps working, bounded so a stolen cookie
+// does not live forever.
+const persistentCookieAge = 30 * 24 * time.Hour
+
 // Options carries everything the handlers read. SyncClient is a seam so
 // tests inject a fake syncthing; it is called per request that needs it.
 // Launcher opens terminal windows (D27; tests inject a fake, nil = none
@@ -70,15 +77,34 @@ type Options struct {
 	CwmPath    string
 	GOOS       string
 	Reserved   func(name string) bool
+
+	// v0.6 agent mode (D31-D33). Bind is the listen address ("" =
+	// 127.0.0.1); AllowHosts extends the Host allow-list (H matches H:port,
+	// H:P matches exactly); PersistentCookie gives the token cookie a
+	// Max-Age so a bookmark survives browser restarts. EventsPoll and
+	// Heartbeat tune /api/events (0 = 5s / 15s).
+	Bind             string
+	AllowHosts       []string
+	PersistentCookie bool
+	EventsPoll       time.Duration
+	Heartbeat        time.Duration
 }
 
 // Server is the dashboard http.Handler bound to one port and one token.
 type Server struct {
-	opts   Options
-	port   int
-	token  string
-	csrf   string
-	static http.Handler
+	opts    Options
+	port    int
+	started time.Time
+	static  http.Handler
+	// tokMu guards token/csrf: `cwm service rotate-token` swaps them on a
+	// running agent (SetToken).
+	tokMu sync.RWMutex
+	token string
+	csrf  string
+	// snapshot cache shared by every /api/events stream.
+	snapMu sync.Mutex
+	snapAt time.Time
+	snap   Snapshot
 	// actionMu serializes state-changing actions (init, pair, launches):
 	// two tabs double-clicking must not race the config files.
 	actionMu sync.Mutex
@@ -108,7 +134,32 @@ func New(opts Options, port int, token string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gui: embedded web assets: %w", err)
 	}
-	return &Server{opts: opts, port: port, token: token, csrf: deriveCSRF(token), static: http.FileServerFS(sub)}, nil
+	return &Server{opts: opts, port: port, started: time.Now().UTC(), token: token, csrf: deriveCSRF(token), static: http.FileServerFS(sub)}, nil
+}
+
+// SetToken replaces the token (and its derived CSRF value) on a running
+// server: every cookie, bookmark and Bearer header carrying the old one is
+// rejected from now on.
+func (s *Server) SetToken(token string) error {
+	if len(token) != 2*tokenBytes {
+		return fmt.Errorf("gui: token must be %d hex chars, got %d", 2*tokenBytes, len(token))
+	}
+	s.tokMu.Lock()
+	defer s.tokMu.Unlock()
+	s.token, s.csrf = token, deriveCSRF(token)
+	return nil
+}
+
+// Token is the current dashboard token.
+func (s *Server) Token() string {
+	tok, _ := s.currentToken()
+	return tok
+}
+
+func (s *Server) currentToken() (token, csrf string) {
+	s.tokMu.RLock()
+	defer s.tokMu.RUnlock()
+	return s.token, s.csrf
 }
 
 // deriveCSRF is the value the dashboard's JS sends as X-CWM-CSRF. It is an
@@ -123,7 +174,8 @@ func deriveCSRF(token string) string {
 
 // URL is the launch URL carrying the token (stripped after first load).
 func (s *Server) URL() string {
-	return fmt.Sprintf("http://127.0.0.1:%d/?t=%s", s.port, s.token)
+	tok, _ := s.currentToken()
+	return agent.URL(agent.ProbeHost(s.opts.Bind), s.port, tok)
 }
 
 // CookieName is per-port: cookies are not port-scoped, so two dashboards
@@ -171,6 +223,9 @@ func Serve(ctx context.Context, ln net.Listener, h http.Handler) error {
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		// Request contexts derive from ctx, so long-lived /api/events
+		// streams end as soon as shutdown starts instead of holding it up.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -216,6 +271,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	switch r.URL.Path {
+	case "/healthz":
+		w.Header().Set("Cache-Control", "no-store")
+		writeAPI(w, http.StatusOK, map[string]any{"app": "cwm", "ok": true})
+		return
+	case "/login":
+		s.serveLogin(w)
+		return
+	}
 	if r.URL.Path == "/" && r.URL.Query().Has("t") {
 		s.exchangeToken(w, r)
 		return
@@ -227,34 +291,60 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // this server is reachable at are accepted.
 func (s *Server) hostOK(host string) bool {
 	p := ":" + strconv.Itoa(s.port)
-	return host == "127.0.0.1"+p || strings.EqualFold(host, "localhost"+p)
+	if host == "127.0.0.1"+p || strings.EqualFold(host, "localhost"+p) {
+		return true
+	}
+	// A concrete non-wildcard bind IP is reachable under its own literal.
+	if ip := net.ParseIP(s.opts.Bind); ip != nil && !ip.IsUnspecified() &&
+		strings.EqualFold(host, net.JoinHostPort(s.opts.Bind, strconv.Itoa(s.port))) {
+		return true
+	}
+	for _, a := range s.opts.AllowHosts {
+		want := a
+		if _, _, err := net.SplitHostPort(a); err != nil {
+			// Bare host: only with our port (browsers always send the
+			// port for a non-default one).
+			want = net.JoinHostPort(strings.Trim(a, "[]"), strconv.Itoa(s.port))
+		}
+		if a != "" && strings.EqualFold(host, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // exchangeToken turns ?t=<token> into the HttpOnly cookie and redirects to
 // "/" so the token leaves the address bar and history.
 func (s *Server) exchangeToken(w http.ResponseWriter, r *http.Request) {
 	if !s.tokenEqual(r.URL.Query().Get("t")) {
-		http.Error(w, "unauthorized: invalid token — open the URL printed by `cwm gui`", http.StatusUnauthorized)
+		http.Error(w, "unauthorized: invalid token — run `cwm dashboard`, or sign in at /login", http.StatusUnauthorized)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	tok, _ := s.currentToken()
+	c := &http.Cookie{
 		Name:     s.CookieName(),
-		Value:    s.token,
+		Value:    tok,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-	})
+	}
+	if s.opts.PersistentCookie {
+		c.MaxAge = int(persistentCookieAge / time.Second)
+	}
+	http.SetCookie(w, c)
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) tokenEqual(got string) bool {
-	return subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1
+	tok, _ := s.currentToken()
+	return subtle.ConstantTimeCompare([]byte(got), []byte(tok)) == 1
 }
 
 // csrfOK accepts the launch token or its derived CSRF value.
 func (s *Server) csrfOK(got string) bool {
-	return s.tokenEqual(got) || subtle.ConstantTimeCompare([]byte(got), []byte(s.csrf)) == 1
+	_, csrf := s.currentToken()
+	return s.tokenEqual(got) || subtle.ConstantTimeCompare([]byte(got), []byte(csrf)) == 1
 }
 
 // authenticated accepts the cookie or an Authorization: Bearer header.
@@ -298,13 +388,14 @@ func (s *Server) routes() map[string]route {
 		"/api/init":            {post: s.apiInit},
 		"/api/sessions/resume": {post: s.apiResume},
 		"/api/pair":            {post: s.apiPair},
+		"/api/agent":           {get: s.apiAgent},
 	}
 }
 
 func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !s.authenticated(r) {
-		writeAPI(w, http.StatusUnauthorized, apiError{Error: "unauthorized — open the URL printed by `cwm gui`"})
+		writeAPI(w, http.StatusUnauthorized, apiError{Error: "unauthorized — run `cwm dashboard`, or sign in at /login"})
 		return
 	}
 	readOnly := r.Method == http.MethodGet || r.Method == http.MethodHead
@@ -318,6 +409,10 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			writeAPI(w, http.StatusForbidden, apiError{Error: "forbidden: missing or invalid " + CSRFHeader + " header"})
 			return
 		}
+	}
+	if r.URL.Path == "/api/events" && readOnly {
+		s.serveEvents(w, r)
+		return
 	}
 	rt, ok := s.routes()[r.URL.Path]
 	if !ok {
@@ -370,6 +465,23 @@ func writeAPI(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	_, _ = w.Write(append(data, '\n'))
+}
+
+// apiAgent reports who serves this dashboard (v0.6): the probe a second
+// launch, `cwm dashboard` and `cwm service status|stop` use.
+func (s *Server) apiAgent(*http.Request) (any, int, error) {
+	bind := s.opts.Bind
+	if bind == "" {
+		bind = agent.DefaultBind
+	}
+	return agent.Info{
+		Agent:   true,
+		PID:     os.Getpid(),
+		Port:    s.port,
+		Bind:    bind,
+		Started: s.started,
+		Version: s.opts.Version.Version,
+	}, http.StatusOK, nil
 }
 
 func (s *Server) apiVersion(*http.Request) (any, int, error) {

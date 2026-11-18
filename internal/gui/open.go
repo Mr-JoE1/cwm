@@ -1,7 +1,9 @@
 package gui
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 )
@@ -21,10 +23,26 @@ func browserCommand(goos, url string) (string, []string) {
 	}
 }
 
+// headless refuses to run xdg-open without a graphical session: there it
+// would fall back to a text-mode browser and take over the terminal (or
+// block a login script).
+func headless(goos string, getenv func(string) string) error {
+	if goos == "windows" || goos == "darwin" {
+		return nil
+	}
+	if getenv("DISPLAY") == "" && getenv("WAYLAND_DISPLAY") == "" {
+		return errors.New("headless session (neither DISPLAY nor WAYLAND_DISPLAY is set)")
+	}
+	return nil
+}
+
 // OpenBrowser launches the default browser at url without waiting for it.
 // A missing opener is an error the caller reports as a hint (headless
 // boxes simply open the printed URL elsewhere).
 func OpenBrowser(url string) error {
+	if err := headless(runtime.GOOS, os.Getenv); err != nil {
+		return err
+	}
 	name, args := browserCommand(runtime.GOOS, url)
 	if _, err := exec.LookPath(name); err != nil {
 		return fmt.Errorf("no browser opener %q on PATH: %w", name, err)
