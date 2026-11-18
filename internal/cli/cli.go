@@ -34,7 +34,7 @@ const (
 var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
-	"pair", "devices", "sessions",
+	"pair", "devices", "sessions", "agent", "service", "dashboard",
 }
 
 // IsReserved reports whether name is reserved.
@@ -84,7 +84,10 @@ var commands = []*command{
 	{name: "hook", args: "session-start|session-end", short: "hook entry points (wired from settings.json)", stage: 'B'},
 	{name: "pair", args: "[--start] [<device-id> [name]]", short: "pair this workspace with another device (syncthing)"},
 	{name: "devices", args: "[--json]", short: "list paired devices and their sync health"},
-	{name: "gui", args: "[--port N] [--no-open]", short: "serve the local web dashboard on 127.0.0.1 (beta)"},
+	{name: "gui", args: "[--port N] [--no-open]", short: "run the dashboard agent in the foreground and open it (beta)"},
+	{name: "agent", args: "[--bind ADDR] [--port N] [--open|--no-open] [--allow-host H]", short: "run the always-on dashboard agent (one per user; a second launch opens it)"},
+	{name: "dashboard", args: "[--no-open] [--wait SECONDS]", short: "open the dashboard, starting the agent in the background if needed"},
+	{name: "service", args: "install|uninstall|status|start|stop|rotate-token", short: "start the agent at login and open the dashboard (per user, no admin)"},
 }
 
 // Command implementations are wired in init to avoid an initialization cycle
@@ -123,6 +126,12 @@ func init() {
 			c.run = cmdSessions
 		case "gui":
 			c.run = cmdGui
+		case "agent":
+			c.run = cmdAgent
+		case "dashboard":
+			c.run = cmdDashboard
+		case "service":
+			c.run = cmdService
 		}
 	}
 }
@@ -145,7 +154,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 // Run executes args against env e.
 func (e *Env) Run(args []string) int {
-	cmdName, rest, err := e.parseGlobalFlags(args)
+	cmdName, rest, err := e.parseGlobalFlags(normalizeFlags(args))
 	if err != nil {
 		return e.usageErr(err)
 	}
@@ -186,6 +195,10 @@ func (e *Env) parseGlobalFlags(args []string) (string, []string, error) {
 			e.printUsage()
 			e.helpWanted = true
 			return "", nil, nil
+		case a == "--version" || a == "-v":
+			_ = cmdVersion(e, nil)
+			e.helpWanted = true
+			return "", nil, nil
 		case a == "--account":
 			if i+1 >= len(args) {
 				return "", nil, fmt.Errorf("--account needs a value (try: --account <name>)")
@@ -203,6 +216,65 @@ func (e *Env) parseGlobalFlags(args []string) (string, []string, error) {
 		}
 	}
 	return "", nil, nil
+}
+
+// passthroughCommands hand (some of) their arguments to other programs
+// (claude, MCP servers), so their flags are never rewritten.
+var passthroughCommands = map[string]bool{"open": true, "hook": true, "mcp": true}
+
+// normalizeFlags rewrites single-dash long flags (-port, -no-open=x) to
+// their double-dash form (D38) for global flags and for cwm's own
+// subcommands. Untouched: single-letter flags (-h, -v), anything after
+// "--", the direct-launch form `cwm <repo> ...` and passthrough commands,
+// whose arguments belong to claude or other programs.
+func normalizeFlags(args []string) []string {
+	out := append([]string(nil), args...)
+	i := 0
+	for ; i < len(out); i++ {
+		a := out[i]
+		if a == "--" || !strings.HasPrefix(a, "-") {
+			break
+		}
+		out[i] = longDash(a)
+		if out[i] == "--account" {
+			i++ // its value is never a flag
+		}
+	}
+	if i >= len(out) || out[i] == "--" {
+		return out
+	}
+	if lookupCommand(out[i]) == nil || passthroughCommands[out[i]] {
+		return out
+	}
+	for j := i + 1; j < len(out); j++ {
+		if out[j] == "--" {
+			break
+		}
+		out[j] = longDash(out[j])
+	}
+	return out
+}
+
+// longDash maps "-name" / "-name=value" (name = a letter then letters,
+// digits or dashes, at least two characters) to "--name..."; everything
+// else is returned unchanged.
+func longDash(a string) string {
+	if len(a) < 3 || a[0] != '-' || a[1] == '-' {
+		return a
+	}
+	name := a[1:]
+	if k := strings.IndexByte(name, '='); k >= 0 {
+		name = name[:k]
+	}
+	if len(name) < 2 || !(name[0] >= 'a' && name[0] <= 'z') {
+		return a
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return a
+		}
+	}
+	return "-" + a
 }
 
 func (e *Env) usageErr(err error) int {
@@ -258,7 +330,9 @@ func (e *Env) printUsage() {
 	b.WriteString("\nglobal flags:\n")
 	b.WriteString("  --account <name>               use a specific account for this invocation\n")
 	b.WriteString("  --dry-run                      mutating commands print their plan only\n")
-	b.WriteString("  -h, --help                     this help\n\n")
+	b.WriteString("  -v, --version                  print the version\n")
+	b.WriteString("  -h, --help                     this help\n")
+	b.WriteString("  (single-dash long flags such as -port 47800 are accepted too)\n\n")
 	fmt.Fprintf(&b, "reserved names (a repo cannot use these):\n  %s\n", strings.Join(ReservedNames, " "))
 	_, _ = e.Stdout.Write(b.Bytes())
 }

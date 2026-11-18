@@ -3,11 +3,13 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
@@ -19,6 +21,10 @@ func stubGui(t *testing.T) *[]string {
 	t.Helper()
 	opened := &[]string{}
 	origCtx, origOpen := guiSignalContext, guiOpenBrowser
+	origSpawn, origReuse, origStart := agentSpawn, agentReuseWait, agentStartWait
+	// Never start a real background agent; never wait long for one.
+	agentSpawn = func(string) error { return errors.New("spawning disabled in tests") }
+	agentReuseWait, agentStartWait = 200*time.Millisecond, 200*time.Millisecond
 	guiSignalContext = func() (context.Context, context.CancelFunc) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -28,7 +34,10 @@ func stubGui(t *testing.T) *[]string {
 		*opened = append(*opened, url)
 		return nil
 	}
-	t.Cleanup(func() { guiSignalContext, guiOpenBrowser = origCtx, origOpen })
+	t.Cleanup(func() {
+		guiSignalContext, guiOpenBrowser = origCtx, origOpen
+		agentSpawn, agentReuseWait, agentStartWait = origSpawn, origReuse, origStart
+	})
 	return opened
 }
 
@@ -71,12 +80,20 @@ func TestGuiCommand(t *testing.T) {
 		t.Fatalf("--no-open: code = %d opened = %v err = %q", got.code, *opened, got.err)
 	}
 
-	// Two launches never share a token.
+	// v0.6 (D31): the token is persistent — two launches share it, so a
+	// bookmark survives restarts — until `cwm service rotate-token`.
+	tokRe := regexp.MustCompile(`t=([0-9a-f]{64})`)
 	got2 := runCLI(t, "gui", "--no-open", "--port", strconv.Itoa(freePort(t)))
-	t1 := regexp.MustCompile(`t=([0-9a-f]{64})`).FindStringSubmatch(got.out)
-	t2 := regexp.MustCompile(`t=([0-9a-f]{64})`).FindStringSubmatch(got2.out)
-	if t1 == nil || t2 == nil || t1[1] == t2[1] {
-		t.Errorf("tokens must differ per launch: %v vs %v", t1, t2)
+	t1, t2 := tokRe.FindStringSubmatch(got.out), tokRe.FindStringSubmatch(got2.out)
+	if t1 == nil || t2 == nil || t1[1] != t2[1] {
+		t.Errorf("token must persist across launches: %v vs %v", t1, t2)
+	}
+	if r := runCLI(t, "service", "rotate-token"); r.code != ExitOK {
+		t.Fatalf("rotate-token: %d %q", r.code, r.err)
+	}
+	got3 := runCLI(t, "gui", "--no-open", "--port", strconv.Itoa(freePort(t)))
+	if t3 := tokRe.FindStringSubmatch(got3.out); t3 == nil || t3[1] == t1[1] {
+		t.Errorf("rotate-token must change the token: %v vs %v", t1, t3)
 	}
 }
 
