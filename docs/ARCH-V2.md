@@ -70,6 +70,6 @@ v0.6 and v0.7 touch disjoint code (service/installer vs `internal/gui/web`) and 
   the project landing domain exists.
 - **D30 — Dependencies:** v0.8 (web terminal) may add exactly two deps: a PTY library (with Windows ConPTY)
   and a WebSocket library. Everything else stays stdlib + BurntSushi/toml.
-- **D31 — Web-only UX:** the browser dashboard is the only user interface. No desktop terminal windows are opened from the UI; interactive Claude sessions and logins run in the in-dashboard terminal. The CLI stays for scripting and power users, but every action has a web equivalent.
-- **D32 — Stats are local and derived:** computed only from the synced session JSONL files already in the workspace (no Anthropic API, no telemetry). Covers every device and every account that wrote into the workspace. Tokens are shown as counts; an optional "API-equivalent cost" uses a static per-model price table and is labelled an estimate (a Max plan is flat-rate).
+- **D47 — Web-only UX:** the browser dashboard is the only user interface. No desktop terminal windows are opened from the UI; interactive Claude sessions and logins run in the in-dashboard terminal. The CLI stays for scripting and power users, but every action has a web equivalent.
+- **D48 — Stats are local and derived:** computed only from the synced session JSONL files already in the workspace (no Anthropic API, no telemetry). Covers every device and every account that wrote into the workspace. Tokens are shown as counts; an optional "API-equivalent cost" uses a static per-model price table and is labelled an estimate (a Max plan is flat-rate).
 - v0.6 and v0.7 are built in parallel on separate branches and merged by the maintainer.
