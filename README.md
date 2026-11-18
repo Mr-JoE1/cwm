@@ -335,7 +335,7 @@ Only repos present under the repos root are scanned — a repo that isn't
 cloned on this machine is clean by definition here. No rows means everything
 is committed and safe to walk away from.
 
-## Web GUI (v0.5, beta)
+## Web GUI (beta)
 
 A dashboard and setup wizard are built into the same binary — no extra
 install, no Node, nothing fetched from a CDN. It ships in every release
@@ -347,15 +347,39 @@ cwm gui --port 47850     # pick the port yourself
 cwm gui --no-open        # just print the URL (headless boxes, SSH sessions)
 ```
 
-![Sessions tab: every workspace session, newest first, with a Resume button per row](docs/img/gui-sessions.png)
+![Sessions tab (dark theme): every workspace session, newest first, with a Resume button per row](docs/img/gui-sessions-dark.png)
 
 Five tabs — **Sessions**, **Projects**, **Devices**, **WIP**, **Health** —
 show the same data as `cwm sessions`, `cwm list`, `cwm devices`,
 `cwm wip dirty` and `cwm doctor`. Ctrl-C in the terminal stops the server.
 
-| Projects | Health |
+**Look and feel (v0.7).** Dark "cyber" theme by default, plus a light theme;
+the header switch picks **system / dark / light** and remembers the choice,
+with no flash on load. A subtle animated network background sits behind the
+content. It runs at most 30 fps, pauses when the tab is hidden, freezes after
+30 s without input (so an idle dashboard uses no CPU for it), shows a still
+frame under *reduce motion*, and turns off with the ✦ button. Actions report
+through toasts; when no terminal can be opened, the toast carries the command
+with a **Copy** button. The page updates itself: live over server-sent
+events when the running cwm provides them, otherwise every 15 s while
+visible. Down to phone width, tables turn into cards.
+
+| Keys | |
 |---|---|
-| ![Projects tab: session folders with session counts and last activity](docs/img/gui-projects.png) | ![Health tab: the cwm doctor checks with ok/warn/fail badges](docs/img/gui-health.png) |
+| `1`–`5` | switch tab |
+| `/` | filter sessions |
+| `t` | cycle theme (system → dark → light) |
+| `b` | background animation on/off |
+| `r` | refresh |
+| `?` | all shortcuts |
+
+<img src="docs/img/gui-sessions-mobile-dark.png" alt="Sessions tab on a phone (390 px wide): each session as a card with a full-width Resume button" width="260">
+
+Logo, palette and usage rules: [docs/brand](docs/brand/README.md).
+
+| Projects (light) | Health (light) |
+|---|---|
+| ![Projects tab, light theme: session folders with session counts and last activity](docs/img/gui-projects-light.png) | ![Health tab, light theme: the cwm doctor checks with ok/warn/fail status pills](docs/img/gui-health-light.png) |
 
 **Setup wizard.** On a device that is not set up yet (no workspace, or no
 account), the page opens a four-step wizard instead of the tabs:
@@ -370,7 +394,7 @@ account), the page opens a four-step wizard instead of the tabs:
    running Syncthing.
 4. **Done** — on to the dashboard.
 
-![Setup wizard on a fresh device, step 1: Initialize the workspace](docs/img/gui-wizard.png)
+![Setup wizard on a fresh device (dark theme), step 1: Initialize the workspace](docs/img/gui-wizard-dark.png)
 
 **Resume and pair from the dashboard.** Every Sessions row has a **Resume**
 button: it opens a terminal window running
