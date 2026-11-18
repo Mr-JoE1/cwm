@@ -53,7 +53,7 @@ go install github.com/Mr-JoE1/cwm/cmd/cwm@latest
 **No SmartScreen prompt.** The binary is compiled on your own machine, so it
 was never downloaded and carries no Mark-of-the-Web. Needs Go ≥ 1.25.
 
-### 4. Already downloaded the zip? Unblock it
+### 3. Already downloaded the zip? Unblock it
 
 This removes the Mark-of-the-Web, so nothing you extract afterwards gets
 tagged.
@@ -71,7 +71,7 @@ tagged.
 Or click **More info → Run anyway** when the SmartScreen dialog appears.
 Windows remembers that choice for this file.
 
-### 5. Defender deleted or quarantined `cwm.exe`? Report the false positive
+### 4. Defender deleted or quarantined `cwm.exe`? Report the false positive
 
 Removing the Mark-of-the-Web stops **SmartScreen**. It doesn't stop
 **Defender Antivirus** from scanning the file. If Defender flags `cwm.exe`:
@@ -95,7 +95,7 @@ Removing the Mark-of-the-Web stops **SmartScreen**. It doesn't stop
 
    ```powershell
    # admin PowerShell. Keep the exclusion as narrow as possible.
-   Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\Programs\cwm"
+   Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\cwm\bin"   # the one-line installer's folder
    ```
 
    On managed or work machines, ask your IT team instead. Exclusions are often
@@ -106,7 +106,7 @@ architecture**, so maintainers know which builds to submit.
 
 > **Smart App Control.** On Windows 11 with *Smart App Control* turned **On**,
 > unsigned apps that carry the Mark-of-the-Web can be blocked with **no**
-> "Run anyway" button. Options 1–4 all avoid that, because the binary carries
+> "Run anyway" button. Options 1–3 all avoid that, because the binary carries
 > no mark. SAC can't be turned back on once it's off, so don't disable it just
 > for cwm.
 
@@ -172,7 +172,7 @@ it's separate from MOTW. Detection names usually end in `!ml`, for example
   stripped Go binary" as a weak risk signal.
 
 The Go FAQ covers this: <https://go.dev/doc/faq#virus>. The fix is the free
-false-positive submission in [step 5](#5-defender-deleted-or-quarantined-cwmexe-report-the-false-positive).
+false-positive submission in [step 4](#4-defender-deleted-or-quarantined-cwmexe-report-the-false-positive).
 
 ### Why it comes back with every release
 
