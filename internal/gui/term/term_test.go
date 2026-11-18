@@ -94,10 +94,10 @@ func TestResolveLinuxTerminalEnv(t *testing.T) {
 func TestResolveNoTerminal(t *testing.T) {
 	argv := []string{"cwm", "account", "add", "x"}
 	cases := map[string]Env{
-		"linux nothing on PATH": fakeEnv("linux", nil, display),
-		"linux headless":        fakeEnv("linux", map[string]string{"xterm": "/usr/bin/xterm"}, nil),
-		"darwin":                fakeEnv("darwin", map[string]string{"open": "/usr/bin/open"}, display),
-		"windows no cmd":        fakeEnv("windows", nil, nil),
+		"linux nothing on PATH":    fakeEnv("linux", nil, display),
+		"linux headless":           fakeEnv("linux", map[string]string{"xterm": "/usr/bin/xterm"}, nil),
+		"darwin without osascript": fakeEnv("darwin", map[string]string{"open": "/usr/bin/open"}, display),
+		"windows no cmd":           fakeEnv("windows", nil, nil),
 	}
 	for name, env := range cases {
 		if _, err := Resolve(env, argv); !errors.Is(err, ErrNoTerminal) {
