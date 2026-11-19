@@ -81,7 +81,7 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
   </tr>
   <tr>
     <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click; the repo clones if it's missing.</p></td>
-    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, WIP and Health. Dark/light themes, live updates, phone layout.</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, WIP, Health and Accounts (add, log in, set default, remove). Dark/light themes, live updates, phone layout.</p></td>
     <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
   </tr>
   <tr>
@@ -131,7 +131,7 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
 ## Quick start
 
 ```sh
-cwm account add main          # attach a Claude login (or use the dashboard wizard)
+cwm account add main          # attach a Claude login (or the dashboard's Accounts tab)
 cwm myproject                 # open ~/repos/myproject: clone on demand, then the resume picker
 cwm sessions --pick           # every session, newest first: pick one to resume
 cwm pair                      # pair this device with another one

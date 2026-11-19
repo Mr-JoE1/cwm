@@ -84,7 +84,7 @@ func (s *Server) debugSources() debugbundle.Sources {
 		src.SyncClient = s.opts.SyncClient
 	}
 	if src.Claude == nil {
-		src.Claude = s.lookupClaude
+		src.Claude = s.surveyClaude
 	}
 	if src.Doctor == nil {
 		root := s.opts.Layout.Root

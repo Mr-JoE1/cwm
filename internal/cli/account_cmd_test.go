@@ -51,6 +51,9 @@ func TestAccountUsageErrors(t *testing.T) {
 		{"use no name", []string{"account", "use"}, "usage: cwm account use"},
 		{"remove no name", []string{"account", "remove"}, "usage: cwm account remove"},
 		{"add bad name", []string{"account", "add", "Bad!Name"}, "invalid account name"},
+		{"add reserved name", []string{"account", "add", "doctor"}, "reserved"},
+		{"login no name", []string{"account", "login"}, "usage: cwm account login"},
+		{"login unknown", []string{"account", "login", "ghost"}, "cwm account add ghost"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

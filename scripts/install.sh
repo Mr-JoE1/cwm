@@ -65,6 +65,8 @@ ui_init() {
     OPEN_LINE=0 # a step header is waiting for its result on the same line
 }
 
+# banner SUBTITLE — the art is scripts/banner.txt verbatim; the harness
+# compares both installers' output with that file line by line (D59).
 banner() {
     printf '\n'
     printf '%s                ___ __      __ _ __ ___%s\n' "$C_BOLD" "$C_RESET"

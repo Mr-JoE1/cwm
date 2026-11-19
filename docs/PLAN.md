@@ -3,6 +3,103 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-19 (v0.6.2 — accounts tab, verified claude, quiet fresh installs, SPEC-V0.6.2)
+
+From a real Windows 11 test of v0.6.1: Claude Code lived in
+`%LOCALAPPDATA%\AnthropicClaude\claude.exe` and the resolver found it, but
+the account added from the dashboard was invisible ("0 with a recorded
+login" in the bundle), doctor showed five warnings, most of them legacy-kit
+noise, `/api/devices` logged a 503 for a Syncthing that was simply not set
+up, and the install.ps1 banner was slightly mangled under PowerShell 5.1.
+
+- **D54: a claude counts because of what it does, never because of where
+  it is.** Every candidate is probed: `<file> --version`, 5 s timeout,
+  stdin from the null device, at most 4 KiB of output kept. It verifies when
+  it exits 0 and a line carries a semantic version (any pre-release or
+  build suffix) and the word "claude" (any case). The real output is one
+  line, `2.1.319 (Claude Code)`; the rule keys on that shape, not on the
+  suffix. The lookup order stays (D49), but every `claude` on PATH is now a
+  candidate in PATH order, not only the first, and nothing is accepted or
+  rejected for its folder: `%LOCALAPPDATA%\AnthropicClaude` is as good as
+  any other place if the probe passes. A saved `claude_path` that stops
+  verifying is cleared from config.toml, also by the read-only lookup
+  (keeping a known-wrong pin helps nobody), and one line goes to
+  `state/claude-cleared.txt` so doctor and the bundle can say what
+  happened. `$CWM_CLAUDE` pointing at something that is not Claude Code
+  is an error, as before. Verdicts are cached per (path, size, mtime) for
+  the life of the process, so the agent's 5 s poll does not spawn claude
+  each time. Reports (`/api/claude`, doctor, the bundle) run a survey that
+  keeps probing past the winner, up to 5 candidates. Rejected alternative:
+  a list of "trusted" install folders. That is the bug class itself: a
+  folder name says nothing about the file in it.
+- **D55: login state is reported by the process that runs the login.**
+  The dashboard cannot see inside the terminal it opens (the emulator's
+  exit status means nothing, and wt.exe or gnome-terminal-server even
+  hand the command to another process). So `cwm account add|login` writes
+  `state/account-login/<name>.json` itself: `in_progress` with its pid,
+  then `done` after the config is saved, or `failed` with the reason. The
+  agent writes `in_progress` (no pid) right before it opens the window and
+  derives the rest: a dead pid means the window was closed, no pid after
+  90 s means the terminal never ran the command, 15 minutes is a timeout,
+  and a recorded login with fresh credentials means done. It persists
+  those transitions and keeps the last state in memory. The event stream's
+  snapshot carries `name=status`, so open dashboards hear about it. The
+  "recorded login" signal stays the CLI's existing one (an e-mail in
+  `[account.login]`).
+- **D56: Accounts API = the CLI's semantics.** `/api/accounts/add` creates
+  the account skeleton first (private dir + config entry, status
+  `never`), so the account is visible and retryable at once, then opens
+  `cwm account login <name>` in a terminal (the D27 launcher, with the
+  D53 hold flag). A missing claude refuses before anything is created
+  (424). No terminal means 501 with the exact command to paste, as for
+  every launch. Remove is the same `accounts.RemoveWith` as `cwm account
+  remove [--delete-dir]`: backup first (a failed backup aborts), refuse the
+  last account in both, and make the first remaining account the default
+  when the default goes. Before, removing the default left none, and every
+  launch then failed with "no default account". `--delete-dir` only deletes
+  dirs under `~/.cwm/accounts` (an imported dir elsewhere is left alone).
+  New names must also not be a cwm command or a `cwm account` action. The
+  new fields are snake_case, like `/api/claude`. `GET /api/accounts` keeps
+  its v0.5 fields, and the wizard's `POST /api/accounts` is unchanged.
+- **D57: the Accounts tab, pulled forward from v0.8.** It is the sixth tab
+  (`6`), so the shortcuts users know keep their keys. Accounts are cards,
+  not a table: each account has several actions, an inline error and a
+  retry, and cards stack naturally on a phone. A status pill per account;
+  a banner at the top when the default account has no recorded login
+  ("Add your first account", or log in that account); an attention dot on
+  the tab label. While a login runs, the tab polls every 2 s on top of
+  the live updates. Remove confirms in a native `<dialog>` that says a
+  backup is always made. Same rules as v0.7: DOM nodes only, no external
+  requests, same CSP, assets 112 KB of the 150 KB budget.
+- **D58: a fresh install shows no noise.** The Go kit never reads
+  `workspace/settings.json` or `workspace/hooks/`; it writes settings.json
+  into each launch dir when it assembles it. So their absence is ok, and
+  they are only checked when they exist (settings.json) or when an
+  existing settings.json wires bash-kit `hooks/*.sh` scripts (hooks).
+  The CLAUDE_CONFIG_DIR shell-profile check is unix-only. Duplicate PATH
+  entries get an informational ok line with the count (the bundle marks
+  them), because cwm never rewrites PATH: that is the user's, and Windows
+  keeps it in the registry where an edit applies to every program.
+  `GET /api/devices` answers 200 `{"status":"not_configured"}` when there
+  is no Syncthing client to talk to, and the Devices tab shows a setup
+  card. A state the user has not chosen yet is not an error, so it does
+  not belong in the debug bundle's "recent API errors". A reachable
+  Syncthing whose API call fails is still 502.
+- **D59: the banner is data, and CI compares it byte for byte.** The art
+  lives in `scripts/banner.txt`. install.ps1 builds the two characters
+  PowerShell can read as syntax (backtick, apostrophe) from code points,
+  so no banner string contains either. We could not reproduce the 5.1
+  mangling on Linux, so the fix removes the whole class: no quoting
+  context can eat a character that is not in the source. The Windows
+  harness (real 5.1) compares every banner line with banner.txt under
+  `-File` (plain and colour layout) and under `irm | iex` from the local
+  server, which is the tester's exact command. The Linux harness compares
+  the sh banner and the pwsh 7 banner with the file, and with each other.
+  Test packages now strip PATH entries that contain a real `claude`
+  (`internal/testsafe`). With D54 a failing stub would otherwise let the
+  resolver walk on to the developer's real claude, which happened once
+  during development.
+
 ## 2026-11-19 (v0.6.1 — Windows field fixes + debug bundle, SPEC-V0.6.1)
 
 From the first real Windows 11 + PowerShell 5.1 test of v0.6.0: the

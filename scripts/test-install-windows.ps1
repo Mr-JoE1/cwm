@@ -8,6 +8,9 @@
 #
 # Also checks the v0.6.0 mojibake (D50): cwm.exe output piped through
 # PowerShell with the OEM code page must be plain ASCII, never the (gamma, pound, o) of the report.
+# And the banner (D59): under -File and under `irm | iex` (the tester's
+# exact command, served by the local http.server), each banner line must be
+# byte-identical to scripts/banner.txt - a dropped backtick fails the run.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-install-windows.ps1
 
@@ -28,6 +31,23 @@ $script:pass = 0
 $script:fail = 0
 function Check([string]$name, [bool]$ok) {
     if ($ok) { $script:pass++; Write-Host "ok   $name" } else { $script:fail++; Write-Host "FAIL $name" }
+}
+
+# Test-Banner: the 4 art lines of scripts/banner.txt appear verbatim and in
+# order in $text (case-sensitive, every character). Prints the first
+# differing line so a CI log shows what got mangled.
+$art = [IO.File]::ReadAllLines((Join-Path $repo 'scripts\banner.txt'))
+function Test-Banner([string]$text) {
+    $lines = @($text -split "`r?`n")
+    $at = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -ceq $art[0]) { $at = $i; break } }
+    if ($at -lt 0) { Write-Host "    banner: first art line not found"; return $false }
+    for ($k = 0; $k -lt $art.Count; $k++) {
+        $got = ''
+        if ($at + $k -lt $lines.Count) { $got = $lines[$at + $k] }
+        if ($got -cne $art[$k]) { Write-Host "    banner line $($k + 1): got  [$got]"; Write-Host "    banner line $($k + 1): want [$($art[$k])]"; return $false }
+    }
+    return $true
 }
 
 $server = $null
@@ -82,6 +102,30 @@ try {
     Check 'service step ran (dry run)' ($out -match 'cwm service install \(dry run')
     Check 'no mojibake in the installer output' (-not ($out -match [regex]::Escape([string][char]0x0393 + [char]0x00A3)))
     Check 'user Path has the bin dir' (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $env:CWM_INSTALL_DIR)
+    Check 'banner art is scripts/banner.txt verbatim (-File, plain)' (Test-Banner $out)
+
+    Write-Host '== 1b. banner with the colour layout (-File, CWM_INSTALL_FANCY=1)'
+    $binMain = $env:CWM_INSTALL_DIR
+    $env:CWM_NO_SERVICE = '1'
+    $env:CWM_INSTALL_FANCY = '1'
+    $env:CWM_INSTALL_DIR = Join-Path $sandbox 'bin-fancy'
+    $ErrorActionPreference = 'Continue'
+    $fancy = (& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\install.ps1') 2>&1 | Out-String)
+    $ErrorActionPreference = $prev
+    Remove-Item Env:\CWM_INSTALL_FANCY -ErrorAction SilentlyContinue
+    Check 'banner art verbatim (-File, colour layout)' (Test-Banner $fancy)
+
+    Write-Host '== 1c. irm | iex from the local server (the tester''s command)'
+    Copy-Item -LiteralPath (Join-Path $repo 'scripts\install.ps1') -Destination (Join-Path $sandbox 'srv\install.ps1')
+    $env:CWM_INSTALL_DIR = Join-Path $sandbox 'bin-iex'
+    $ErrorActionPreference = 'Continue'
+    $iex = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "irm http://127.0.0.1:$port/install.ps1 | iex" 2>&1 | Out-String)
+    $ErrorActionPreference = $prev
+    $iex -split "`n" | Select-Object -First 8 | ForEach-Object { Write-Host "    | $_" }
+    Check 'irm | iex: installed' (Test-Path -LiteralPath (Join-Path $env:CWM_INSTALL_DIR 'cwm.exe'))
+    Check 'banner art verbatim (irm | iex)' (Test-Banner $iex)
+    Remove-Item Env:\CWM_NO_SERVICE -ErrorAction SilentlyContinue
+    $env:CWM_INSTALL_DIR = $binMain
 
     Write-Host '== 2. cwm.exe piped with the OEM code page (the v0.6.0 mojibake)'
     # Pin the console to OEM 437 like the tester's (a runner may differ);

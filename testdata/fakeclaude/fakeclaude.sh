@@ -2,10 +2,11 @@
 # fakeclaude — Claude Code stub for cwm tests and e2e runs (SPEC-V0.2.md,
 # testdata/fakeclaude). POSIX sh only; no bashisms, no jq/python/node.
 #
-#   --version       print ${FAKECLAUDE_VERSION:-2.1.400}
+#   --version       print "${FAKECLAUDE_VERSION:-2.1.400} (Claude Code)"
 #   auth login      write $CLAUDE_CONFIG_DIR/.credentials.json and .claude.json
 #                   (oauthAccount.email from ${FAKECLAUDE_EMAIL:-fake@example.com},
 #                   plan "claude_max"); echo done; exit 0
+#                   (${FAKECLAUDE_LOGIN_EXIT} set: print an error, exit with it)
 #   anything else   append one JSON line {args,cwd,claude_config_dir,
 #                   project_dir_name} to $FAKECLAUDE_CAPTURE (unset -> exit 5)
 set -u
@@ -15,11 +16,15 @@ json_escape() { # $1 -> stdout, escaped for a JSON string literal
 }
 
 if [ "${1:-}" = "--version" ]; then
-    printf '%s\n' "${FAKECLAUDE_VERSION:-2.1.400}"
+    printf '%s (Claude Code)\n' "${FAKECLAUDE_VERSION:-2.1.400}"
     exit 0
 fi
 
 if [ "${1:-}" = "auth" ] && [ "${2:-}" = "login" ]; then
+    if [ -n "${FAKECLAUDE_LOGIN_EXIT:-}" ]; then
+        echo "fakeclaude: login failed (FAKECLAUDE_LOGIN_EXIT)" >&2
+        exit "$FAKECLAUDE_LOGIN_EXIT"
+    fi
     cfg="${CLAUDE_CONFIG_DIR:-}"
     if [ -z "$cfg" ]; then
         echo "fakeclaude: CLAUDE_CONFIG_DIR not set for auth login" >&2

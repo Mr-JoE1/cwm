@@ -40,6 +40,18 @@ check() {
     if eval "$2"; then ok "$1"; else bad "$1"; fi
 }
 
+# banner_of TEXT — the 4 banner lines as printed (from the first art line
+# on), CRs stripped; empty when the first line is missing.
+ART_FIRST=$(head -n1 "$REPO/scripts/banner.txt")
+banner_of() {
+    local n
+    n=$(printf '%s\n' "$1" | tr -d '\r' | grep -n -F -x -- "$ART_FIRST" | head -n1 | cut -d: -f1)
+    [[ -n "$n" ]] || return 0
+    printf '%s\n' "$1" | tr -d '\r' | sed -n "${n},$((n + 3))p"
+}
+# banner_ok TEXT — the banner is scripts/banner.txt, byte for byte (D59).
+banner_ok() { [[ "$(banner_of "$1")" == "$(cat "$REPO/scripts/banner.txt")" ]]; }
+
 case "$(uname -s)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) echo "unsupported host"; exit 1 ;; esac
 case "$(uname -m)" in x86_64 | amd64) ARCH=amd64 ;; aarch64 | arm64) ARCH=arm64 ;; *) echo "unsupported arch"; exit 1 ;; esac
 
@@ -104,6 +116,8 @@ check "no agent was started (no server.toml)" '[[ ! -e "$H1/.cwm/server.toml" ]]
 # v0.6.1 look (D51): banner, numbered steps, short hash, summary box; the
 # non-TTY run is plain ASCII with no escape sequences.
 check "banner names the product and version" 'grep -q "Claude Workspace Manager .*cwm $TAG" <<<"$OUT"'
+check "banner art is scripts/banner.txt verbatim (sh)" 'banner_ok "$OUT"'
+SH_BANNER=$(banner_of "$OUT")
 check "numbered steps [1/8]..[8/8]" 'grep -q "^\[1/8\] Detecting platform" <<<"$OUT" && grep -q "^\[8/8\] Opening the dashboard" <<<"$OUT"'
 SUM=$(awk -v f="$ARCHIVE" '$2 == f {print $1}' "$DL/checksums.txt")
 check "checksum shown as 12 chars, never all 64" 'grep -q "checksum OK ${SUM:0:12}$" <<<"$OUT" && ! grep -q "$SUM" <<<"$OUT"'
@@ -127,6 +141,7 @@ OUT=$(run_install "$SANDBOX/home1c" --no-open --no-service 2>&1)
 CODE=$?
 set -e
 check "NO_COLOR: glyphs stay, colours go" '[[ $CODE -eq 0 ]] && grep -q "✓" <<<"$OUT" && ! grep -q $'"'"'\033'"'"' <<<"$OUT"'
+check "NO_COLOR terminal look: banner art verbatim (sh)" 'banner_ok "$OUT"'
 INSTALL_ENV=()
 
 echo "== 2. re-run is idempotent (explicit --version)"
@@ -224,6 +239,8 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     WSUM=$(awk -v f="$WZIP" '$2 == f {print $1}' "$DL/checksums.txt")
     check "ps1: banner + numbered steps + summary box" 'grep -q "Claude Workspace Manager .*cwm $TAG" <<<"$OUT" && grep -q "^\[3/8\] Verifying SHA-256" <<<"$OUT" && grep -q "| cwm $TAG is installed" <<<"$OUT" && grep -q "CWM_UNINSTALL=.1.; irm .*install.ps1 | iex" <<<"$OUT"'
     check "ps1: checksum shown as 12 chars, never all 64" 'grep -q "checksum OK ${WSUM:0:12}$" <<<"$OUT" && ! grep -q "$WSUM" <<<"$OUT"'
+    check "ps1: banner art is scripts/banner.txt verbatim" 'banner_ok "$OUT"'
+    check "sh and ps1 print the same banner art" '[[ -n "$SH_BANNER" && "$(banner_of "$OUT")" == "$SH_BANNER" ]]'
     check "ps1: child output indented, plain ASCII when redirected" 'grep -q "^      | ok cwm home initialized at" <<<"$OUT" && ! LC_ALL=C grep -q "[^[:print:][:space:]]" <<<"$OUT"'
     P4="$SANDBOX/ps-home4"
     set +e
@@ -231,6 +248,7 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     CODE=$?
     set -e
     check "ps1: terminal look uses unicode glyphs (non-Windows host), cwm matches" '[[ $CODE -eq 0 ]] && grep -q "✓ checksum OK" <<<"$OUT" && grep -q "╭" <<<"$OUT" && grep -q "│ ✓ cwm home initialized" <<<"$OUT"'
+    check "ps1: terminal look keeps the banner art verbatim" '[[ "$(banner_of "$(sed "s/\x1b\[[0-9;]*m//g" <<<"$OUT")")" == "$(cat "$REPO/scripts/banner.txt")" ]]'
     # irm | iex path: the script text through Invoke-Expression.
     P2="$SANDBOX/ps-home2"
     set +e
@@ -239,6 +257,7 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     CODE=$?
     set -e
     check "ps1 via Invoke-Expression: exits 0, no service step" '[[ $CODE -eq 0 ]] && [[ -x "$P2/AppData/Local/cwm/bin/cwm.exe" ]] && ! grep -q "cwm service install" <<<"$OUT"'
+    check "ps1 via Invoke-Expression: banner art verbatim" 'banner_ok "$OUT"'
     # Tampered checksum aborts.
     cp "$DL/checksums.txt" "$SANDBOX/checksums.ps1good"
     sed "s/^[0-9a-f]\{4\}\(.*$WZIP\)/0000\1/" "$SANDBOX/checksums.ps1good" >"$DL/checksums.txt"

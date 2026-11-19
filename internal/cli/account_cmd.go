@@ -1,4 +1,5 @@
-// Stage C1: `cwm account add|list|use|remove`.
+// Stage C1: `cwm account add|list|use|remove`; v0.6.2 adds `login` and
+// the login-state markers the dashboard reads (D55).
 package cli
 
 import (
@@ -15,11 +16,11 @@ import (
 
 func cmdAccount(e *Env, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: cwm account add|list|use|remove")
+		return fmt.Errorf("usage: cwm account add|login|list|use|remove")
 	}
 	action, rest := args[0], args[1:]
 
-	var asJSON, yes, dryRun bool
+	var asJSON, yes, dryRun, deleteDir bool
 	var pos []string
 	for _, a := range rest {
 		switch a {
@@ -29,6 +30,8 @@ func cmdAccount(e *Env, args []string) error {
 			yes = true
 		case "--dry-run":
 			dryRun = true
+		case "--delete-dir":
+			deleteDir = true
 		default:
 			if strings.HasPrefix(a, "-") {
 				return fmt.Errorf("unknown account %s flag %q", action, a)
@@ -59,10 +62,45 @@ func cmdAccount(e *Env, args []string) error {
 			fmt.Fprintf(e.Stdout, "would register account %q in %s\n", name, layout.ConfigPath())
 			return nil
 		}
-		if err := accounts.Add(layout, cfg, name, e.Stdout); err != nil {
+		// Validate before the marker: a typo must not leave state behind.
+		if err := accounts.ValidateNewName(name, cfg, IsReserved); err != nil {
+			return fmt.Errorf("accounts: %w", err)
+		}
+		accounts.MarkLogin(layout, name, accounts.LoginInProgress, "cli", nil)
+		if err := accounts.AddChecked(layout, cfg, name, IsReserved, e.Stdout); err != nil {
+			accounts.MarkLogin(layout, name, accounts.LoginFailed, "cli", err)
 			return err
 		}
-		return config.Save(layout.ConfigPath(), cfg)
+		if err := config.Save(layout.ConfigPath(), cfg); err != nil {
+			accounts.MarkLogin(layout, name, accounts.LoginFailed, "cli", err)
+			return err
+		}
+		accounts.MarkLogin(layout, name, accounts.LoginDone, "cli", nil)
+		return nil
+
+	case "login":
+		if len(pos) != 1 {
+			return fmt.Errorf("usage: cwm account login <name>")
+		}
+		name := pos[0]
+		if _, ok := cfg.Account(name); !ok {
+			return fmt.Errorf("accounts: account %q not found — add it with: cwm account add %s", name, name)
+		}
+		if dryRun {
+			fmt.Fprintf(e.Stdout, "would run `claude auth login` for account %q (CLAUDE_CONFIG_DIR = its account dir)\n", name)
+			return nil
+		}
+		accounts.MarkLogin(layout, name, accounts.LoginInProgress, "cli", nil)
+		if err := accounts.Login(layout, cfg, name, e.Stdout); err != nil {
+			accounts.MarkLogin(layout, name, accounts.LoginFailed, "cli", err)
+			return err
+		}
+		if err := config.Save(layout.ConfigPath(), cfg); err != nil {
+			accounts.MarkLogin(layout, name, accounts.LoginFailed, "cli", err)
+			return err
+		}
+		accounts.MarkLogin(layout, name, accounts.LoginDone, "cli", nil)
+		return nil
 
 	case "list":
 		if len(pos) != 0 {
@@ -85,13 +123,20 @@ func cmdAccount(e *Env, args []string) error {
 
 	case "remove", "rm":
 		if len(pos) != 1 {
-			return fmt.Errorf("usage: cwm account remove <name> [--yes]")
+			return fmt.Errorf("usage: cwm account remove <name> [--delete-dir] [--yes]")
 		}
 		name := pos[0]
 		if dryRun {
 			fmt.Fprintf(e.Stdout, "would back up %s to %s\n", filepath.Join(layout.AccountsDir(), name), layout.BackupsDir())
 			fmt.Fprintf(e.Stdout, "would remove account %q from %s\n", name, layout.ConfigPath())
+			if deleteDir {
+				fmt.Fprintf(e.Stdout, "would delete %s and %s after the backup\n", filepath.Join(layout.AccountsDir(), name), filepath.Join(layout.LaunchDir(), name))
+			}
 			return nil
+		}
+		// Refuse before asking: the question would be pointless.
+		if _, ok := cfg.Account(name); ok && len(cfg.Accounts) == 1 {
+			return accounts.ErrLastAccount
 		}
 		if !yes {
 			confirmed, err := confirmRemove(e, stdinIsTTY)
@@ -103,17 +148,28 @@ func cmdAccount(e *Env, args []string) error {
 				return nil
 			}
 		}
-		if err := accounts.Remove(layout, cfg, name); err != nil {
+		res, err := accounts.RemoveWith(layout, cfg, name, accounts.RemoveOptions{DeleteDir: deleteDir})
+		if err != nil {
 			return err
 		}
 		if err := config.Save(layout.ConfigPath(), cfg); err != nil {
 			return err
 		}
-		fmt.Fprintf(e.Stdout, "✓ account %s removed (backup in %s)\n", name, layout.BackupsDir())
+		where := layout.BackupsDir()
+		if res.Backup != "" {
+			where = res.Backup
+		}
+		fmt.Fprintf(e.Stdout, "✓ account %s removed (backup in %s)\n", name, where)
+		if res.DeletedDir {
+			fmt.Fprintf(e.Stdout, "✓ deleted its account dir and launch dir\n")
+		}
+		if res.NewDefault != "" {
+			fmt.Fprintf(e.Stdout, "✓ default account is now %s\n", res.NewDefault)
+		}
 		return nil
 
 	default:
-		return fmt.Errorf("unknown account action %q (want add, list, use or remove)", action)
+		return fmt.Errorf("unknown account action %q (want add, login, list, use or remove)", action)
 	}
 }
 

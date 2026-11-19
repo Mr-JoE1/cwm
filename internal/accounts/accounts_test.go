@@ -3,6 +3,7 @@ package accounts
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/storage"
+	"github.com/Mr-JoE1/cwm/internal/testsafe"
 )
 
 // stubClaude puts a fake `claude` on PATH that mimics fakeclaude.sh's
@@ -27,7 +29,7 @@ if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
   echo done
   exit 0
 fi
-echo 2.1.400
+echo "2.1.400 (Claude Code)"
 `
 	p := filepath.Join(bin, "claude")
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
@@ -108,7 +110,7 @@ func TestAddWithoutIdentityWarnsAndKeepsAccount(t *testing.T) {
 	}
 	// Stub that succeeds at login but writes no credentials.
 	bin := t.TempDir()
-	script := "#!/bin/sh\nexit 0\n"
+	script := "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.400 (Claude Code)'\nexit 0\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +134,7 @@ func TestAddLoginFails(t *testing.T) {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
 	}
 	bin := t.TempDir()
-	script := "#!/bin/sh\necho boom >&2\nexit 1\n"
+	script := "#!/bin/sh\n[ \"$1\" = --version ] && { echo '2.1.400 (Claude Code)'; exit 0; }\necho boom >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -263,6 +265,16 @@ func TestRemoveBacksUpAndDrops(t *testing.T) {
 	if err := cfg.SetDefaultAccount("main"); err != nil {
 		t.Fatal(err)
 	}
+	// The last account is refused (v0.6.2, D56): nothing backed up.
+	if err := Remove(l, cfg, "main"); !errors.Is(err, ErrLastAccount) {
+		t.Fatalf("Remove(last) = %v, want ErrLastAccount", err)
+	}
+	if _, err := os.Stat(l.BackupsDir()); !os.IsNotExist(err) {
+		t.Fatalf("a refused remove must not back up (stat err = %v)", err)
+	}
+	if err := cfg.AddAccount("second", filepath.Join(l.AccountsDir(), "second")); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := Remove(l, cfg, "main"); err != nil {
 		t.Fatalf("Remove: %v", err)
@@ -270,8 +282,8 @@ func TestRemoveBacksUpAndDrops(t *testing.T) {
 	if _, ok := cfg.Account("main"); ok {
 		t.Error("account not dropped from config")
 	}
-	if cfg.DefaultAccount != "" {
-		t.Errorf("default = %q, want cleared", cfg.DefaultAccount)
+	if cfg.DefaultAccount != "second" {
+		t.Errorf("default = %q, want the remaining account promoted", cfg.DefaultAccount)
 	}
 	// Backup must hold a copy of the credentials; the account dir itself
 	// stays on disk (Remove only deregisters + backs up).
@@ -301,7 +313,7 @@ func TestRemoveUnknown(t *testing.T) {
 // TestMain keeps the claude resolver (D49) off this machine's real install
 // folders; tests that exercise the search clear the variable themselves.
 func TestMain(m *testing.M) {
-	os.Setenv("CWM_CLAUDE_NO_SEARCH", "1")
+	testsafe.NoRealClaude()
 	os.Exit(m.Run())
 }
 

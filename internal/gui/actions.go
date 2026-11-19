@@ -127,14 +127,6 @@ func (s *Server) apiState(*http.Request) (any, int, error) {
 	return st, http.StatusOK, nil
 }
 
-func (s *Server) apiAccounts(*http.Request) (any, int, error) {
-	list, err := status.Accounts(s.opts.Layout)
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
-	}
-	return list, http.StatusOK, nil
-}
-
 // initRequest has no fields: init in the GUI is always the plain,
 // non-interactive path (no account login, no migrate).
 type initRequest struct{}

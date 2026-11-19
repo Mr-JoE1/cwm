@@ -23,6 +23,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/config"
@@ -155,7 +156,7 @@ func (src Sources) sections(now time.Time) []Section {
 		{"version", src.versionSection()},
 		{"agent", src.agentSection(now)},
 		{"service", src.serviceSection()},
-		{"claude", ClaudeSection(src.Claude, src.GOOS, src.Getenv)},
+		{"claude", ClaudeSection(src.Claude, src.GOOS, src.Getenv, claudebin.ClearedNote(src.Layout))},
 		{"config.toml", src.configSection()},
 		{"workspace", src.workspaceSection()},
 		{"syncthing", src.syncSection()},
@@ -209,24 +210,44 @@ func (src Sources) serviceSection() string {
 }
 
 // ClaudeSection renders the resolver result: where claude is, which step
-// found it, whether a fresh shell would, plus the PATH entries the
-// building process runs with (services often have a different PATH from
-// the user's shell, D49).
-func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv func(string) string) string {
+// found it, whether it verified (D54) and what else was probed, whether a
+// fresh shell would find it, plus the PATH entries the building process
+// runs with (services often have a different PATH from the user's shell,
+// D49). note is the last "cleared claude_path" line ("" = none).
+func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv func(string) string, note string) string {
 	var b strings.Builder
+	var cands []claudebin.Candidate
 	if find == nil {
 		b.WriteString("resolver: not available\n")
 	} else if res, err := find(); err != nil {
 		fmt.Fprintf(&b, "found:   no\nerror:   %v\n", err)
+		var nf *claudebin.NotFoundError
+		if errors.As(err, &nf) {
+			cands = nf.Rejected
+		}
 	} else {
 		src := string(res.Source)
 		if l := res.Source.Label(); !strings.EqualFold(l, src) {
 			src += " (" + l + ")"
 		}
 		fmt.Fprintf(&b, "found:   yes\npath:    %s\nsource:  %s\non PATH: %t\n", res.Path, src, res.OnPath)
+		fmt.Fprintf(&b, "verified: yes, version %s\n", res.Version)
+		if res.ProbeOutput != "" {
+			fmt.Fprintf(&b, "probe:   %s\n", strings.ReplaceAll(res.ProbeOutput, "\n", " | "))
+		}
 		if !res.OnPath {
 			fmt.Fprintf(&b, "fix:     %s\n", claudebin.PathHint(goos, res.Dir()))
 		}
+		cands = res.Candidates
+	}
+	if len(cands) > 0 {
+		b.WriteString("candidates probed:\n")
+		for _, c := range cands {
+			fmt.Fprintf(&b, "  %s [%s, on PATH: %t] %s\n", c.Path, c.Source, c.OnPath, c.Result)
+		}
+	}
+	if note != "" {
+		fmt.Fprintf(&b, "note:    %s\n", note)
 	}
 	if getenv != nil {
 		for _, k := range []string{claudebin.EnvClaude, claudebin.EnvNoSearch} {
@@ -234,15 +255,18 @@ func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv fu
 				fmt.Fprintf(&b, "env %s=%s\n", k, v)
 			}
 		}
-		sep := ":"
-		if goos == "windows" {
-			sep = ";"
-		}
+		entries := claudebin.PathEntries(getenv("PATH"), goos)
+		dups := claudebin.PathDuplicates(getenv("PATH"), goos)
 		b.WriteString("PATH of this process:\n")
-		for _, p := range strings.Split(getenv("PATH"), sep) {
-			if p != "" {
-				b.WriteString("  " + p + "\n")
+		for _, e := range entries {
+			if e.Dup {
+				b.WriteString("  " + e.Dir + "  (duplicate)\n")
+			} else {
+				b.WriteString("  " + e.Dir + "\n")
 			}
+		}
+		if dups > 0 {
+			fmt.Fprintf(&b, "PATH duplicates: %d (harmless; cwm does not change PATH)\n", dups)
 		}
 	}
 	return b.String()
@@ -339,14 +363,21 @@ func (src Sources) workspaceSection() string {
 	names := make([]string, 0, len(cfg.Accounts))
 	loggedIn := 0
 	for _, a := range cfg.Accounts {
-		n := a.Name
+		tags := []string{}
 		if a.Name == cfg.DefaultAccount {
-			n += " (default)"
+			tags = append(tags, "default")
 		}
 		if a.Login != nil {
 			loggedIn++
 		}
-		names = append(names, n)
+		// The login state (D55): read-only here, transitions are the
+		// agent's to persist.
+		st, _ := accounts.DeriveLogin(l, a)
+		tags = append(tags, "login: "+string(st.Status))
+		if st.Error != "" {
+			tags = append(tags, st.Error)
+		}
+		names = append(names, a.Name+" ("+strings.Join(tags, ", ")+")")
 	}
 	fmt.Fprintf(&b, "accounts:    %d (%d with a recorded login)\n", len(cfg.Accounts), loggedIn)
 	if len(names) > 0 {

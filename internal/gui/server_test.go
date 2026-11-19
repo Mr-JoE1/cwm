@@ -74,6 +74,8 @@ func newFixture(t *testing.T, sync func() (syncengine.Client, error)) *fixture {
 	t.Setenv("PATH", t.TempDir()) // never a real claude/ssh/git (doctor runs per request)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
 	t.Setenv(syncthing.EnvURL, "http://127.0.0.1:1")
 	t.Setenv(syncthing.EnvAPIKey, "test")
 	ws := filepath.Join(root, "workspace")
@@ -268,7 +270,7 @@ func TestStaticDashboard(t *testing.T) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, tab := range []string{"Sessions", "Projects", "Devices", "WIP", "Health"} {
+	for _, tab := range []string{"Sessions", "Projects", "Devices", "WIP", "Health", "Accounts"} {
 		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, ">"+tab+"</button>") {
 			t.Errorf("dashboard missing tab %q", tab)
 		}
@@ -280,6 +282,10 @@ func TestStaticDashboard(t *testing.T) {
 		if !strings.Contains(body, `"`+asset+`"`) {
 			t.Errorf("index.html does not reference %s", asset)
 		}
+	}
+	// v0.6.2: six tabs, shortcuts 1-6 (D57).
+	if n := strings.Count(body, `role="tab"`); n != 6 || !strings.Contains(body, `data-key="6"`) || !strings.Contains(body, "<kbd>1</kbd>–<kbd>6</kbd>") {
+		t.Errorf("dashboard has %d tabs (want 6 with keys 1-6 in the help)", n)
 	}
 	if rec := f.do(t, "GET", "/favicon.svg", nil); !strings.HasPrefix(rec.Header().Get("Content-Type"), "image/svg+xml") {
 		t.Errorf("favicon.svg Content-Type = %q", rec.Header().Get("Content-Type"))
@@ -397,7 +403,8 @@ func TestAPIShapes(t *testing.T) {
 
 	var checks []map[string]any
 	getJSON(t, f, "/api/doctor", 200, &checks)
-	if len(checks) < 10 {
+	// 9 on Windows: the shell-profile check is unix-only (v0.6.2, D58).
+	if len(checks) < 9 {
 		t.Fatalf("doctor checks = %v", checks)
 	}
 	names := map[string]bool{}
@@ -437,10 +444,20 @@ func TestAPIErrors(t *testing.T) {
 	f := newFixture(t, func() (syncengine.Client, error) {
 		return nil, errors.New("syncthing API not reachable")
 	})
+	// v0.6.2 (D58): Syncthing not set up is a state, not an error: 200,
+	// a not_configured body, and nothing in the debug bundle's error ring.
 	var apiErr map[string]string
-	getJSON(t, f, "/api/devices", http.StatusServiceUnavailable, &apiErr)
-	if !strings.Contains(apiErr["error"], "not reachable") {
-		t.Errorf("devices error = %v", apiErr)
+	getJSON(t, f, "/api/devices", http.StatusOK, &apiErr)
+	if apiErr["status"] != "not_configured" || !strings.Contains(apiErr["error"], "not reachable") || !strings.Contains(apiErr["hint"], "cwm pair --start") {
+		t.Errorf("devices body = %v", apiErr)
+	}
+	if n := len(f.srv.apiErrors.list()); n != 0 {
+		t.Errorf("not_configured devices recorded %d API error(s)", n)
+	}
+	nilSync := newFixture(t, nil)
+	getJSON(t, nilSync, "/api/devices", http.StatusOK, &apiErr)
+	if apiErr["status"] != "not_configured" {
+		t.Errorf("no sync client: %v", apiErr)
 	}
 
 	if err := os.RemoveAll(filepath.Join(f.root, "workspace")); err != nil {

@@ -85,7 +85,7 @@ var commands = []*command{
 	{name: "sessions", args: "[project] [--pick [N]] [--limit K] [--json]", short: "list and resume workspace sessions"},
 	{name: "wip", args: "[status] | dirty [--json]", short: "run the WIP auto-push now; 'wip status' lists sync branches, 'wip dirty' lists repos with uncommitted work", stage: 'B'},
 	{name: "doctor", args: "[--net] [--json]", short: "run workspace health checks (--net adds an SSH probe)", stage: 'B'},
-	{name: "account", args: "add|list|use|remove", short: "manage claude accounts", stage: 'C'},
+	{name: "account", args: "add|login|list|use|remove", short: "manage claude accounts", stage: 'C'},
 	{name: "mcp", args: "add|list|remove", short: "manage workspace mcp.json servers", stage: 'C'},
 	{name: "hook", args: "session-start|session-end", short: "hook entry points (wired from settings.json)", stage: 'B'},
 	{name: "pair", args: "[--start] [<device-id> [name]]", short: "pair this workspace with another device (syncthing)"},

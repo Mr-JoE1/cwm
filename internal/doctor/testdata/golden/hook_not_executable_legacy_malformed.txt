@@ -5,7 +5,7 @@ ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
 ok:   .stignore present (sync ignore policy installed)
 warn: claude 2.1.100 < 2.1.234 — project-name pinning unsupported; upgrade to >= 2.1.234
-ok:   claude binary: <BIN>/claude (source: PATH)
+ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.100 (Claude Code))
 ok:   CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile
 warn: repos.tsv has 1 malformed line(s) (expected: name<TAB>url)
 warn: unpinned session folders (resume via cwm to keep sessions cross-OS; these were created by plain claude): -Users-x-legacy

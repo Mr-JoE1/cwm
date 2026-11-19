@@ -99,23 +99,66 @@ type claudeInfo struct {
 	Install     []claudebin.InstallOption `json:"install"`
 	Error       string                    `json:"error,omitempty"`
 	OS          string                    `json:"os"`
+	// v0.6.2 (D54): the behaviour check behind "found".
+	Verified    bool              `json:"verified"`
+	Version     string            `json:"version,omitempty"`
+	ProbeOutput string            `json:"probe_output,omitempty"`
+	Candidates  []claudeCandidate `json:"candidates"`
+	Cleared     string            `json:"cleared,omitempty"`
+}
+
+// claudeCandidate is one probed file in /api/claude.
+type claudeCandidate struct {
+	Path     string `json:"path"`
+	OnPath   bool   `json:"on_path"`
+	Verified bool   `json:"verified"`
+	Result   string `json:"result"`
+}
+
+func candidatesView(list []claudebin.Candidate) []claudeCandidate {
+	out := []claudeCandidate{}
+	for _, c := range list {
+		if len(out) == claudebin.SurveyLimit {
+			break
+		}
+		out = append(out, claudeCandidate{Path: c.Path, OnPath: c.OnPath, Verified: c.Verified, Result: shortText(c.Result, 120)})
+	}
+	return out
+}
+
+// shortText cuts s to n runes.
+func shortText(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // apiClaude resolves afresh (no cache): someone asking explicitly wants
 // the current answer, e.g. right after installing Claude Code.
 func (s *Server) apiClaude(*http.Request) (any, int, error) {
 	goos := s.goos()
-	res, err := s.lookupClaude()
-	out := claudeInfo{Install: claudebin.InstallOptions(goos), OS: goos}
+	res, err := s.surveyClaude()
+	out := claudeInfo{Install: claudebin.InstallOptions(goos), OS: goos, Candidates: []claudeCandidate{}}
+	out.Cleared = claudebin.ClearedNote(s.opts.Layout)
+	var nf *claudebin.NotFoundError
 	switch {
+	case errors.As(err, &nf) && len(nf.Rejected) > 0:
+		out.Error = err.Error()
+		out.Candidates = candidatesView(nf.Rejected)
+		out.Hint = "cwm found a claude, but it is not Claude Code (it did not answer `--version` with a Claude Code version). Install Claude Code with the official command below, or point cwm at the right file (" + claudebin.EnvClaude + " or claude_path in config.toml)."
 	case err != nil && errors.Is(err, claudebin.ErrNotFound):
 		out.Error = err.Error()
 		out.Hint = "Claude Code is not installed, or cwm cannot find it. Install it with the official command below, then try again."
 	case err != nil:
 		out.Error = err.Error()
-		out.Hint = "The claude setting points at something that is not an executable file. Fix " + claudebin.EnvClaude + " (or claude_path in config.toml), or unset it."
+		out.Hint = "The claude setting points at something that is not Claude Code. Fix " + claudebin.EnvClaude + " (or claude_path in config.toml), or unset it."
 	default:
 		out.Found, out.Path, out.Source, out.SourceLabel, out.OnPath = true, res.Path, res.Source, res.Source.Label(), res.OnPath
+		out.Verified, out.Version = true, res.Version
+		out.ProbeOutput = shortText(res.ProbeOutput, claudebin.ProbeOutputShown)
+		out.Candidates = candidatesView(res.Candidates)
 		if res.OnPath {
 			out.Hint = "claude is on PATH: cwm and your terminals use the same binary."
 		} else {
@@ -132,4 +175,13 @@ func (s *Server) lookupClaude() (claudebin.Result, error) {
 		return s.opts.FindClaude()
 	}
 	return claudebin.Lookup(s.opts.Layout)
+}
+
+// surveyClaude is lookupClaude in Survey mode (D54): reports list the
+// shadowed and rejected candidates too.
+func (s *Server) surveyClaude() (claudebin.Result, error) {
+	if s.opts.FindClaude != nil {
+		return s.opts.FindClaude()
+	}
+	return claudebin.LookupSurvey(s.opts.Layout)
 }

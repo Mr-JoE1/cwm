@@ -126,6 +126,8 @@ type Server struct {
 	claudeErr error
 	// apiErrors remembers the last API errors for the debug bundle.
 	apiErrors errorRing
+	// logins is the in-memory account login state (D55).
+	logins loginTracker
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -394,21 +396,25 @@ type route struct {
 
 func (s *Server) routes() map[string]route {
 	return map[string]route{
-		"/api/version":         {get: s.apiVersion},
-		"/api/projects":        {get: s.apiProjects},
-		"/api/sessions":        {get: s.apiSessions},
-		"/api/devices":         {get: s.apiDevices},
-		"/api/wip":             {get: s.apiWip},
-		"/api/doctor":          {get: s.apiDoctor},
-		"/api/csrf":            {get: s.apiCSRF},
-		"/api/state":           {get: s.apiState},
-		"/api/accounts":        {get: s.apiAccounts, post: s.apiAccountAdd},
-		"/api/init":            {post: s.apiInit},
-		"/api/sessions/resume": {post: s.apiResume},
-		"/api/pair":            {post: s.apiPair},
-		"/api/agent":           {get: s.apiAgent},
-		"/api/claude":          {get: s.apiClaude},
-		"/api/debug":           {get: s.apiDebug},
+		"/api/version":              {get: s.apiVersion},
+		"/api/projects":             {get: s.apiProjects},
+		"/api/sessions":             {get: s.apiSessions},
+		"/api/devices":              {get: s.apiDevices},
+		"/api/wip":                  {get: s.apiWip},
+		"/api/doctor":               {get: s.apiDoctor},
+		"/api/csrf":                 {get: s.apiCSRF},
+		"/api/state":                {get: s.apiState},
+		"/api/accounts":             {get: s.apiAccounts, post: s.apiAccountAdd},
+		"/api/accounts/add":         {post: s.apiAccountsAdd},
+		"/api/accounts/login":       {post: s.apiAccountsLogin},
+		"/api/accounts/set-default": {post: s.apiAccountsSetDefault},
+		"/api/accounts/remove":      {post: s.apiAccountsRemove},
+		"/api/init":                 {post: s.apiInit},
+		"/api/sessions/resume":      {post: s.apiResume},
+		"/api/pair":                 {post: s.apiPair},
+		"/api/agent":                {get: s.apiAgent},
+		"/api/claude":               {get: s.apiClaude},
+		"/api/debug":                {get: s.apiDebug},
 	}
 }
 
@@ -546,13 +552,25 @@ func (s *Server) apiSessions(r *http.Request) (any, int, error) {
 	return status.Sessions(status.ProjectsDir(s.opts.Layout), q.Get("project"), limit), http.StatusOK, nil
 }
 
+// devicesNotConfigured is GET /api/devices while Syncthing is not set up
+// (or not running) on this machine: a normal pre-pairing state, so 200
+// and not an API error (D58). A reachable Syncthing still answers the
+// device array.
+type devicesNotConfigured struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Hint   string `json:"hint"`
+}
+
+const devicesHint = "Syncthing keeps the workspace in sync between your devices, peer to peer. It is optional: install Syncthing, then run `cwm pair --start` on both devices."
+
 func (s *Server) apiDevices(*http.Request) (any, int, error) {
 	if s.opts.SyncClient == nil {
-		return nil, http.StatusServiceUnavailable, errors.New("syncthing not configured")
+		return devicesNotConfigured{Status: "not_configured", Error: "syncthing not configured", Hint: devicesHint}, http.StatusOK, nil
 	}
 	cl, err := s.opts.SyncClient()
 	if err != nil {
-		return nil, http.StatusServiceUnavailable, err
+		return devicesNotConfigured{Status: "not_configured", Error: err.Error(), Hint: devicesHint}, http.StatusOK, nil
 	}
 	list, err := status.Devices(cl)
 	if err != nil {

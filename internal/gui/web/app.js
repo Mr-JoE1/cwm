@@ -10,7 +10,7 @@
 "use strict";
 
 (function () {
-  const TABS = ["sessions", "projects", "devices", "wip", "health"];
+  const TABS = ["sessions", "projects", "devices", "wip", "health", "accounts"];
   const POLL_MS = 15000;
   const root = document.documentElement;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -522,6 +522,10 @@
           : "Could not load devices.";
         return loadError("devices", r, silent, text);
       }
+      if (r.data && !Array.isArray(r.data) && r.data.status === "not_configured") {
+        if (!changed("devices", r.data)) return;
+        return show("devices", syncSetupCard(r.data));
+      }
       const list = r.data || [];
       if (!changed("devices", list)) return;
       if (list.length === 0) {
@@ -589,7 +593,280 @@
       });
       show("health", el("div", null, [summary, el("ul", { class: "checks" }, items)]));
     },
+
+    async accounts(silent) {
+      const r = await api("/api/accounts");
+      if (!r.ok) return loadError("accounts", r, silent, "Could not load accounts.");
+      const list = r.data || [];
+      scheduleAccountsPoll(list);
+      renderAccountsDot(list);
+      if (!changed("accounts", list)) return;
+      renderAccounts(list, !silent);
+    },
   };
+
+  // --- devices: Syncthing not set up yet (D58) ------------------------------------
+
+  function syncSetupCard(d) {
+    return el("div", { class: "setup-card" }, [
+      el("h3", { text: "Sync is not set up on this device yet" }),
+      el("p", { class: "hint" }, [richText(d.hint || "Syncthing keeps the workspace in sync between devices. It is optional.")]),
+      el("p", { class: "hint", text: "From a terminal, on each device (the pair form above works once Syncthing runs):" }),
+      commandBox("cwm pair --start"),
+      d.error ? el("p", { class: "detail" }, ["details: ", richText(d.error)]) : null,
+    ]);
+  }
+
+  // --- accounts (D55-D57) --------------------------------------------------------------
+
+  const LOGIN_PILL = {
+    never: ["warn", "no login yet"],
+    in_progress: ["info", "login in progress"],
+    done: ["ok", "logged in"],
+    failed: ["fail", "login failed"],
+  };
+
+  function loginPill(st) {
+    const p = LOGIN_PILL[st] || ["warn", String(st || "unknown")];
+    const pill = el("span", { class: "badge pill badge-" + p[0] }, [
+      st === "in_progress" ? el("span", { class: "spinner", "aria-hidden": "true" }) : null,
+      p[1],
+    ]);
+    return pill;
+  }
+
+  function defaultWithoutLogin(list) {
+    const d = list.find((a) => a.is_default);
+    if (!list.length) return { none: true };
+    if (d && !d.has_recorded_login) return { account: d };
+    return null;
+  }
+
+  function renderAccountsDot(list) {
+    $("accounts-dot").hidden = !defaultWithoutLogin(list);
+  }
+
+  let accountsPoll = 0;
+  // While a login runs in its terminal, follow it every 2 s (the event
+  // stream also reports it, but polling keeps the pill honest without SSE).
+  function scheduleAccountsPoll(list) {
+    clearTimeout(accountsPoll);
+    if (!list.some((a) => a.login_status === "in_progress")) return;
+    accountsPoll = setTimeout(() => {
+      if (!document.hidden && current() === "accounts" && dashboardVisible()) load("accounts", true);
+      else stale.accounts = true;
+    }, 2000);
+  }
+
+  function renderBanner(list) {
+    const box = $("acct-banner");
+    const need = defaultWithoutLogin(list);
+    if (!need) {
+      box.hidden = true;
+      box.replaceChildren();
+      return;
+    }
+    let title, text, btn;
+    if (need.none) {
+      title = "Add your first account";
+      text = "cwm has no Claude account yet. Pick a short name below; a terminal window opens for the Claude login, and this page follows it.";
+      btn = el("button", { type: "button", class: "btn btn-primary", text: "Add your first account" });
+      btn.addEventListener("click", () => {
+        const input = $("acct-name");
+        if (!input.value) input.value = "work";
+        input.focus();
+        input.select();
+      });
+    } else {
+      const a = need.account;
+      const st = a.login_status;
+      title = st === "in_progress" ? "Finishing the login of “" + a.name + "”…" : "Your default account “" + a.name + "” has no login yet";
+      text = st === "in_progress"
+        ? "Finish the Claude login in the terminal window that opened. This page updates when it is done."
+        : "cwm cannot start Claude Code with it until it is logged in. Log it in now, or add your first account under another name.";
+      btn = st === "in_progress" ? null : accountLoginButton(a, st === "failed" ? "Retry login" : "Log in “" + a.name + "”", "btn-primary");
+    }
+    box.replaceChildren(
+      el("div", { class: "first-banner-mark", "aria-hidden": "true", text: ">_" }),
+      el("div", { class: "first-banner-text" }, [el("h3", { text: title }), el("p", { text: text })]),
+      btn ? el("div", { class: "first-banner-actions" }, [btn]) : null,
+    );
+    box.hidden = false;
+  }
+
+  function accountLoginButton(a, label, extra) {
+    const btn = el("button", { type: "button", class: "btn btn-small " + (extra || ""), text: label });
+    btn.setAttribute("aria-label", label + " (account " + a.name + ")");
+    btn.addEventListener("click", () => startLogin(a.name, btn));
+    return btn;
+  }
+
+  function metaLine(label, value, title) {
+    return el("div", { class: "acct-meta-row" }, [
+      el("span", { class: "acct-meta-label", text: label }),
+      el("span", { class: "acct-meta-value", title: title || "", text: value }),
+    ]);
+  }
+
+  function accountCard(a, i, animate) {
+    const st = a.login_status || "never";
+    const head = el("div", { class: "acct-head" }, [
+      el("span", { class: "acct-name", text: a.name }),
+      a.is_default ? el("span", { class: "tag tag-default", text: "default" }) : null,
+      loginPill(st),
+    ]);
+    const meta = el("div", { class: "acct-meta" }, [
+      metaLine("login", a.email ? a.email + (a.plan ? " · " + a.plan : "") : "none recorded"),
+      metaLine("last login", relTime(a.last_login), a.last_login),
+      metaLine("last used", a.last_used ? relTime(a.last_used) : "not launched yet", a.last_used),
+      a.is_default && a.config_dir_ready === false ? metaLine("config dir", "missing — log in again to recreate it") : null,
+    ]);
+    const children = [head, meta];
+    if (st === "failed" || (st === "in_progress" && a.login_error)) {
+      children.push(el("div", { class: "msg msg-error acct-error" }, [
+        "The last login did not finish.",
+        a.login_error ? el("span", { class: "detail", text: a.login_error }) : null,
+        el("div", { class: "acct-inline" }, [accountLoginButton(a, "Retry login", "btn-primary")]),
+      ]));
+    } else if (st === "in_progress") {
+      children.push(el("div", { class: "msg msg-info acct-error" }, [
+        el("span", { class: "spinner", "aria-hidden": "true" }),
+        "Waiting for the login in its terminal window…",
+        el("div", { class: "acct-inline" }, [accountLoginButton(a, "Open a new login window")]),
+      ]));
+    }
+    const actions = el("div", { class: "acct-actions" });
+    if (st !== "failed" && st !== "in_progress") {
+      actions.appendChild(accountLoginButton(a, st === "done" ? "Log in again" : "Log in", st === "never" ? "btn-primary" : ""));
+    }
+    if (!a.is_default) {
+      const def = el("button", { type: "button", class: "btn btn-small", text: "Make default" });
+      def.addEventListener("click", () => setDefault(a.name, def));
+      actions.appendChild(def);
+    }
+    const rm = el("button", { type: "button", class: "btn btn-small btn-danger", text: "Remove" });
+    rm.setAttribute("aria-label", "Remove account " + a.name);
+    rm.addEventListener("click", () => askRemove(a));
+    actions.appendChild(rm);
+    children.push(actions);
+    const card = el("article", { class: "acct-card" + (a.is_default ? " is-default" : "") + (animate ? " reveal" : ""), "aria-label": "Account " + a.name }, children);
+    if (animate) card.style.setProperty("--i", String(Math.min(i, 18)));
+    return card;
+  }
+
+  let accountsCache = [];
+  function renderAccounts(list, animate) {
+    accountsCache = list;
+    renderBanner(list);
+    const box = content("accounts");
+    if (!list.length) return box.replaceChildren();
+    box.replaceChildren(el("div", { class: "acct-grid" }, list.map((a, i) => accountCard(a, i, animate))));
+  }
+
+  function validAccountName(name) {
+    if (!name) return "Enter a name.";
+    if (name.length > 32) return "At most 32 characters.";
+    if (/[\\/]/.test(name)) return "No / or \\ in account names.";
+    if (["add", "list", "use", "remove", "rm", "login"].includes(name)) return "“" + name + "” is reserved by cwm — pick another name.";
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(name) || /^[0-9]+$/.test(name)) return "Use lowercase letters, digits, dashes or underscores, starting with a letter or digit (not all digits).";
+    if (accountsCache.some((a) => a.name === name)) return "There already is an account “" + name + "”.";
+    return "";
+  }
+
+  // reportLogin explains a login launch inline and as a toast.
+  function reportLogin(box, name, r) {
+    if (r.ok) {
+      toastPathHint(r.data);
+      toast("ok", "Opened a login window for “" + name + "”", "Finish the Claude login there — this page follows it.");
+      if (box) say(box, "wait", "Finish the Claude login in the terminal window that just opened…", "If it closed without logging in, use Retry on the account card, or run:", r.data.command);
+      return true;
+    }
+    if (r.status === 424) {
+      toastNoClaude(r);
+      if (box) say(box, "error", "Claude Code is needed first.", r.error, r.command);
+      return false;
+    }
+    if (r.status === 501) {
+      toast("info", "No terminal window could be opened", "Run the login yourself in a terminal:", { cmd: r.command, sticky: true });
+      if (box) say(box, "info", "No terminal window could be opened on this machine. Run this command in a terminal — this page follows the login:", "", r.command);
+      return true;
+    }
+    toast("error", "Could not start the login", r.error, { cmd: r.command, sticky: !!r.command });
+    if (box) say(box, "error", "Could not start the login.", r.error, r.command);
+    return false;
+  }
+
+  async function addAccount() {
+    const input = $("acct-name");
+    const box = $("acct-add-result");
+    const btn = $("acct-add");
+    const name = input.value.trim();
+    const problem = validAccountName(name);
+    if (problem) return say(box, "error", problem);
+    btn.disabled = true;
+    say(box, "wait", "Creating “" + name + "” and opening a login window…");
+    const r = await post("/api/accounts/add", { name: name });
+    btn.disabled = false;
+    if (reportLogin(box, name, r) && r.status !== 424) input.value = "";
+    await load("accounts", true);
+    refreshState();
+  }
+
+  async function startLogin(name, btn) {
+    if (btn) {
+      btn.disabled = true;
+      btn.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "Opening…");
+    }
+    const r = await post("/api/accounts/login", { name: name });
+    reportLogin(null, name, r);
+    await load("accounts", true);
+  }
+
+  async function setDefault(name, btn) {
+    btn.disabled = true;
+    const r = await post("/api/accounts/set-default", { name: name });
+    if (r.ok) toast("ok", "“" + name + "” is the default account now", "cwm open and Resume use it.");
+    else toast("error", "Could not change the default account", r.error);
+    await load("accounts", true);
+    refreshState();
+  }
+
+  let removing = null;
+  function askRemove(a) {
+    const dlg = $("acct-remove-dialog");
+    removing = a;
+    $("acct-remove-text").textContent = accountsCache.length <= 1
+      ? "“" + a.name + "” is the only account. cwm needs one to launch Claude Code, so it cannot be removed — add another account first."
+      : "Remove “" + a.name + "” from cwm? Its account dir is backed up to ~/.cwm/backups first." +
+        (a.is_default ? " It is the default account; the next remaining account becomes the default." : "");
+    $("acct-remove-dir").checked = false;
+    $("acct-remove-confirm").disabled = accountsCache.length <= 1;
+    dlg.showModal();
+  }
+
+  function wireAccounts() {
+    $("acct-add").addEventListener("click", addAccount);
+    $("acct-name").addEventListener("keydown", (ev) => { if (ev.key === "Enter") addAccount(); });
+    const dlg = $("acct-remove-dialog");
+    $("acct-remove-cancel").addEventListener("click", () => dlg.close());
+    $("acct-remove-confirm").addEventListener("click", async () => {
+      const a = removing;
+      if (!a) return;
+      const btn = $("acct-remove-confirm");
+      btn.disabled = true;
+      const r = await post("/api/accounts/remove", { name: a.name, also_delete_config_dir: $("acct-remove-dir").checked });
+      btn.disabled = false;
+      dlg.close();
+      if (r.ok) {
+        toast("ok", "Removed “" + a.name + "”", (r.data.backup ? "Backup: " + r.data.backup + ". " : "") +
+          (r.data.deleted_config_dir ? "Its config dir was deleted. " : "") + "Default account: " + (r.data.default || "none") + ".");
+      } else {
+        toast("error", "Could not remove “" + a.name + "”", r.error);
+      }
+      await load("accounts", true);
+      refreshState();
+    });
+  }
 
   // --- setup state + wizard -----------------------------------------------------
 
@@ -938,20 +1215,26 @@
     }
   }
 
-  const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "wip" };
+  const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "wip", accounts: "accounts" };
   const QUIET = new Set(["ping", "heartbeat", "hello", "keepalive", "open", "connected"]);
   let pendingTopics = new Set();
   let eventTimer = 0;
 
   function onServerEvent(ev) {
     let topic = ev.type === "message" ? "" : ev.type;
+    let parts = [];
     try {
       const d = JSON.parse(ev.data);
-      if (d && typeof d === "object") topic = String(d.topic || d.type || d.kind || d.event || topic);
+      if (d && typeof d === "object") {
+        topic = String(d.topic || d.type || d.kind || d.event || topic);
+        // v0.6 "state" events name what changed: refresh just those tabs.
+        if (Array.isArray(d.changed)) parts = d.changed.map((c) => String(c).toLowerCase()).filter((c) => TOPIC_TAB[c]);
+      }
     } catch (err) { /* plain-text payloads are fine */ }
     topic = topic.toLowerCase();
     if (QUIET.has(topic)) return;
     pendingTopics.add(topic || "*");
+    parts.forEach((c) => pendingTopics.add(c));
     clearTimeout(eventTimer);
     eventTimer = setTimeout(flushEvents, 400); // coalesce bursts
   }
@@ -961,9 +1244,9 @@
     pendingTopics = new Set();
     let tabs = [];
     for (const t of topics) {
+      if (t === "state" || t === "accounts" || t === "initialized") refreshState();
       if (TOPIC_TAB[t]) tabs.push(TOPIC_TAB[t]);
-      else if (t === "state" || t === "accounts") refreshState();
-      else tabs = TABS.slice();
+      else if (t !== "state") tabs = TABS.slice();
     }
     for (const t of new Set(tabs)) stale[t] = true;
     lastRefresh = Date.now();
@@ -1034,9 +1317,9 @@
         ev.target.blur();
         return;
       }
-      if (typing(ev.target) || dlg.open || $("debug-dialog").open) return;
+      if (typing(ev.target) || dlg.open || $("debug-dialog").open || $("acct-remove-dialog").open) return;
       const k = ev.key;
-      if (k >= "1" && k <= "5" && dashboardVisible()) {
+      if (k >= "1" && k <= "6" && dashboardVisible()) {
         const name = TABS[Number(k) - 1];
         activate(name);
         $("tab-" + name).focus({ preventScroll: true });
@@ -1085,6 +1368,7 @@
     window.addEventListener("hashchange", () => activate(current()));
     wireWizard();
     wirePairForm();
+    wireAccounts();
     wireKeys();
     wireDebug();
 

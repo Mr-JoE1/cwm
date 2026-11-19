@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/status"
 )
 
@@ -22,8 +23,11 @@ const (
 // Snapshot is the cheap state /api/events diffs: no network, no git — a
 // config read and a projects directory scan (the `cwm list` data, D26).
 type Snapshot struct {
-	Initialized   bool      `json:"initialized"`
-	Accounts      []string  `json:"accounts"`
+	Initialized bool     `json:"initialized"`
+	Accounts    []string `json:"accounts"`
+	// Logins is "name=status" per account (D55), so a login finishing in
+	// its terminal reaches open dashboards as an "accounts" change.
+	Logins        []string  `json:"logins"`
 	Projects      int       `json:"projects"`
 	Sessions      int       `json:"sessions"`
 	NewestSession time.Time `json:"newestSession,omitzero"`
@@ -36,7 +40,7 @@ func (a Snapshot) changed(b Snapshot) []string {
 	if a.Initialized != b.Initialized {
 		out = append(out, "initialized")
 	}
-	if !slices.Equal(a.Accounts, b.Accounts) {
+	if !slices.Equal(a.Accounts, b.Accounts) || !slices.Equal(a.Logins, b.Logins) {
 		out = append(out, "accounts")
 	}
 	if a.Projects != b.Projects {
@@ -63,10 +67,11 @@ func (s *Server) snapshot() Snapshot {
 	if !s.snapAt.IsZero() && time.Since(s.snapAt) < s.interval(s.opts.EventsPoll, defaultEventsPoll)/2 {
 		return s.snap
 	}
-	snap := Snapshot{Initialized: status.Initialized(s.opts.Layout), Accounts: []string{}}
-	if list, err := status.Accounts(s.opts.Layout); err == nil {
-		for _, a := range list {
+	snap := Snapshot{Initialized: status.Initialized(s.opts.Layout), Accounts: []string{}, Logins: []string{}}
+	if cfg, err := config.Load(s.opts.Layout.ConfigPath()); err == nil {
+		for _, a := range cfg.Accounts {
 			snap.Accounts = append(snap.Accounts, a.Name)
+			snap.Logins = append(snap.Logins, a.Name+"="+string(s.loginState(a).Status))
 		}
 	}
 	if projects, err := status.Projects(s.opts.Layout); err == nil {
