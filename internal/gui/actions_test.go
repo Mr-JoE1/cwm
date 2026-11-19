@@ -280,7 +280,7 @@ func TestAccountAddLaunchesTerminal(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add = %d\n%s", rec.Code, rec.Body.String())
 	}
-	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != fakeCwm+"|account|add|work-2" {
+	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != fakeCwm+"|--hold-on-error|account|add|work-2" {
 		t.Fatalf("launcher argv = %q", l.calls)
 	}
 	var res launchResult
@@ -356,8 +356,9 @@ func TestResumeLooksUpSession(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume = %d\n%s", rec.Code, rec.Body.String())
 	}
-	// The D20 passthrough, exactly as `cwm sessions --pick` launches it.
-	want := fakeCwm + "|open|alpha|new|--resume|11111111-aaaa"
+	// The D20 passthrough, exactly as `cwm sessions --pick` launches it,
+	// behind the global hold flag (D49) that keeps a failed window open.
+	want := fakeCwm + "|--hold-on-error|open|alpha|new|--resume|11111111-aaaa"
 	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != want {
 		t.Fatalf("launcher argv = %q, want %s", l.calls, want)
 	}

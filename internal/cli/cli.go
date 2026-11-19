@@ -11,7 +11,13 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
+
+	"github.com/Mr-JoE1/cwm/internal/gui/term"
 )
+
+// holdRequested records term.HoldFlag for HoldOnError.
+var holdRequested atomic.Bool
 
 // Overridden at release time via -X (see .goreleaser.yaml, stage C).
 var (
@@ -34,7 +40,7 @@ const (
 var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
-	"pair", "devices", "sessions", "agent", "service", "dashboard",
+	"pair", "devices", "sessions", "agent", "service", "dashboard", "debug",
 }
 
 // IsReserved reports whether name is reserved.
@@ -88,6 +94,7 @@ var commands = []*command{
 	{name: "agent", args: "[--bind ADDR] [--port N] [--open|--no-open] [--allow-host H]", short: "run the always-on dashboard agent (one per user; a second launch opens it)"},
 	{name: "dashboard", args: "[--no-open] [--wait SECONDS]", short: "open the dashboard, starting the agent in the background if needed"},
 	{name: "service", args: "install|uninstall|status|start|stop|rotate-token", short: "start the agent at login and open the dashboard (per user, no admin)"},
+	{name: "debug", args: "[--copy]", short: "print a redacted debug report for bug reports (--copy puts it on the clipboard)"},
 }
 
 // Command implementations are wired in init to avoid an initialization cycle
@@ -132,6 +139,8 @@ func init() {
 			c.run = cmdDashboard
 		case "service":
 			c.run = cmdService
+		case "debug":
+			c.run = cmdDebug
 		}
 	}
 }
@@ -209,6 +218,10 @@ func (e *Env) parseGlobalFlags(args []string) (string, []string, error) {
 			e.Account = strings.TrimPrefix(a, "--account=")
 		case a == "--dry-run":
 			e.DryRun = true
+		case a == term.HoldFlag:
+			// Set by the dashboard's terminal launches (D49): keep the
+			// window open on failure. Process-wide, read by HoldOnError.
+			holdRequested.Store(true)
 		case strings.HasPrefix(a, "-"):
 			return "", nil, fmt.Errorf("unknown global flag %q (see: cwm help)", a)
 		default:

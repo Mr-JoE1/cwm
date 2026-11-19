@@ -2,7 +2,9 @@ package term
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -202,5 +204,47 @@ func TestSystemOpenUsesResolvedSpec(t *testing.T) {
 	s.start = func(Spec) error { return errors.New("exec format error") }
 	if err := s.Open([]string{"cwm"}); err == nil || errors.Is(err, ErrNoTerminal) || !strings.Contains(err.Error(), "xterm") {
 		t.Errorf("start failure: %v", err)
+	}
+}
+
+// D52: the terminal emulator's own output goes to the launch log (header
+// per launch, start errors too); without logs/ nothing is created.
+func TestSystemOpenLogsTerminalOutput(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "logs", "terminal.log")
+	s := &System{
+		env: fakeEnv("linux", map[string]string{"xterm": "/usr/bin/xterm"}, display),
+		start: func(sp Spec) error {
+			if sp.log == nil {
+				return nil // no logs/ dir yet
+			}
+			_, err := sp.log.WriteString("xterm: cannot open display\n")
+			return err
+		},
+		LogPath: func() string { return logPath },
+	}
+	if err := s.Open([]string{"cwm", "account", "add", "w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Dir(logPath)); !os.IsNotExist(err) {
+		t.Fatalf("logs/ must not be created by a launch: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Open([]string{"cwm", "account", "add", "w"}); err != nil {
+		t.Fatal(err)
+	}
+	s.start = func(Spec) error { return errors.New("exec format error") }
+	_ = s.Open([]string{"cwm", "open", "x"})
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, w := range []string{"open xterm for: cwm account add w\n", "xterm: cannot open display\n", "open xterm for: cwm open x\n  start failed: exec format error\n"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("log lacks %q:\n%s", w, got)
+		}
 	}
 }

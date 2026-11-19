@@ -194,6 +194,7 @@ func runAgent(e *Env, o agentOpts) error {
 			return connectSyncClient(false) // the GUI never spawns syncthing
 		},
 		Launcher:         guiLauncher,
+		DebugSources:     debugBase,
 		CwmPath:          guiCwmPath(),
 		Reserved:         IsReserved,
 		Bind:             bind,

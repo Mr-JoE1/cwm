@@ -217,7 +217,7 @@ func TestFlagErrors(t *testing.T) {
 }
 
 func TestIsReserved(t *testing.T) {
-	reserved := []string{"init", "import", "open", "list", "wip", "doctor", "account", "mcp", "hook", "version", "help", "statusline", "gui", "pair", "devices", "sessions", "agent", "service", "dashboard"}
+	reserved := []string{"init", "import", "open", "list", "wip", "doctor", "account", "mcp", "hook", "version", "help", "statusline", "gui", "pair", "devices", "sessions", "agent", "service", "dashboard", "debug"}
 	if len(ReservedNames) != len(reserved) {
 		t.Fatalf("len(ReservedNames) = %d, want %d", len(ReservedNames), len(reserved))
 	}
@@ -237,8 +237,13 @@ func TestEveryReservedNameHasCLIHandling(t *testing.T) {
 	// list/wip/doctor/hook now execute for real: sandbox the home and cwd so
 	// the sweep never touches the real ~/.cwm or the cwm repo itself.
 	t.Setenv("CWM_HOME", t.TempDir())
+	for _, k := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
+		t.Setenv(k, t.TempDir())
+	}
+	t.Setenv("PATH", t.TempDir()) // doctor/debug run `claude --version`: never a real one
 	t.Chdir(t.TempDir())
-	stubGui(t) // `cwm gui` must neither block nor open a browser here
+	stubGui(t)              // `cwm gui` must neither block nor open a browser here
+	stubService(t, "linux") // `cwm debug` reads service status: no real systemctl
 	for _, r := range ReservedNames {
 		got := runCLI(t, r)
 		switch {
@@ -355,6 +360,7 @@ func TestHookCommand(t *testing.T) {
 
 func TestDoctorCommand(t *testing.T) {
 	t.Setenv("CWM_HOME", t.TempDir()) // no workspace: doctor must FAIL
+	t.Setenv("PATH", t.TempDir())     // never a real claude
 
 	got := runCLI(t, "doctor")
 	if got.code != ExitError {
