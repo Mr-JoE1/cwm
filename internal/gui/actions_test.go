@@ -482,6 +482,19 @@ func TestDashboardHasActions(t *testing.T) {
 			t.Errorf("index.html lacks %s", want)
 		}
 	}
+	for _, want := range []string{`data-debug-copy`, `id="debug-dialog"`, `id="debug-text"`, `id="debug-select"`, bugReportURL} {
+		if !bytes.Contains(html, []byte(want)) {
+			t.Errorf("index.html lacks %s", want)
+		}
+	}
+	if n := bytes.Count(html, []byte("data-debug-copy")); n < 2 {
+		t.Errorf("Copy debug logs must be in the header/footer and on the Health tab, found %d", n)
+	}
+	for _, want := range []string{"/api/debug", "navigator.clipboard.writeText", `execCommand("copy")`, "Debug logs copied (", "pathHint", "424"} {
+		if !bytes.Contains(js, []byte(want)) {
+			t.Errorf("app.js lacks %s", want)
+		}
+	}
 	for _, want := range []string{"/api/state", "/api/init", "/api/accounts", "/api/sessions/resume", "/api/pair", "/api/csrf", CSRFHeader, `"Resume"`} {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Errorf("app.js lacks %s", want)

@@ -259,6 +259,8 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
+const bugReportURL = "https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml"
+
 func TestStaticDashboard(t *testing.T) {
 	f := newFixture(t, okSync)
 	rec := f.do(t, "GET", "/", nil)
@@ -297,7 +299,10 @@ func TestStaticDashboard(t *testing.T) {
 			return err
 		}
 		total += len(data)
-		if external.Match(data) || strings.Contains(string(data), "@import") {
+		// One navigation link is allowed (D52): the bug-report form,
+		// opened by the user's click, never loaded by the page.
+		nav := `href="` + bugReportURL + `" target="_blank" rel="noopener noreferrer"`
+		if external.Match([]byte(strings.ReplaceAll(string(data), nav, ""))) || strings.Contains(string(data), "@import") {
 			t.Errorf("%s references an external resource", name)
 		}
 		if strings.HasSuffix(name, ".js") && sinks.Match(data) {

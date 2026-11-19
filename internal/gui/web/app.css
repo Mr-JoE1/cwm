@@ -483,6 +483,20 @@ tr.reveal { animation: row-in 360ms var(--ease) both; animation-delay: calc(var(
 
 .offscreen { position: fixed; left: -9999px; top: 0; }
 
+.head-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.head-actions .link, .foot-links .link { font-size: 12px; }
+.foot-links { display: inline-flex; gap: 14px; }
+.foot .link { color: var(--muted); }
+.toast .toast-link { grid-column: 1 / -1; font: 12px/1.45 var(--font-mono); color: var(--accent-2); }
+.debug-dialog { width: min(860px, calc(100vw - 32px)); }
+.debug-dialog .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.debug-dialog a.btn { text-decoration: none; }
+.debug-text {
+  max-height: min(60vh, 560px); overflow: auto; margin: 12px 0 0; padding: 12px 14px;
+  font: 11.5px/1.5 var(--font-mono); white-space: pre; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+
 /* --- motion ---------------------------------------------------------------------------- */
 
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -54,6 +54,10 @@
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 3.5l1.6 4.9 4.9 1.6-4.9 1.6L10 16.5l-1.6-4.9L3.5 10l4.9-1.6Z"/><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8Z"/></svg>
       <span class="sr-only">Animated background</span>
     </button>
+    <button type="button" class="icon-btn" data-debug-copy title="Copy debug logs (d) — a redacted report to paste into a bug report">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 7.5V6a3 3 0 0 1 6 0v1.5"/><rect x="7" y="7.5" width="10" height="12" rx="5"/><path d="M12 11v8.5M4 12h3M17 12h3M4.5 7.5 7.2 9M19.5 7.5 16.8 9M4.5 18l2.7-1.5M19.5 18l-2.7-1.5"/></svg>
+      <span class="sr-only">Copy debug logs</span>
+    </button>
     <button type="button" id="refresh" class="btn btn-refresh" title="Refresh (r)">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>
       <span class="btn-label">Refresh</span>
@@ -184,8 +188,14 @@
   </section>
 
   <section class="panel" role="tabpanel" id="panel-health" aria-labelledby="tab-health" hidden>
-    <div class="panel-head"><h2>Health</h2></div>
-    <p class="hint">Workspace health checks (same data as <code>cwm doctor</code>; the SSH probe never runs from the GUI).</p>
+    <div class="panel-head">
+      <h2>Health</h2>
+      <div class="head-actions">
+        <a class="link" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug</a>
+        <button type="button" class="btn btn-small" data-debug-copy>Copy debug logs</button>
+      </div>
+    </div>
+    <p class="hint">Workspace health checks (same data as <code>cwm doctor</code>; the SSH probe never runs from the GUI). Something wrong? <strong>Copy debug logs</strong> puts a redacted report (no tokens, e-mails, keys or user names) on the clipboard for a bug report; <code>cwm debug --copy</code> does the same from a terminal.</p>
     <div class="content" data-content="health"></div>
   </section>
 </main>
@@ -193,6 +203,10 @@
 
 <footer class="foot">
   <span id="version">cwm</span>
+  <span class="foot-links">
+    <button type="button" class="link" data-debug-copy>Copy debug logs</button>
+    <a class="link" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug</a>
+  </span>
   <span>localhost only · press <kbd>?</kbd> for shortcuts · Ctrl-C in the terminal stops the server</span>
 </footer>
 </div>
@@ -207,10 +221,22 @@
     <dt><kbd>t</kbd></dt><dd>Cycle theme (system → dark → light)</dd>
     <dt><kbd>b</kbd></dt><dd>Animated background on/off</dd>
     <dt><kbd>r</kbd></dt><dd>Refresh the current tab</dd>
+    <dt><kbd>d</kbd></dt><dd>Copy debug logs</dd>
     <dt><kbd>?</kbd></dt><dd>This help</dd>
     <dt><kbd>Esc</kbd></dt><dd>Close / leave the filter</dd>
   </dl>
   <button type="button" class="btn" id="keys-close">Close</button>
+</dialog>
+
+<dialog id="debug-dialog" class="keys debug-dialog" aria-labelledby="debug-title">
+  <h2 id="debug-title">Debug logs</h2>
+  <p class="hint">The browser did not allow copying. Select the report below, copy it (Ctrl/Cmd-C) and paste it into a GitHub issue. It is redacted: tokens, e-mail addresses, keys and your user name are removed — still give it a quick read before posting.</p>
+  <pre id="debug-text" class="debug-text" tabindex="0"></pre>
+  <div class="row">
+    <button type="button" class="btn btn-primary" id="debug-select">Select all</button>
+    <a class="btn" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug</a>
+    <button type="button" class="btn" id="debug-close">Close</button>
+  </div>
 </dialog>
 </body>
 </html>
