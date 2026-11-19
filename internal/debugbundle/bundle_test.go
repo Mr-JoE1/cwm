@@ -119,7 +119,7 @@ func TestBuildSectionsAndRedaction(t *testing.T) {
 		"PATH of this process:", "  " + tilde("bin"),
 		"== config.toml ==", `default_account = work`, "link_mode = auto", "api_token = <set, not shown>",
 		"account[0].login.email = <set, not shown>", "account[0].login.plan = max", "account[1].name = home",
-		"== workspace ==", "projects:    2, sessions: 3", "alpha (2), beta (1)", "accounts:    2 (1 with a recorded login)", "work (default), home",
+		"== workspace ==", "projects:    2, sessions: 3", "alpha (2), beta (1)", "accounts:    2 (1 with a recorded login)", "work (default, login: done), home (login: never)",
 		"== syncthing ==", "not reachable: connection refused",
 		"== doctor ==", "ok:   workspace dir exists (~)", "doctor: 1 ok, 0 warn, 0 fail",
 		"== logs ==", "--- agent.log", "agent line 499", "--- terminal.log",
