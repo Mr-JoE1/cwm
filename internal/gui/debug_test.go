@@ -195,3 +195,38 @@ func TestResumePrecheckAndPathHint(t *testing.T) {
 		t.Errorf("bad setting = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// D54: /api/claude reports the behaviour check, not just a path.
+func TestAPIClaudeVerification(t *testing.T) {
+	f, _ := actionFixture(t, okSync)
+	long := strings.Repeat("x", 300)
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		var cands []claudebin.Candidate
+		for i := range 7 {
+			cands = append(cands, claudebin.Candidate{Path: fmt.Sprintf("/c%d/claude", i), Verified: i == 1, Result: "r"})
+		}
+		return claudebin.Result{Path: "/c1/claude", Source: claudebin.SourcePath, OnPath: true, Version: "2.1.319",
+			ProbeOutput: "2.1.319 (Claude Code)\n" + long, Candidates: cands}, nil
+	}
+	var got claudeInfo
+	getJSON(t, f, "/api/claude", 200, &got)
+	if !got.Verified || got.Version != "2.1.319" || len([]rune(got.ProbeOutput)) > claudebin.ProbeOutputShown ||
+		!strings.HasPrefix(got.ProbeOutput, "2.1.319 (Claude Code)") || len(got.Candidates) != 5 || !got.Candidates[1].Verified {
+		t.Errorf("claude info = %+v", got)
+	}
+	rec := f.do(t, "GET", "/api/claude", authed(f))
+	for _, k := range []string{`"verified":true`, `"probe_output":"2.1.319 (Claude Code)`, `"candidates":[{"path":"/c0/claude","on_path":false,"verified":false,"result":"r"}`} {
+		if !strings.Contains(rec.Body.String(), k) {
+			t.Errorf("raw body lacks %s: %s", k, rec.Body.String())
+		}
+	}
+	// Candidates found, none Claude Code: not found, the rejects listed.
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		return claudebin.Result{}, &claudebin.NotFoundError{GOOS: "linux", Rejected: []claudebin.Candidate{{Path: "/x/claude", Result: "exit status 1"}}}
+	}
+	got = claudeInfo{}
+	getJSON(t, f, "/api/claude", 200, &got)
+	if got.Found || got.Verified || len(got.Candidates) != 1 || got.Candidates[0].Result != "exit status 1" || !strings.Contains(got.Hint, "not Claude Code") {
+		t.Errorf("rejected only: %+v", got)
+	}
+}
