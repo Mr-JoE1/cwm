@@ -23,11 +23,13 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/storage"
+	"github.com/Mr-JoE1/cwm/internal/testsafe"
 )
 
 var cwmBin string
 
 func TestMain(m *testing.M) {
+	testsafe.NoRealClaude()
 	tmp, err := os.MkdirTemp("", "cwm-e2e-bin-")
 	if err != nil {
 		panic(err)
@@ -887,5 +889,70 @@ func TestGuiStateBeforeAndAfterInit(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.root, "config.toml")); err != nil {
 		t.Errorf("init did not write config.toml under CWM_HOME: %v", err)
+	}
+}
+
+// v0.6.2 (D55/D56): the login-state markers the dashboard reads are
+// written by the cwm process that runs the login, success or failure, and
+// remove keeps its backup-first, never-the-last-account rules.
+func TestAccountLoginStateAndRemove(t *testing.T) {
+	e := newEnv(t)
+	if r := e.run(e.home, "init"); r.code != 0 {
+		t.Fatalf("init: %d %s", r.code, r.errs)
+	}
+	marker := func(name string) map[string]any {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(e.root, "state", "account-login", name+".json"))
+		if err != nil {
+			t.Fatalf("marker %s: %v", name, err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	if r := e.run(e.home, "account", "add", "work"); r.code != 0 {
+		t.Fatalf("add work: %d %s", r.code, r.errs)
+	}
+	if m := marker("work"); m["status"] != "done" || m["by"] != "cli" {
+		t.Errorf("work marker = %v", m)
+	}
+	// The fake binary fails the login: exit 1, marker failed with why.
+	r := e.runWith(e.home, []string{"FAKECLAUDE_LOGIN_EXIT=1"}, "account", "login", "work")
+	if r.code == 0 || !strings.Contains(r.errs, "exit status 1") {
+		t.Fatalf("failing login: %d %s", r.code, r.errs)
+	}
+	if m := marker("work"); m["status"] != "failed" || !strings.Contains(fmt.Sprint(m["error"]), "exit status 1") {
+		t.Errorf("work marker after failure = %v", m)
+	}
+	// Retrying succeeds.
+	if r := e.run(e.home, "account", "login", "work"); r.code != 0 || !strings.Contains(r.stdout, "logged in") {
+		t.Fatalf("retry: %d %s %s", r.code, r.stdout, r.errs)
+	}
+	if m := marker("work"); m["status"] != "done" {
+		t.Errorf("work marker after retry = %v", m)
+	}
+	// Names cwm owns are refused before anything is written.
+	if r := e.run(e.home, "account", "add", "login"); r.code == 0 || !strings.Contains(r.errs, "reserved") {
+		t.Errorf("reserved name: %d %s", r.code, r.errs)
+	}
+	// The last account is refused; with two, remove backs up first.
+	if r := e.run(e.home, "account", "remove", "work", "--yes"); r.code == 0 || !strings.Contains(r.errs, "last account") {
+		t.Errorf("remove last: %d %s", r.code, r.errs)
+	}
+	if r := e.run(e.home, "account", "add", "home"); r.code != 0 {
+		t.Fatalf("add home: %d %s", r.code, r.errs)
+	}
+	r = e.run(e.home, "account", "remove", "work", "--delete-dir", "--yes")
+	if r.code != 0 || !strings.Contains(r.stdout, "backup in ") || !strings.Contains(r.stdout, "default account is now home") {
+		t.Fatalf("remove work: %d %s %s", r.code, r.stdout, r.errs)
+	}
+	if _, err := os.Stat(filepath.Join(e.root, "accounts", "work")); !os.IsNotExist(err) {
+		t.Errorf("--delete-dir left the account dir (%v)", err)
+	}
+	backups, _ := filepath.Glob(filepath.Join(e.root, "backups", "*-account-work"))
+	if len(backups) != 1 {
+		t.Errorf("backups = %v", backups)
 	}
 }

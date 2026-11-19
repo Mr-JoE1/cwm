@@ -2,12 +2,13 @@ package accounts
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -23,13 +24,16 @@ var FindClaude = claudebin.Find
 // `claude auth login` with CLAUDE_CONFIG_DIR pointing at that dir (stdio
 // inherited, so the interactive login works), parses the resulting
 // identity and registers the account in cfg. cfg is mutated in memory; the
-// caller persists it.
+// caller persists it. reserved reports cwm's own command names (nil skips
+// that rule).
 func Add(l *storage.Layout, cfg *config.Config, name string, stdout io.Writer) error {
-	if !config.ValidAccountName(name) {
-		return fmt.Errorf("accounts: invalid account name %q (want [a-z0-9][a-z0-9_-]{0,31}, not all digits)", name)
-	}
-	if _, exists := cfg.Account(name); exists {
-		return fmt.Errorf("accounts: account %q already exists", name)
+	return AddChecked(l, cfg, name, nil, stdout)
+}
+
+// AddChecked is Add with the reserved-name rule of ValidateNewName.
+func AddChecked(l *storage.Layout, cfg *config.Config, name string, reserved func(string) bool, stdout io.Writer) error {
+	if err := ValidateNewName(name, cfg, reserved); err != nil {
+		return fmt.Errorf("accounts: %w", err)
 	}
 	// Resolve claude first: a missing claude must not leave an empty
 	// account dir behind.
@@ -44,33 +48,15 @@ func Add(l *storage.Layout, cfg *config.Config, name string, stdout io.Writer) e
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("accounts: create %s: %w", dir, err)
 	}
-	login := exec.Command(res.Path, "auth", "login")
-	login.Env = append(os.Environ(), ClaudeConfigDirEnv+"="+dir)
-	login.Stdin, login.Stdout, login.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := login.Run(); err != nil {
-		return fmt.Errorf("accounts: claude auth login failed: %w", err)
+	if err := runLogin(res.Path, dir); err != nil {
+		return err
 	}
-
 	// Register the account even when no identity could be read: the login
 	// may have succeeded without persisting creds yet (spec: warn, keep).
-	id, idErr := ReadIdentity(filepath.Join(dir, ".claude.json"))
 	if err := cfg.AddAccount(name, dir); err != nil {
 		return fmt.Errorf("accounts: %w", err)
 	}
-	if idErr != nil || id.Email == "" {
-		fmt.Fprintf(stdout, "⚠ %s added (no login identity found — re-run the login if this looks wrong)\n", name)
-		return nil
-	}
-	if err := cfg.SetAccountLogin(name, config.Login{
-		Email:            id.Email,
-		AccountUUID:      id.AccountUUID,
-		OrganizationName: id.OrganizationName,
-		Plan:             id.Plan,
-	}); err != nil {
-		return fmt.Errorf("accounts: %w", err)
-	}
-	fmt.Fprintf(stdout, "✓ %s (%s) added\n", name, id.Email)
-	return nil
+	return recordIdentity(cfg, name, dir, stdout, "added")
 }
 
 // Info is one row of `cwm account list`: config identity plus on-disk
@@ -180,20 +166,85 @@ func Use(cfg *config.Config, name string) error {
 	return cfg.SetDefaultAccount(name)
 }
 
+// RemoveOptions tune Remove.
+type RemoveOptions struct {
+	// DeleteDir also deletes accounts/<name> and launch/<name> once the
+	// backup succeeded.
+	DeleteDir bool
+}
+
+// RemoveResult says what Remove did.
+type RemoveResult struct {
+	// Backup is the backup dir ("" when the account dir did not exist).
+	Backup     string
+	DeletedDir bool
+	// NewDefault is the account that became the default because the
+	// removed one was it ("" = the default did not change).
+	NewDefault string
+}
+
+// ErrLastAccount refuses removing the only account: every launch needs
+// one, and the CLI and the dashboard both say so instead of leaving a
+// workspace with nothing to run claude as.
+var ErrLastAccount = errors.New("accounts: refusing to remove the last account — add another account first (cwm account add <name>)")
+
 // Remove backs up the account dir (copy, the source stays until the backup
 // succeeded) to backups/<ts>-account-<name>/ and drops the account from
-// cfg. cfg is mutated in memory; the caller persists it.
+// cfg. The last account is refused (ErrLastAccount). Removing the default
+// makes the first remaining account the default. cfg is mutated in
+// memory; the caller persists it.
 func Remove(l *storage.Layout, cfg *config.Config, name string) error {
+	_, err := RemoveWith(l, cfg, name, RemoveOptions{})
+	return err
+}
+
+// RemoveWith is Remove with options and a report.
+func RemoveWith(l *storage.Layout, cfg *config.Config, name string, opts RemoveOptions) (RemoveResult, error) {
+	var out RemoveResult
 	acct, ok := cfg.Account(name)
 	if !ok {
-		return fmt.Errorf("accounts: account %q not found", name)
+		return out, fmt.Errorf("accounts: account %q not found", name)
+	}
+	if len(cfg.Accounts) == 1 {
+		return out, ErrLastAccount
 	}
 	dir := acct.ExpandedDir()
 	if _, err := os.Stat(dir); err == nil {
 		backup := l.BackupDirPath("account-" + storage.SanitizedLabel(name))
 		if err := storage.CopyTree(dir, backup); err != nil {
-			return fmt.Errorf("accounts: back up %s: %w", dir, err)
+			return out, fmt.Errorf("accounts: back up %s: %w", dir, err)
+		}
+		out.Backup = backup
+	}
+	wasDefault := cfg.DefaultAccount == name
+	if err := cfg.RemoveAccount(name); err != nil {
+		return out, err
+	}
+	if wasDefault && len(cfg.Accounts) > 0 {
+		out.NewDefault = cfg.Accounts[0].Name
+		if err := cfg.SetDefaultAccount(out.NewDefault); err != nil {
+			return out, err
 		}
 	}
-	return cfg.RemoveAccount(name)
+	if opts.DeleteDir {
+		// Only cwm's own dirs: an account imported from elsewhere keeps
+		// its original folder (the backup has a copy either way).
+		if within(l.AccountsDir(), dir) {
+			if err := os.RemoveAll(dir); err != nil {
+				return out, fmt.Errorf("accounts: delete %s: %w", dir, err)
+			}
+			out.DeletedDir = true
+		}
+		if err := os.RemoveAll(filepath.Join(l.LaunchDir(), name)); err != nil {
+			return out, fmt.Errorf("accounts: delete launch dir: %w", err)
+		}
+	}
+	ClearLoginState(l, name)
+	return out, nil
+}
+
+// within reports whether p is strictly inside dir.
+func within(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }

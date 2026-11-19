@@ -3,6 +3,7 @@ package accounts
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -264,6 +265,16 @@ func TestRemoveBacksUpAndDrops(t *testing.T) {
 	if err := cfg.SetDefaultAccount("main"); err != nil {
 		t.Fatal(err)
 	}
+	// The last account is refused (v0.6.2, D56): nothing backed up.
+	if err := Remove(l, cfg, "main"); !errors.Is(err, ErrLastAccount) {
+		t.Fatalf("Remove(last) = %v, want ErrLastAccount", err)
+	}
+	if _, err := os.Stat(l.BackupsDir()); !os.IsNotExist(err) {
+		t.Fatalf("a refused remove must not back up (stat err = %v)", err)
+	}
+	if err := cfg.AddAccount("second", filepath.Join(l.AccountsDir(), "second")); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := Remove(l, cfg, "main"); err != nil {
 		t.Fatalf("Remove: %v", err)
@@ -271,8 +282,8 @@ func TestRemoveBacksUpAndDrops(t *testing.T) {
 	if _, ok := cfg.Account("main"); ok {
 		t.Error("account not dropped from config")
 	}
-	if cfg.DefaultAccount != "" {
-		t.Errorf("default = %q, want cleared", cfg.DefaultAccount)
+	if cfg.DefaultAccount != "second" {
+		t.Errorf("default = %q, want the remaining account promoted", cfg.DefaultAccount)
 	}
 	// Backup must hold a copy of the credentials; the account dir itself
 	// stays on disk (Remove only deregisters + backs up).
