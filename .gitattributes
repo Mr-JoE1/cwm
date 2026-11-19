@@ -4,3 +4,4 @@ scripts/install.sh text eol=lf
 scripts/test-install.sh text eol=lf
 scripts/install.ps1 -text
 scripts/test-install-windows.ps1 -text
+scripts/banner.txt text eol=lf

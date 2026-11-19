@@ -110,10 +110,18 @@ function Close-Line {
     if ($script:OpenLine) { Write-Host ''; $script:OpenLine = $false }
 }
 
+# Write-Banner prints scripts/banner.txt verbatim (D59). The two characters
+# PowerShell can read as syntax, the backtick (its escape character) and
+# the apostrophe, are built from code points, so no banner string contains
+# either and no quoting context (-File, irm | iex, a scriptblock) can eat
+# or end one. CI compares the output line by line with banner.txt under
+# Windows PowerShell 5.1.
 function Write-Banner([string]$sub) {
+    $bt = [string][char]0x60
+    $ap = [string][char]0x27
     Write-Host ''
     Write-Part '                ___ __      __ _ __ ___' 'White'; Write-Host ''
-    Write-Part '   ______     ' 'Cyan'; Write-Part ' / __|\ \ /\ / /| ''_ ` _ \' 'White'; Write-Host ''
+    Write-Part '   ______     ' 'Cyan'; Write-Part (' / __|\ \ /\ / /| ' + $ap + '_ ' + $bt + ' _ \') 'White'; Write-Host ''
     Write-Part '  /  ' 'Cyan'; Write-Part '>_' 'White'; Write-Part '  \    ' 'Cyan'; Write-Part '| (__  \ V  V / | | | | | |' 'White'; Write-Host ''
     Write-Part '  \______/    ' 'Cyan'; Write-Part ' \___|  \_/\_/  |_| |_| |_|' 'White'; Write-Host ''
     Write-Part '  Claude Workspace Manager  ' 'White'; Write-Part $sub 'DarkGray'; Write-Host ''
