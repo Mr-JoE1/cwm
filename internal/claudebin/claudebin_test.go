@@ -123,7 +123,7 @@ func TestResolveOrder(t *testing.T) {
 	// Nothing on PATH: the native-installer folder is found, off PATH.
 	w.vars["PATH"] = filepath.Join(w.root, "empty")
 	res, err = Resolve(env, "")
-	if err != nil || res.Path != known || res.Source != SourceKnown || res.OnPath {
+	if err != nil || res.Path != known || res.Source != SourceDiscovered || res.OnPath {
 		t.Fatalf("known: got %+v, %v; want %s (known, off PATH)", res, err, known)
 	}
 	// A PATH entry with a trailing slash still counts as on PATH.
@@ -220,7 +220,7 @@ func TestResolveNpmPrefix(t *testing.T) {
 	w.npm = filepath.Join(w.root, "npm-prefix")
 	cmd := w.file(t, "npm-prefix/claude.cmd", false)
 	res, err := Resolve(w.env("windows"), "")
-	if err != nil || res.Path != cmd || res.Source != SourceKnown {
+	if err != nil || res.Path != cmd || res.Source != SourceDiscovered {
 		t.Fatalf("windows npm prefix: got %+v, %v; want %s", res, err, cmd)
 	}
 	if runtime.GOOS == "windows" {
@@ -326,7 +326,7 @@ func TestFindPersistsOffPathHit(t *testing.T) {
 	if c.ClaudePath != "" {
 		t.Error("Remember must not pin a PATH hit")
 	}
-	Remember(c, Result{Path: "/x/claude", Source: SourceKnown})
+	Remember(c, Result{Path: "/x/claude", Source: SourceDiscovered})
 	if c.ClaudePath != "/x/claude" {
 		t.Error("Remember must pin an off-PATH hit")
 	}

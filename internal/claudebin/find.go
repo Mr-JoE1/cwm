@@ -10,7 +10,7 @@ import (
 )
 
 // Find resolves claude for a cwm command: config.toml's claude_path feeds
-// the lookup, and an off-PATH hit (SourceKnown) is written back to
+// the lookup, and an off-PATH hit (SourceDiscovered) is written back to
 // claude_path so later commands — and the agent, whose PATH is frozen at
 // login — skip the search. The write is best-effort and only happens when
 // config.toml already exists: creating it here would make an
@@ -37,7 +37,7 @@ func find(layout *storage.Layout, env Env, persist bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if persist && res.Source == SourceKnown && cfg != nil && cfg.ClaudePath != res.Path {
+	if persist && res.Source == SourceDiscovered && cfg != nil && cfg.ClaudePath != res.Path {
 		if _, serr := os.Stat(layout.ConfigPath()); serr == nil {
 			cfg.ClaudePath = res.Path
 			_ = config.Save(layout.ConfigPath(), cfg)
@@ -50,7 +50,7 @@ func find(layout *storage.Layout, env Env, persist bool) (Result, error) {
 // caller is about to save anyway (account add), so the persisted value is
 // not clobbered by that later Save.
 func Remember(cfg *config.Config, res Result) {
-	if cfg != nil && res.Source == SourceKnown {
+	if cfg != nil && res.Source == SourceDiscovered {
 		cfg.ClaudePath = res.Path
 	}
 }

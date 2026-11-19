@@ -198,8 +198,14 @@ func Checks(root string, netProbe bool) []Check {
 		default:
 			r.warn("claude", "claude %s < %s — project-name pinning unsupported; upgrade to >= %s", ver, storage.MinVersion, storage.MinVersion)
 		}
-		if !res.OnPath {
-			r.warn("claude-path", "claude's folder is not on PATH (cwm still finds it) — to run claude yourself: %s", claudebin.PathHint(runtime.GOOS, res.Dir()))
+		// The binary check names the exact file and which lookup step
+		// found it, so a report shows at a glance whether cwm and the
+		// user's shell can disagree about claude (D49).
+		if res.OnPath {
+			r.ok("claude-binary", "claude binary: %s (source: %s)", res.Path, res.Source.Label())
+		} else {
+			r.warn("claude-binary", "claude binary: %s (source: %s) — its folder is not on PATH, so your own terminals and IDEs will not find `claude` (cwm still does); fix: `%s`",
+				res.Path, res.Source.Label(), claudebin.PathHint(runtime.GOOS, res.Dir()))
 		}
 	}
 

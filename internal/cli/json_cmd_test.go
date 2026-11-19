@@ -40,6 +40,7 @@ func TestListJSON(t *testing.T) {
 
 func TestDoctorJSONExitCode(t *testing.T) {
 	t.Setenv("CWM_HOME", t.TempDir()) // no workspace: doctor must FAIL
+	t.Setenv("PATH", t.TempDir())     // never a real claude
 	t.Setenv(syncthing.EnvURL, "http://127.0.0.1:1")
 	t.Setenv(syncthing.EnvAPIKey, "test")
 	got := runCLI(t, "doctor", "--json")

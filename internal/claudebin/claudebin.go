@@ -41,10 +41,10 @@ const (
 type Source string
 
 const (
-	SourceEnv    Source = "env"    // $CWM_CLAUDE
-	SourceConfig Source = "config" // config.toml claude_path
-	SourcePath   Source = "path"   // PATH lookup
-	SourceKnown  Source = "known"  // well-known install location / npm prefix
+	SourceEnv        Source = "env"        // $CWM_CLAUDE
+	SourceConfig     Source = "config"     // config.toml claude_path
+	SourcePath       Source = "path"       // PATH lookup
+	SourceDiscovered Source = "discovered" // well-known install location / npm prefix
 )
 
 // Result is a resolved claude executable.
@@ -155,14 +155,14 @@ func Resolve(env Env, configured string) (Result, error) {
 	cands := Candidates(env)
 	for _, p := range cands {
 		if env.isExecutable(p) {
-			return Result{Path: p, Source: SourceKnown, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
+			return Result{Path: p, Source: SourceDiscovered, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
 		}
 	}
 	if prefix := env.npmPrefix(); prefix != "" {
 		for _, p := range npmCandidates(env.GOOS, prefix) {
 			cands = append(cands, p)
 			if env.isExecutable(p) {
-				return Result{Path: p, Source: SourceKnown, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
+				return Result{Path: p, Source: SourceDiscovered, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
 			}
 		}
 	}
@@ -315,6 +315,51 @@ func InstallCommand(goos string) string {
 		return "irm https://claude.ai/install.ps1 | iex"
 	}
 	return "curl -fsSL https://claude.ai/install.sh | bash"
+}
+
+// InstallOption is one official way to install Claude Code.
+type InstallOption struct {
+	Label   string `json:"label"`
+	Command string `json:"command"`
+}
+
+// InstallOptions are the official install commands for goos, exactly as
+// the Claude Code setup docs (code.claude.com/docs/en/setup) give them,
+// the recommended native installer first.
+func InstallOptions(goos string) []InstallOption {
+	npm := InstallOption{Label: "npm (Node.js 22+)", Command: "npm install -g @anthropic-ai/claude-code"}
+	switch goos {
+	case "windows":
+		return []InstallOption{
+			{Label: "PowerShell", Command: InstallCommand(goos)},
+			{Label: "CMD", Command: "curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd"},
+			{Label: "WinGet", Command: "winget install Anthropic.ClaudeCode"},
+			npm,
+		}
+	case "darwin":
+		return []InstallOption{
+			{Label: "Terminal", Command: InstallCommand(goos)},
+			{Label: "Homebrew", Command: "brew install --cask claude-code"},
+			npm,
+		}
+	}
+	return []InstallOption{{Label: "Terminal", Command: InstallCommand(goos)}, npm}
+}
+
+// Label is the human name of a lookup step, for doctor and the debug
+// bundle.
+func (s Source) Label() string {
+	switch s {
+	case SourceEnv:
+		return "$" + EnvClaude
+	case SourceConfig:
+		return "config.toml claude_path"
+	case SourcePath:
+		return "PATH"
+	case SourceDiscovered:
+		return "found in a well-known install folder"
+	}
+	return string(s)
 }
 
 // PathHint is the copy-paste command that puts dir on the user's PATH for
