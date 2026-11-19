@@ -493,8 +493,30 @@
       for (const id of ["wiz-own-id", "pair-own-id"]) {
         $(id).textContent = state.deviceID || "unavailable — Syncthing is not running on this device";
       }
+      renderClaude(state.claude);
     }
     return r;
+  }
+
+  // renderClaude shows whether Add account can work (D49): claude missing →
+  // the install command; found outside PATH → where, plus the PATH command
+  // for the user's own terminals. Nothing when all is well.
+  let claudeShown = "";
+  function renderClaude(c) {
+    const box = $("wiz-claude");
+    if (!box || !c) return;
+    const key = JSON.stringify(c);
+    if (key === claudeShown) return; // polled every 2 s; keep text selection stable
+    claudeShown = key;
+    if (!c.found) {
+      return say(box, "warn", "Claude Code was not found on this machine — install it first, then add the account.",
+        "Run this in a terminal (or set `CWM_CLAUDE` / `claude_path` in config.toml if it lives somewhere unusual):", c.install);
+    }
+    if (!c.onPath) {
+      return say(box, "info", "Claude Code found at " + c.path + " — cwm will use it.",
+        "Its folder is not on your PATH, so a plain `claude` in a new terminal will not find it. To fix that, run:", c.pathHint);
+    }
+    box.replaceChildren();
   }
 
   const STEPS = ["init", "account", "pair", "done"];
@@ -567,6 +589,10 @@
       say(addBox, "wait", "Opening a terminal…");
       const r = await post("/api/accounts", { name: name });
       addBtn.disabled = false;
+      if (r.status === 424) {
+        refreshState();
+        return say(addBox, "error", "Claude Code is needed first.", r.error, r.command);
+      }
       if (!r.ok && r.status !== 501) return say(addBox, "error", "Could not add the account.", r.error, r.command);
       if (r.ok) {
         say(addBox, "wait", "Finish the Claude login in the terminal window that just opened — waiting for account “" + name + "” to appear…",

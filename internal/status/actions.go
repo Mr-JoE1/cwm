@@ -34,6 +34,20 @@ type State struct {
 	DeviceID    string    `json:"deviceID,omitempty"`
 	Paired      int       `json:"paired"`
 	Syncthing   bool      `json:"syncthing"`
+	// Claude is the claude lookup (D49), filled by the GUI; nil elsewhere.
+	Claude *Claude `json:"claude,omitempty"`
+}
+
+// Claude tells the wizard whether Add account can work: where claude is,
+// whether a fresh shell would find it, and the copy-paste commands to
+// install it (Install) or put its folder on PATH (PathHint).
+type Claude struct {
+	Found    bool   `json:"found"`
+	Path     string `json:"path,omitempty"`
+	OnPath   bool   `json:"onPath"`
+	PathHint string `json:"pathHint,omitempty"`
+	Install  string `json:"install"`
+	Error    string `json:"error,omitempty"`
 }
 
 // Initialized reports whether `cwm init` has run on this device: the

@@ -51,10 +51,13 @@ func (a Account) ExpandedDir() string {
 
 // Config mirrors config.toml. Unknown keys are tolerated on load.
 type Config struct {
-	Version        int       `toml:"version"`
-	DefaultAccount string    `toml:"default_account"`
-	LinkMode       string    `toml:"link_mode"`
-	Accounts       []Account `toml:"account"`
+	Version        int    `toml:"version"`
+	DefaultAccount string `toml:"default_account"`
+	LinkMode       string `toml:"link_mode"`
+	// ClaudePath pins the claude executable (D49). Written automatically
+	// when claude was found off PATH; empty = look it up.
+	ClaudePath string    `toml:"claude_path,omitempty"`
+	Accounts   []Account `toml:"account"`
 }
 
 // Default returns a fresh config with schema defaults filled in.

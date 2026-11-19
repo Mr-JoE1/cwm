@@ -7,12 +7,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"text/tabwriter"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
+
+// FindClaude resolves the claude binary (D49); a seam for tests.
+var FindClaude = claudebin.Find
 
 // Add validates name, creates accounts/<name> (0700), runs
 // `claude auth login` with CLAUDE_CONFIG_DIR pointing at that dir (stdio
@@ -26,16 +31,20 @@ func Add(l *storage.Layout, cfg *config.Config, name string, stdout io.Writer) e
 	if _, exists := cfg.Account(name); exists {
 		return fmt.Errorf("accounts: account %q already exists", name)
 	}
+	// Resolve claude first: a missing claude must not leave an empty
+	// account dir behind.
+	res, err := FindClaude(l)
+	if err != nil {
+		return fmt.Errorf("accounts: %w", err)
+	}
+	claudebin.Remember(cfg, res)
+	claudebin.Hint(stdout, runtime.GOOS, res)
+
 	dir := filepath.Join(l.AccountsDir(), name)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("accounts: create %s: %w", dir, err)
 	}
-
-	bin, err := exec.LookPath("claude")
-	if err != nil {
-		return fmt.Errorf("accounts: claude not found on PATH — install Claude Code first: %w", err)
-	}
-	login := exec.Command(bin, "auth", "login")
+	login := exec.Command(res.Path, "auth", "login")
 	login.Env = append(os.Environ(), ClaudeConfigDirEnv+"="+dir)
 	login.Stdin, login.Stdout, login.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := login.Run(); err != nil {

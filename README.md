@@ -138,6 +138,8 @@ cwm pair                      # pair this device with another one
 cwm doctor                    # health checks
 ```
 
+cwm finds Claude Code even when its folder isn't on `PATH` yet (right after its installer, for example), remembers it as `claude_path` in `config.toml`, and prints the command that puts it on `PATH`. To use a specific binary, set `CWM_CLAUDE=/path/to/claude`.
+
 Every command takes `--help`, and every view takes `--json`. Full list: **[CLI Reference](https://github.com/Mr-JoE1/cwm/wiki/CLI-Reference)**.
 
 ## Documentation

@@ -7,15 +7,18 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 )
@@ -172,15 +175,32 @@ func Checks(root string, netProbe bool) []Check {
 		r.warn("stignore", ".stignore missing — sync not configured (re-run the cwm bootstrap)")
 	}
 
-	// 6. claude presence + version (pinning needs >= 2.1.234)
-	if _, ver, err := storage.ClaudeBin(); err != nil {
-		r.warn("claude", "claude not on PATH — install Claude Code")
-	} else if ver == "" {
-		r.ok("claude", "claude on PATH (version not parseable)")
-	} else if storage.VersionAtLeast(ver) {
-		r.ok("claude", "claude %s on PATH (>= %s: project-name pinning supported)", ver, storage.MinVersion)
+	// 6. claude presence + version (pinning needs >= 2.1.234). Found off
+	// PATH (D49) still works for cwm, but the user's own shells and IDEs
+	// will not see it — a warning with the exact PATH command.
+	if res, err := claudebin.Lookup(storage.NewLayoutAt(root)); err != nil {
+		if errors.Is(err, claudebin.ErrNotFound) {
+			r.warn("claude", "claude not found (PATH and the usual install folders) — install Claude Code: %s", claudebin.InstallCommand(runtime.GOOS))
+		} else {
+			r.warn("claude", "%v", err)
+		}
 	} else {
-		r.warn("claude", "claude %s < %s — project-name pinning unsupported; upgrade to >= %s", ver, storage.MinVersion, storage.MinVersion)
+		ver := claudebin.Version(res.Path)
+		where := "on PATH"
+		if !res.OnPath {
+			where = "at " + res.Path
+		}
+		switch {
+		case ver == "":
+			r.ok("claude", "claude %s (version not parseable)", where)
+		case storage.VersionAtLeast(ver):
+			r.ok("claude", "claude %s %s (>= %s: project-name pinning supported)", ver, where, storage.MinVersion)
+		default:
+			r.warn("claude", "claude %s < %s — project-name pinning unsupported; upgrade to >= %s", ver, storage.MinVersion, storage.MinVersion)
+		}
+		if !res.OnPath {
+			r.warn("claude-path", "claude's folder is not on PATH (cwm still finds it) — to run claude yourself: %s", claudebin.PathHint(runtime.GOOS, res.Dir()))
+		}
 	}
 
 	// 7. CLAUDE_CONFIG_DIR persisted in a shell profile

@@ -70,7 +70,7 @@ type fixture struct {
 func newFixture(t *testing.T, sync func() (syncengine.Client, error)) *fixture {
 	t.Helper()
 	root := t.TempDir()
-	t.Setenv("CWM_HOME", root)    // doctor's claude probe caches under root
+	t.Setenv("CWM_HOME", root)    // keep every cwm path inside the sandbox
 	t.Setenv("PATH", t.TempDir()) // never a real claude/ssh/git (doctor runs per request)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())

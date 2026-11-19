@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -70,6 +71,9 @@ func actionFixture(t *testing.T, sync func() (syncengine.Client, error)) (*fixtu
 	f.srv.opts.CwmPath = fakeCwm
 	f.srv.opts.GOOS = "linux"
 	f.srv.opts.Reserved = func(n string) bool { return n == "gui" || n == "list" }
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		return claudebin.Result{Path: "/usr/bin/claude", Source: claudebin.SourcePath, OnPath: true}, nil
+	}
 	writeFile(t, filepath.Join(f.root, "workspace", "repos.tsv"), "alpha\t/srv/git/alpha.git\nbeta\t/srv/git/beta.git\n")
 	return f, l
 }
@@ -481,5 +485,60 @@ func TestDashboardHasActions(t *testing.T) {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Errorf("app.js lacks %s", want)
 		}
+	}
+}
+
+// D49: with no claude anywhere, Add account answers 424 with the install
+// command instead of opening a terminal that fails and closes.
+func TestAccountAddWithoutClaude424(t *testing.T) {
+	f, l := actionFixture(t, okSync)
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		return claudebin.Result{}, &claudebin.NotFoundError{GOOS: "windows"}
+	}
+	f.srv.opts.GOOS = "windows"
+	rec := f.post(t, "/api/accounts", `{"name":"work"}`, nil)
+	if rec.Code != http.StatusFailedDependency {
+		t.Fatalf("code = %d, want 424\n%s", rec.Code, rec.Body.String())
+	}
+	var e apiError
+	decode(t, rec, &e)
+	if e.Command != "irm https://claude.ai/install.ps1 | iex" || !strings.Contains(e.Error, "not installed") {
+		t.Errorf("424 body = %+v", e)
+	}
+	if len(l.calls) != 0 {
+		t.Errorf("no terminal may open without claude: %q", l.calls)
+	}
+}
+
+func TestStateReportsClaude(t *testing.T) {
+	f, _ := actionFixture(t, okSync)
+	calls := 0
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		calls++
+		return claudebin.Result{Path: "/home/u/.local/bin/claude", Source: claudebin.SourceKnown}, nil
+	}
+	var st struct {
+		Claude struct {
+			Found    bool   `json:"found"`
+			Path     string `json:"path"`
+			OnPath   bool   `json:"onPath"`
+			PathHint string `json:"pathHint"`
+			Install  string `json:"install"`
+		} `json:"claude"`
+	}
+	getJSON(t, f, "/api/state", 200, &st)
+	c := st.Claude
+	if !c.Found || c.Path != "/home/u/.local/bin/claude" || c.OnPath ||
+		c.PathHint != claudebin.PathHint("linux", filepath.Dir("/home/u/.local/bin/claude")) || c.Install == "" {
+		t.Errorf("claude state = %+v", c)
+	}
+	getJSON(t, f, "/api/state", 200, &st)
+	if calls != 1 {
+		t.Errorf("resolver ran %d times for two polls, want 1 (cached)", calls)
+	}
+	// The precheck never trusts the cache.
+	f.post(t, "/api/accounts", `{"name":"work"}`, nil)
+	if calls != 2 {
+		t.Errorf("precheck must re-resolve: calls = %d", calls)
 	}
 }

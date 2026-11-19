@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -77,6 +78,9 @@ type Options struct {
 	CwmPath    string
 	GOOS       string
 	Reserved   func(name string) bool
+	// FindClaude resolves claude for the wizard and the Add-account
+	// precheck (D49); nil = claudebin.Lookup (poll) / claudebin.Find (precheck).
+	FindClaude func() (claudebin.Result, error)
 
 	// v0.6 agent mode (D31-D33). Bind is the listen address ("" =
 	// 127.0.0.1); AllowHosts extends the Host allow-list (H matches H:port,
@@ -108,6 +112,12 @@ type Server struct {
 	// actionMu serializes state-changing actions (init, pair, launches):
 	// two tabs double-clicking must not race the config files.
 	actionMu sync.Mutex
+	// claude lookup cache: /api/state is polled every 2 s while the wizard
+	// waits for a login, and a miss can cost an `npm prefix -g`.
+	claudeMu  sync.Mutex
+	claudeAt  time.Time
+	claudeRes claudebin.Result
+	claudeErr error
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.

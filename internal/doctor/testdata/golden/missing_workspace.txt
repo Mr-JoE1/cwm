@@ -2,7 +2,7 @@ FAIL: workspace dir missing (<ROOT>/workspace) — run `cwm init` or pair Syncth
 warn: settings.json missing — hooks not wired (generated when a launch dir is assembled; run `cwm init`)
 warn: no hook scripts in <ROOT>/workspace/hooks — the Go kit wires hooks via settings.json; the bash-kit fallback needs the bootstrap
 warn: .stignore missing — sync not configured (re-run the cwm bootstrap)
-warn: claude not on PATH — install Claude Code
+warn: claude not found (PATH and the usual install folders) — install Claude Code: curl -fsSL https://claude.ai/install.sh | bash
 warn: CLAUDE_CONFIG_DIR not exported in ~/.bashrc or ~/.profile — run `cwm init` or the cwm bootstrap
 warn: repos.tsv not readable — no repos recorded yet (open a repo via cwm to create it)
 ok:   no session folders yet (<ROOT>/workspace/projects absent — created on first launch)

@@ -411,6 +411,9 @@ tr.reveal { animation: row-in 360ms var(--ease) both; animation-delay: calc(var(
 .msg-ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
 .msg-error { background: var(--fail-soft); color: var(--fail); border-color: var(--fail); }
 .msg-info { background: var(--accent-soft); color: var(--text); border-color: var(--accent-2); }
+.msg-warn { background: var(--warn-soft); color: var(--text); border-color: var(--warn); }
+#wiz-claude:empty { display: none; }
+#wiz-claude { margin: 0 0 12px; }
 .msg .detail { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; color: var(--muted); }
 
 .cmd { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

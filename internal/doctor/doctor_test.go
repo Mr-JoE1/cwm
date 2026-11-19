@@ -15,6 +15,13 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 )
 
+// TestMain keeps the claude resolver (D49) off this machine's real install
+// folders; tests that exercise the search clear the variable themselves.
+func TestMain(m *testing.M) {
+	os.Setenv("CWM_CLAUDE_NO_SEARCH", "1")
+	os.Exit(m.Run())
+}
+
 // stubBin creates a bin dir with the named executable stubs (sh scripts) and
 // prepends it to PATH. The ssh stub appends its argv to marker so tests can
 // prove whether doctor ever invoked it (default mode must not, D9).
@@ -80,7 +87,7 @@ func healthyWorkspace(t *testing.T) string {
 	t.Setenv("HOME", home)
 	stubBin(t, map[string]string{"claude": "#!/bin/sh\necho '2.1.234 (Claude Code)'\n"})
 
-	t.Setenv("CWM_HOME", root) // so storage.ClaudeBin caches under root/state
+	t.Setenv("CWM_HOME", root) // keep every cwm path inside the sandbox
 	return root
 }
 
@@ -129,7 +136,7 @@ func TestDoctorMissingWorkspaceFails(t *testing.T) {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
 	}
 	root := t.TempDir()
-	t.Setenv("CWM_HOME", root) // keep storage.ClaudeBin's cache inside the sandbox
+	t.Setenv("CWM_HOME", root) // keep every cwm path inside the sandbox
 	_, marker := sshStub(t, "irrelevant")
 	var out strings.Builder
 	if Run(&out, root, false) {
@@ -237,8 +244,36 @@ func TestDoctorClaudeNotOnPath(t *testing.T) {
 
 	var out strings.Builder
 	Run(&out, root, false)
-	if !strings.Contains(out.String(), "warn: claude not on PATH") {
-		t.Errorf("output missing claude-not-on-PATH warn:\n%s", out.String())
+	if !strings.Contains(out.String(), "warn: claude not found (PATH and the usual install folders) — install Claude Code: ") {
+		t.Errorf("output missing claude-not-found warn:\n%s", out.String())
+	}
+}
+
+// D49: claude installed in ~/.local/bin while that dir is not on PATH (the
+// Windows tester's case) is found, reported ok, plus a PATH hint warning.
+func TestDoctorClaudeOffPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
+	root := healthyWorkspace(t)
+	t.Setenv("CWM_CLAUDE_NO_SEARCH", "")
+	home := os.Getenv("HOME")
+	writeFile(t, filepath.Join(home, ".local", "bin", "claude"), "#!/bin/sh\necho '2.1.300 (Claude Code)'\n")
+	if err := os.Chmod(filepath.Join(home, ".local", "bin", "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	var out strings.Builder
+	Run(&out, root, false)
+	got := out.String()
+	want := "ok:   claude 2.1.300 at " + filepath.Join(home, ".local", "bin", "claude")
+	if !strings.Contains(got, want) {
+		t.Errorf("output missing %q:\n%s", want, got)
+	}
+	hint := `echo 'export PATH="` + filepath.Join(home, ".local", "bin") + `:$PATH"' >> ~/`
+	if !strings.Contains(got, "warn: claude's folder is not on PATH") || !strings.Contains(got, hint) {
+		t.Errorf("output missing the PATH hint %q:\n%s", hint, got)
 	}
 }
 

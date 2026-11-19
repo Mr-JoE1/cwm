@@ -114,6 +114,7 @@ func (s *Server) apiState(*http.Request) (any, int, error) {
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
+	st.Claude = s.claudeState()
 	return st, http.StatusOK, nil
 }
 
@@ -161,6 +162,9 @@ func (s *Server) apiAccountAdd(r *http.Request) (any, int, error) {
 	}
 	if _, exists := cfg.Account(req.Name); exists {
 		return nil, http.StatusConflict, fmt.Errorf("account %q already exists", req.Name)
+	}
+	if code, err := s.claudePrecheck(); err != nil {
+		return nil, code, err
 	}
 	return s.launch("account", "add", req.Name)
 }
