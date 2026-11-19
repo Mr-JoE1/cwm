@@ -403,7 +403,8 @@ func TestAPIShapes(t *testing.T) {
 
 	var checks []map[string]any
 	getJSON(t, f, "/api/doctor", 200, &checks)
-	if len(checks) < 10 {
+	// 9 on Windows: the shell-profile check is unix-only (v0.6.2, D58).
+	if len(checks) < 9 {
 		t.Fatalf("doctor checks = %v", checks)
 	}
 	names := map[string]bool{}

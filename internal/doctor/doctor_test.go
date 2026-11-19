@@ -436,8 +436,10 @@ func TestDoctorFreshGoKitWorkspaceIsQuiet(t *testing.T) {
 	// A bash-kit settings.json wiring hooks/*.sh with an empty hooks dir
 	// still warns.
 	script := filepath.Join(root, "workspace", "hooks", "session-start.sh")
+	// Bash-kit wiring names the script with forward slashes on every OS
+	// (and a JSON string cannot hold raw Windows backslashes anyway).
 	writeFile(t, filepath.Join(root, "workspace", "settings.json"),
-		fmt.Sprintf(`{"hooks":{"SessionStart":[{"hooks":[{"command":"%s"}]}]}}`, script))
+		fmt.Sprintf(`{"hooks":{"SessionStart":[{"hooks":[{"command":"%s"}]}]}}`, filepath.ToSlash(script)))
 	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
