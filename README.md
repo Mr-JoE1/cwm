@@ -13,7 +13,7 @@
 <p><strong>Your Claude Code workspace on every device, under any account.</strong></p>
 <p>Sessions, memory, skills and MCP servers in a private folder you own,<br>synced peer-to-peer between your machines and independent of any login.</p>
 
-[![Latest release](https://img.shields.io/github/v/release/Mr-JoE1/cwm?sort=semver&display_name=tag&color=00c27a&label=release)](https://github.com/Mr-JoE1/cwm/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/Mr-JoE1/cwm/ci.yml?branch=main&label=CI&logo=github)](https://github.com/Mr-JoE1/cwm/actions/workflows/ci.yml?query=branch%3Amain) [![License: MIT](https://img.shields.io/github/license/Mr-JoE1/cwm?color=blue)](LICENSE) [![Go version](https://img.shields.io/github/go-mod/go-version/Mr-JoE1/cwm?logo=go&logoColor=white)](go.mod) [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-555)](https://github.com/Mr-JoE1/cwm/wiki/Installation) [![Downloads](https://img.shields.io/github/downloads/Mr-JoE1/cwm/total?color=00b8d4)](https://github.com/Mr-JoE1/cwm/releases) [![GitHub stars](https://img.shields.io/github/stars/Mr-JoE1/cwm?style=flat&color=e535b8)](https://github.com/Mr-JoE1/cwm/stargazers)
+[![Latest release](https://img.shields.io/github/v/release/Mr-JoE1/cwm?sort=semver&display_name=tag&color=00c27a&label=release)](https://github.com/Mr-JoE1/cwm/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/Mr-JoE1/cwm/ci.yml?branch=main&label=CI&logo=github)](https://github.com/Mr-JoE1/cwm/actions/workflows/ci.yml?query=branch%3Amain) [![License: MIT](https://img.shields.io/github/license/Mr-JoE1/cwm?color=blue)](LICENSE) [![Go version](https://img.shields.io/github/go-mod/go-version/Mr-JoE1/cwm?logo=go&logoColor=white)](go.mod) [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-555)](https://github.com/Mr-JoE1/cwm/wiki/Installation)
 
 <p>
   <a href="https://github.com/Mr-JoE1/cwm/wiki"><b>📖 Docs</b></a> ·
@@ -37,8 +37,8 @@ irm https://mr-joe1.github.io/cwm/install.ps1 | iex             # Windows (Power
 
 Per user, with no sudo and no admin rights. Every download is SHA-256-checked against the release's `checksums.txt`, and nothing is installed if the check fails.
 
-> [!NOTE]
-> The one-line installers go live with **v0.6.0**, which is merged on `main` but not tagged yet. Until then, run `go install github.com/Mr-JoE1/cwm/cmd/cwm@main` (Go ≥ 1.25) or grab the [v0.5.0 release](https://github.com/Mr-JoE1/cwm/releases/latest). Archives, `.deb`, checksums and uninstalling: **[Installation guide](https://github.com/Mr-JoE1/cwm/wiki/Installation)**.
+> [!TIP]
+> Prefer a manual install? Archives for every platform, `.deb`, checksums, upgrading and uninstalling are in the **[Installation guide](https://github.com/Mr-JoE1/cwm/wiki/Installation)**.
 
 <table>
   <tr>
@@ -178,20 +178,6 @@ Details: [Privacy & Data](https://github.com/Mr-JoE1/cwm/wiki/Privacy-and-Data) 
 ## Contributing
 
 Bug reports, ideas, docs fixes and pull requests are welcome. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-<a href="https://github.com/Mr-JoE1/cwm/graphs/contributors">
-  <img alt="Contributors" src="https://contrib.rocks/image?repo=Mr-JoE1/cwm">
-</a>
-
-### Star history
-
-<a href="https://star-history.com/#Mr-JoE1/cwm&amp;Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Mr-JoE1/cwm&amp;type=Date&amp;theme=dark">
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Mr-JoE1/cwm&amp;type=Date">
-    <img alt="Star history chart for Mr-JoE1/cwm" src="https://api.star-history.com/svg?repos=Mr-JoE1/cwm&amp;type=Date" width="600">
-  </picture>
-</a>
 
 ## License
 
