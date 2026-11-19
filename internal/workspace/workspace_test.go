@@ -593,7 +593,7 @@ if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
   echo done
   exit 0
 fi
-echo 2.1.400
+echo "2.1.400 (Claude Code)"
 `
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)

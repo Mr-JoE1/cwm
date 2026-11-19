@@ -29,32 +29,39 @@ func newWorld(t *testing.T) *world {
 
 func (w *world) env(goos string) Env {
 	return Env{
-		GOOS:   goos,
-		Getenv: func(k string) string { return w.vars[k] },
-		LookPath: func(name string) (string, error) {
-			sep := string(os.PathListSeparator)
-			if goos == "windows" {
-				sep = ";"
-			}
-			for _, d := range strings.Split(w.vars["PATH"], sep) {
-				for _, ext := range []string{"", ".exe", ".cmd"} {
-					p := filepath.Join(d, name+ext)
-					if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-						return p, nil
-					}
-				}
-			}
-			return "", errors.New("not found")
-		},
+		GOOS:      goos,
+		Getenv:    func(k string) string { return w.vars[k] },
 		Stat:      os.Stat,
 		Glob:      filepath.Glob,
 		NpmPrefix: func() string { return w.npm },
+		Probe:     fakeProbe,
 		Home:      filepath.Join(w.root, "home"),
 	}
 }
 
-// file creates an executable (mode 0755) or plain (0644) file under root.
+// fakeProbe verifies a file by reading it instead of running it, so the
+// GOOS=windows cases work on every host: a file whose text carries a
+// Claude Code version line verifies, anything else does not.
+func fakeProbe(p string) ProbeResult {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return ProbeResult{Reason: "could not run: " + err.Error()}
+	}
+	if v, line, ok := ParseVersionOutput(string(data)); ok {
+		return ProbeResult{Verified: true, Version: v, Line: line, Output: string(data)}
+	}
+	return ProbeResult{Output: string(data), Reason: "no Claude Code version line in its --version output"}
+}
+
+// file creates an executable (mode 0755) or plain (0644) file under root
+// that prints a good Claude Code version line.
 func (w *world) file(t *testing.T, rel string, exec bool) string {
+	t.Helper()
+	return w.fileWith(t, rel, exec, "#!/bin/sh\necho '2.1.400 (Claude Code)'\n")
+}
+
+// fileWith creates a file under root with the given content.
+func (w *world) fileWith(t *testing.T, rel string, exec bool, content string) string {
 	t.Helper()
 	p := filepath.Join(w.root, rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -64,7 +71,7 @@ func (w *world) file(t *testing.T, rel string, exec bool) string {
 	if exec {
 		mode = 0o755
 	}
-	if err := os.WriteFile(p, []byte("#!/bin/sh\necho '2.1.400 (Claude Code)'\n"), mode); err != nil {
+	if err := os.WriteFile(p, []byte(content), mode); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(p, mode); err != nil {
@@ -103,10 +110,17 @@ func TestResolveOrder(t *testing.T) {
 	if err != nil || res.Path != pinned || res.Source != SourceConfig || res.OnPath {
 		t.Fatalf("config: got %+v, %v; want %s from config", res, err, pinned)
 	}
-	// A stale claude_path falls through to PATH.
+	// A missing claude_path falls through to PATH, nothing to clear.
 	res, err = Resolve(env, filepath.Join(w.root, "gone", "claude"))
-	if err != nil || res.Source != SourcePath {
+	if err != nil || res.Source != SourcePath || res.Cleared != nil {
 		t.Fatalf("stale config: got %+v, %v; want PATH fallback", res, err)
+	}
+	// An existing claude_path that is not Claude Code falls through too,
+	// and is reported for clearing.
+	wrong := w.fileWith(t, "wrong/claude", true, "#!/bin/sh\necho 1.0.0\n")
+	res, err = Resolve(env, wrong)
+	if err != nil || res.Source != SourcePath || res.Cleared == nil || res.Cleared.Path != wrong {
+		t.Fatalf("unverified config: got %+v, %v; want PATH fallback + Cleared", res, err)
 	}
 	// $CWM_CLAUDE beats everything.
 	w.vars[EnvClaude] = envBin
@@ -285,7 +299,7 @@ func TestFindPersistsOffPathHit(t *testing.T) {
 
 	// No config.toml yet: found, but nothing is created (the installer
 	// reads config.toml's presence as "initialised").
-	if _, err := find(layout, env, true); err != nil {
+	if _, err := find(layout, env, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(layout.ConfigPath()); !os.IsNotExist(err) {
@@ -299,14 +313,14 @@ func TestFindPersistsOffPathHit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Lookup (read-only) leaves it alone...
-	if _, err := find(layout, env, false); err != nil {
+	if _, err := find(layout, env, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if cfg, _ := config.Load(layout.ConfigPath()); cfg.ClaudePath != "" {
 		t.Fatalf("Lookup persisted claude_path = %q", cfg.ClaudePath)
 	}
 	// ...Find writes it back.
-	res, err := find(layout, env, true)
+	res, err := find(layout, env, true, false)
 	if err != nil || res.Path != known {
 		t.Fatalf("find = %+v, %v", res, err)
 	}
@@ -315,7 +329,7 @@ func TestFindPersistsOffPathHit(t *testing.T) {
 		t.Fatalf("claude_path = %q (%v), want %q", cfg.ClaudePath, err, known)
 	}
 	// Next time it comes from config.
-	res, err = find(layout, env, true)
+	res, err = find(layout, env, true, false)
 	if err != nil || res.Source != SourceConfig {
 		t.Fatalf("second find = %+v, %v; want SourceConfig", res, err)
 	}

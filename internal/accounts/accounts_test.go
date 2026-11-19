@@ -12,6 +12,7 @@ import (
 
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/storage"
+	"github.com/Mr-JoE1/cwm/internal/testsafe"
 )
 
 // stubClaude puts a fake `claude` on PATH that mimics fakeclaude.sh's
@@ -27,7 +28,7 @@ if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
   echo done
   exit 0
 fi
-echo 2.1.400
+echo "2.1.400 (Claude Code)"
 `
 	p := filepath.Join(bin, "claude")
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
@@ -108,7 +109,7 @@ func TestAddWithoutIdentityWarnsAndKeepsAccount(t *testing.T) {
 	}
 	// Stub that succeeds at login but writes no credentials.
 	bin := t.TempDir()
-	script := "#!/bin/sh\nexit 0\n"
+	script := "#!/bin/sh\n[ \"$1\" = --version ] && echo '2.1.400 (Claude Code)'\nexit 0\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +133,7 @@ func TestAddLoginFails(t *testing.T) {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
 	}
 	bin := t.TempDir()
-	script := "#!/bin/sh\necho boom >&2\nexit 1\n"
+	script := "#!/bin/sh\n[ \"$1\" = --version ] && { echo '2.1.400 (Claude Code)'; exit 0; }\necho boom >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +302,7 @@ func TestRemoveUnknown(t *testing.T) {
 // TestMain keeps the claude resolver (D49) off this machine's real install
 // folders; tests that exercise the search clear the variable themselves.
 func TestMain(m *testing.M) {
-	os.Setenv("CWM_CLAUDE_NO_SEARCH", "1")
+	testsafe.NoRealClaude()
 	os.Exit(m.Run())
 }
 

@@ -7,11 +7,16 @@
 // shell the user is in, the cwm agent and the terminals it opens) still has
 // the old PATH. So the lookup order is (D49):
 //
-//  1. $CWM_CLAUDE (must exist — an explicit setting pointing nowhere is an
-//     error, not something to paper over);
-//  2. config.toml `claude_path` (skipped when stale);
-//  3. exec.LookPath("claude");
+//  1. $CWM_CLAUDE (must exist and verify — an explicit setting pointing at
+//     the wrong thing is an error, not something to paper over);
+//  2. config.toml `claude_path` (skipped when missing, dropped when it no
+//     longer verifies);
+//  3. every `claude` on PATH, in PATH order;
 //  4. well-known install locations per OS, then `npm prefix -g` (3 s cap).
+//
+// A candidate counts only when it verifies by behaviour: `<file>
+// --version` exits 0 and prints a Claude Code version line (D54). Where a
+// file lives is never a reason to accept or to reject it.
 //
 // $CWM_CLAUDE_NO_SEARCH=1 turns step 4 off (tests; users who want PATH only).
 package claudebin
@@ -47,22 +52,55 @@ const (
 	SourceDiscovered Source = "discovered" // well-known install location / npm prefix
 )
 
-// Result is a resolved claude executable.
+// Result is a resolved, verified claude executable.
 type Result struct {
 	Path   string `json:"path"`
 	Source Source `json:"source"`
 	// OnPath: a bare `claude` in a fresh shell reaches this binary's dir.
 	// False means cwm works but the user's own shells and IDEs will not.
 	OnPath bool `json:"onPath"`
+	// Version and ProbeOutput come from the verifying `--version` probe
+	// (D54); ProbeOutput is cut to ProbeOutputShown characters.
+	Version     string `json:"version,omitempty"`
+	ProbeOutput string `json:"probeOutput,omitempty"`
+	// Candidates are the existing files the resolver probed, in order
+	// (Survey keeps probing past the winner, up to SurveyLimit).
+	Candidates []Candidate `json:"candidates,omitempty"`
+	// Cleared is set when config.toml's claude_path pointed at a file
+	// that failed verification; find() removes it from the config.
+	Cleared *Cleared `json:"cleared,omitempty"`
+}
+
+// Candidate is one probed file: what the resolver tried and why it did
+// or did not take it.
+type Candidate struct {
+	Path     string `json:"path"`
+	Source   Source `json:"source"`
+	OnPath   bool   `json:"on_path"`
+	Verified bool   `json:"verified"`
+	// Result is a short human text: the version line, or the reason.
+	Result string `json:"result"`
+}
+
+// Cleared records a saved claude_path that stopped being Claude Code.
+type Cleared struct {
+	Path   string    `json:"path"`
+	Reason string    `json:"reason"`
+	Time   time.Time `json:"time"`
 }
 
 // Dir is the folder holding the executable (what goes on PATH).
 func (r Result) Dir() string { return filepath.Dir(r.Path) }
 
-// NotFoundError lists every place the resolver looked.
+// NotFoundError lists every place the resolver looked and every file it
+// found there that was not Claude Code.
 type NotFoundError struct {
 	GOOS     string
 	Searched []string
+	// Rejected are existing candidates that failed verification.
+	Rejected []Candidate
+	// Cleared: as Result.Cleared (a failed claude_path was dropped).
+	Cleared *Cleared
 }
 
 // ErrNotFound is matched by errors.Is for any NotFoundError.
@@ -73,21 +111,30 @@ func (e *NotFoundError) Error() string {
 	if len(e.Searched) > 0 {
 		where = "on PATH or in " + strings.Join(e.Searched, ", ")
 	}
-	return fmt.Sprintf("claude (Claude Code) not found %s — install it with: %s  (or point cwm at it: set %s or claude_path in config.toml)",
-		where, InstallCommand(e.GOOS), EnvClaude)
+	rejected := ""
+	if n := len(e.Rejected); n > 0 {
+		parts := make([]string, 0, n)
+		for _, c := range e.Rejected {
+			parts = append(parts, c.Path+": "+c.Result)
+		}
+		rejected = fmt.Sprintf(" (%d candidate(s) found but not Claude Code: %s)", n, strings.Join(parts, "; "))
+	}
+	return fmt.Sprintf("claude (Claude Code) not found %s%s — install it with: %s  (or point cwm at it: set %s or claude_path in config.toml)",
+		where, rejected, InstallCommand(e.GOOS), EnvClaude)
 }
 
 func (e *NotFoundError) Is(target error) bool { return target == ErrNotFound }
 
 // Env is the resolver's view of the machine; tests fake every field.
 type Env struct {
-	GOOS     string
-	Getenv   func(string) string
-	LookPath func(string) (string, error)
-	Stat     func(string) (fs.FileInfo, error)
-	Glob     func(string) ([]string, error)
+	GOOS   string
+	Getenv func(string) string
+	Stat   func(string) (fs.FileInfo, error)
+	Glob   func(string) ([]string, error)
 	// NpmPrefix returns `npm prefix -g` ("" when npm is missing or slow).
 	NpmPrefix func() string
+	// Probe verifies one file (nil = the real `--version` probe).
+	Probe func(path string) ProbeResult
 	// Home is the user home dir ("" = unknown).
 	Home string
 }
@@ -98,10 +145,10 @@ func SystemEnv() Env {
 	return Env{
 		GOOS:      runtime.GOOS,
 		Getenv:    os.Getenv,
-		LookPath:  exec.LookPath,
 		Stat:      os.Stat,
 		Glob:      filepath.Glob,
 		NpmPrefix: npmPrefix,
+		Probe:     Probe,
 		Home:      home,
 	}
 }
@@ -126,47 +173,169 @@ func npmPrefix() string {
 	return strings.TrimSpace(string(out))
 }
 
-// Resolve runs the lookup order. configured is config.toml's claude_path
-// ("" = unset).
+// SurveyLimit caps how many existing candidates Survey probes.
+const SurveyLimit = 5
+
+// Resolve runs the lookup order and returns the first candidate that
+// verifies (D54). configured is config.toml's claude_path ("" = unset).
 func Resolve(env Env, configured string) (Result, error) {
+	return resolve(env, configured, false)
+}
+
+// Survey is Resolve for reports (/api/claude, doctor, the debug bundle):
+// it keeps probing after the winner, up to SurveyLimit existing
+// candidates, so shadowed or broken copies show up too. It never runs
+// `npm prefix -g` once a winner is known.
+func Survey(env Env, configured string) (Result, error) {
+	return resolve(env, configured, true)
+}
+
+// resolver walks the candidates in lookup order.
+type resolver struct {
+	env    Env
+	survey bool
+	seen   map[string]bool
+	probed []Candidate
+	win    *Result
+}
+
+// try probes p when it is an executable file not seen before. It reports
+// whether the walk should stop.
+func (r *resolver) try(p string, src Source) bool {
+	key := filepath.Clean(p)
+	if r.env.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	if r.seen[key] || !r.env.isExecutable(p) {
+		return false
+	}
+	r.seen[key] = true
+	onPath := src == SourcePath || r.env.dirOnPath(filepath.Dir(p))
+	pr := r.env.probe(p)
+	r.probed = append(r.probed, Candidate{Path: p, Source: src, OnPath: onPath, Verified: pr.Verified, Result: pr.Short()})
+	if pr.Verified && r.win == nil {
+		r.win = &Result{Path: p, Source: src, OnPath: onPath, Version: pr.Version, ProbeOutput: shorten(pr.Output, ProbeOutputShown)}
+	}
+	if r.win == nil {
+		return false
+	}
+	return !r.survey || len(r.probed) >= SurveyLimit
+}
+
+func resolve(env Env, configured string, survey bool) (Result, error) {
 	if p := strings.TrimSpace(env.Getenv(EnvClaude)); p != "" {
 		p = expandHome(env, p)
 		if !env.isExecutable(p) {
 			return Result{}, fmt.Errorf("claudebin: %s=%s is not an executable file", EnvClaude, p)
 		}
-		return Result{Path: p, Source: SourceEnv, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
+		// An explicit setting is never papered over: a wrong binary is
+		// an error, not a reason to search elsewhere.
+		pr := env.probe(p)
+		if !pr.Verified {
+			return Result{}, fmt.Errorf("claudebin: %s=%s is not Claude Code (%s)", EnvClaude, p, pr.Short())
+		}
+		onPath := env.dirOnPath(filepath.Dir(p))
+		return Result{Path: p, Source: SourceEnv, OnPath: onPath, Version: pr.Version, ProbeOutput: shorten(pr.Output, ProbeOutputShown),
+			Candidates: []Candidate{{Path: p, Source: SourceEnv, OnPath: onPath, Verified: true, Result: pr.Short()}}}, nil
 	}
+	r := &resolver{env: env, survey: survey, seen: map[string]bool{}}
+	var cleared *Cleared
 	if p := strings.TrimSpace(configured); p != "" {
 		p = expandHome(env, p)
+		// A missing file just falls through (claude moved or was
+		// uninstalled); an existing one that fails the probe is dropped
+		// from config.toml by find().
 		if env.isExecutable(p) {
-			return Result{Path: p, Source: SourceConfig, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
-		}
-		// Stale (claude moved or was uninstalled): fall through.
-	}
-	if p, err := env.LookPath("claude"); err == nil {
-		if abs, aerr := filepath.Abs(p); aerr == nil {
-			p = abs
-		}
-		return Result{Path: p, Source: SourcePath, OnPath: true}, nil
-	}
-	if env.Getenv(EnvNoSearch) == "1" {
-		return Result{}, &NotFoundError{GOOS: env.GOOS}
-	}
-	cands := Candidates(env)
-	for _, p := range cands {
-		if env.isExecutable(p) {
-			return Result{Path: p, Source: SourceDiscovered, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
-		}
-	}
-	if prefix := env.npmPrefix(); prefix != "" {
-		for _, p := range npmCandidates(env.GOOS, prefix) {
-			cands = append(cands, p)
-			if env.isExecutable(p) {
-				return Result{Path: p, Source: SourceDiscovered, OnPath: env.dirOnPath(filepath.Dir(p))}, nil
+			stop := r.try(p, SourceConfig)
+			if last := r.probed[len(r.probed)-1]; !last.Verified {
+				cleared = &Cleared{Path: p, Reason: last.Result, Time: time.Now().UTC()}
+			}
+			if stop {
+				return r.result(cleared), nil
 			}
 		}
 	}
-	return Result{}, &NotFoundError{GOOS: env.GOOS, Searched: cands}
+	for _, p := range pathCandidates(env) {
+		if r.try(p, SourcePath) {
+			return r.result(cleared), nil
+		}
+	}
+	if env.Getenv(EnvNoSearch) == "1" {
+		if r.win != nil {
+			return r.result(cleared), nil
+		}
+		return Result{}, &NotFoundError{GOOS: env.GOOS, Rejected: r.probed, Cleared: cleared}
+	}
+	cands := Candidates(env)
+	for _, p := range cands {
+		if r.try(p, SourceDiscovered) {
+			return r.result(cleared), nil
+		}
+	}
+	if r.win == nil {
+		if prefix := env.npmPrefix(); prefix != "" {
+			for _, p := range npmCandidates(env.GOOS, prefix) {
+				cands = append(cands, p)
+				if r.try(p, SourceDiscovered) {
+					return r.result(cleared), nil
+				}
+			}
+		}
+	}
+	if r.win != nil {
+		return r.result(cleared), nil
+	}
+	return Result{}, &NotFoundError{GOOS: env.GOOS, Searched: cands, Rejected: r.probed, Cleared: cleared}
+}
+
+func (r *resolver) result(cleared *Cleared) Result {
+	res := *r.win
+	res.Candidates = r.probed
+	res.Cleared = cleared
+	return res
+}
+
+// pathCandidates lists every `claude` on PATH in PATH order, not only the
+// first: a broken or foreign claude early on PATH must not hide a good
+// one later (D54). On Windows the PATHEXT executable extensions apply.
+func pathCandidates(env Env) []string {
+	sep := string(os.PathListSeparator)
+	exts := []string{""}
+	if env.GOOS == "windows" {
+		sep = ";"
+		exts = windowsExts(env.Getenv("PATHEXT"))
+	} else if sep == ";" {
+		sep = ":" // a GOOS=linux test on a Windows host
+	}
+	var out []string
+	for _, dir := range strings.Split(env.Getenv("PATH"), sep) {
+		dir = strings.Trim(strings.TrimSpace(dir), `"`)
+		if dir == "" {
+			continue
+		}
+		for _, ext := range exts {
+			out = append(out, filepath.Join(dir, "claude"+ext))
+		}
+	}
+	return out
+}
+
+// windowsExts is PATHEXT reduced to the extensions CreateProcess can run
+// directly, lower-cased, in PATHEXT order.
+func windowsExts(pathext string) []string {
+	allowed := map[string]bool{".com": true, ".exe": true, ".bat": true, ".cmd": true}
+	var out []string
+	for _, e := range strings.Split(strings.ToLower(pathext), ";") {
+		e = strings.TrimSpace(e)
+		if allowed[e] {
+			out = append(out, e)
+			delete(allowed, e)
+		}
+	}
+	if len(out) == 0 {
+		return []string{".com", ".exe", ".bat", ".cmd"}
+	}
+	return out
 }
 
 // Candidates are the well-known install locations for env.GOOS, most
@@ -250,6 +419,13 @@ func newestFirst(env Env, pattern string) []string {
 		return false
 	})
 	return matches
+}
+
+func (env Env) probe(p string) ProbeResult {
+	if env.Probe == nil {
+		return Probe(p)
+	}
+	return env.Probe(p)
 }
 
 func (env Env) npmPrefix() string {
@@ -379,21 +555,59 @@ func PathHint(goos, dir string) string {
 	return "echo '" + line + "' >> " + profile
 }
 
-// Version runs `<path> --version` (bounded, hidden window on Windows) and
-// returns the first dotted x.y.z it prints ("" when none).
+// Version runs `<path> --version` (through the cached Probe) and returns
+// the first dotted x.y.z it prints ("" when none), verified or not.
 func Version(path string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "--version")
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			out = append(out, ee.Stderr...)
-		}
+	pr := Probe(path)
+	if pr.Version != "" {
+		return pr.Version
 	}
-	return versionRe.FindString(string(out))
+	return versionRe.FindString(pr.Output)
 }
 
 var versionRe = regexp.MustCompile(`\b\d+\.\d+\.\d+\b`)
+
+// PathEntry is one PATH element; Dup marks a repeat of an earlier one.
+type PathEntry struct {
+	Dir string
+	Dup bool
+}
+
+// PathEntries splits path for goos and marks repeated entries
+// (case-insensitive and trailing-separator tolerant on Windows).
+// Informational only: cwm never rewrites PATH.
+func PathEntries(path, goos string) []PathEntry {
+	sep := ":"
+	if goos == "windows" {
+		sep = ";"
+	}
+	norm := func(s string) string {
+		s = strings.TrimRight(strings.Trim(strings.TrimSpace(s), `"`), `/\`)
+		if goos == "windows" {
+			s = strings.ToLower(strings.ReplaceAll(s, "/", `\`))
+		}
+		return s
+	}
+	seen := map[string]bool{}
+	var out []PathEntry
+	for _, e := range strings.Split(path, sep) {
+		k := norm(e)
+		if k == "" {
+			continue
+		}
+		out = append(out, PathEntry{Dir: e, Dup: seen[k]})
+		seen[k] = true
+	}
+	return out
+}
+
+// PathDuplicates counts the PATH entries that repeat an earlier one.
+func PathDuplicates(path, goos string) int {
+	n := 0
+	for _, e := range PathEntries(path, goos) {
+		if e.Dup {
+			n++
+		}
+	}
+	return n
+}
