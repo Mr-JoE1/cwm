@@ -2,8 +2,8 @@ name: CI
 
 on:
   push:
-    # feature branches too, so a pushed branch shows CI before its PR (D39)
-    branches: [main, "feat/**"]
+    # feature and fix branches too, so a pushed branch shows CI before its PR (D39)
+    branches: [main, "feat/**", "fix/**"]
   pull_request:
   workflow_dispatch:
 
@@ -86,7 +86,16 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          $tokens = $null; $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count) { $errors | ForEach-Object { Write-Error "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
-          Write-Host "install.ps1 parses under PowerShell $($PSVersionTable.PSVersion)"
+          foreach ($f in @('install.ps1', 'test-install-windows.ps1')) {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\$f", [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { $errors | ForEach-Object { Write-Error "${f}:$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+            Write-Host "$f parses under PowerShell $($PSVersionTable.PSVersion)"
+          }
+
+      # The v0.6.0 tester's shell (SPEC-V0.6.1): install.ps1 end to end
+      # under Windows PowerShell 5.1, plus the piped-output mojibake check.
+      - name: Installer harness (install.ps1 under Windows PowerShell 5.1)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-install-windows.ps1
