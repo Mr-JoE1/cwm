@@ -3,6 +3,55 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-19 (v0.6.1 — Windows field fixes, SPEC-V0.6.1)
+
+From the first real Windows 11 + PowerShell 5.1 test of v0.6.0: the
+installer's cwm lines were mojibake (`Γ£ô` for `✓`), and the dashboard's
+Add account failed with "claude not found on PATH" although Claude Code was
+installed.
+
+- **D49: find claude where it is, then remember it.** PATH is the wrong
+  source of truth on Windows. The Claude Code installer edits the *user* Path,
+  but every process that was already running keeps the old one, and that
+  includes the cwm agent and every terminal it opens. One resolver
+  (`internal/claudebin`) now serves every caller: `$CWM_CLAUDE` →
+  `config.toml` `claude_path` → PATH → well-known install folders per OS →
+  `npm prefix -g` (3 s cap). An off-PATH hit is used at once, written back
+  to `claude_path` (only into an existing config.toml, so the installer's
+  "initialised?" test stays honest), and reported with the exact copy-paste
+  command that puts its folder on PATH. The v0.4 PATH-hash cache
+  (`state/claude-path`) is dropped: `claude_path` is the persistent answer,
+  and a PATH lookup costs nothing. The dashboard checks before it opens a
+  login terminal (424 + install command) instead of opening one that dies
+  before the user can read it, and the wizard shows the claude status up
+  front. `CWM_CLAUDE_NO_SEARCH=1` limits the lookup to PATH and the explicit
+  settings; tests set it so they can never reach a real claude.
+- **D50: ASCII glyphs where the console can't show them; never switch the
+  console's code page.** The mojibake came from PowerShell decoding cwm's
+  piped UTF-8 with the OEM code page. When stdout is the console itself, Go
+  already writes UTF-16 (WriteConsoleW), but the legacy conhost font has no
+  ✓/⚠/✗. So on Windows each output handle keeps Unicode only when
+  `GetConsoleOutputCP() == 65001`, or when it is a console inside Windows
+  Terminal. Otherwise an ASCII writer maps cwm's own glyphs (`✓→ok`,
+  `✗→[x]`, `⚠→!`, `—→-`, …) and leaves all other bytes alone, so data such
+  as non-ASCII user names is never rewritten. `CWM_GLYPHS=ascii|unicode`
+  overrides. Rejected: `SetConsoleOutputCP(65001)` at startup. The code page
+  belongs to the console, not the process, so it would stay switched in the
+  user's shell after cwm exits, and it cannot fix a pipe whose reader has
+  already chosen its decoder. kernel32 is bound with `syscall.NewLazyDLL`
+  (no `golang.org/x/sys`).
+- **D51: installers show steps, not logs.** Both installers share one layout:
+  a small ASCII banner, `[n/8]` steps with ok/warn/fail glyphs, child
+  output indented under its step, and a closing summary box (binary,
+  version, dashboard URL, next steps, uninstall). Colours honour `NO_COLOR`.
+  Non-terminal output is plain ASCII, so logs and CI stay greppable.
+  install.ps1 switches `[Console]::OutputEncoding` to UTF-8 for its own
+  run only (restored on every path), keeps its source pure ASCII
+  (`irm | iex` decodes with whatever charset the server claims), and on
+  failure does not `exit` under `iex`, because that would close the user's
+  window. CI now runs install.ps1 end to end under Windows PowerShell 5.1
+  (`scripts/test-install-windows.ps1`), the tester's exact shell.
+
 ## 2026-11-18 (v0.7)
 
 UI-only decisions for the v0.7 "cyber UI + brand" branch (`feat/v0.7-ui`),
