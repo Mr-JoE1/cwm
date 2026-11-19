@@ -5,6 +5,7 @@ ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
 ok:   .stignore present (sync ignore policy installed)
 ok:   claude 2.1.234 on PATH (>= 2.1.234: project-name pinning supported)
+ok:   claude binary: <BIN>/claude (source: PATH)
 ok:   CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile
 ok:   repos.tsv readable, 1 repo(s) recorded
 ok:   no unpinned (dash-prefixed) session folders
@@ -13,4 +14,4 @@ ok:   WIP log tail (last 3 lines of logs/wip.log):
       line three
       line four
 warn: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
-doctor: 9 ok, 2 warn, 1 fail
+doctor: 10 ok, 2 warn, 1 fail

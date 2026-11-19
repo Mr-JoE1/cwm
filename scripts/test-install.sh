@@ -67,7 +67,9 @@ for _ in $(seq 50); do
     sleep 0.1
 done
 
-# run_install HOME_DIR ARGS... — install.sh in a clean environment.
+# run_install HOME_DIR ARGS... — install.sh in a clean environment, plus
+# whatever VAR=value pairs INSTALL_ENV holds.
+INSTALL_ENV=()
 run_install() {
     local home=$1
     shift
@@ -77,6 +79,7 @@ run_install() {
         CWM_SERVICE_DRYRUN=1 \
         CWM_INSTALL_API="http://127.0.0.1:$PORT" \
         CWM_INSTALL_BASE_URL="http://127.0.0.1:$PORT/download" \
+        "${INSTALL_ENV[@]}" \
         sh "$REPO/scripts/install.sh" "$@"
 }
 
@@ -88,7 +91,7 @@ CODE=$?
 set -e
 printf '%s\n' "$OUT" | sed 's/^/    | /'
 check "install exits 0" '[[ $CODE -eq 0 ]]'
-check "resolved latest tag from the API" 'grep -q "installing cwm $TAG" <<<"$OUT"'
+check "resolved latest tag from the API" 'grep -q "release $TAG (latest)" <<<"$OUT"'
 check "checksum verified" 'grep -q "checksum OK" <<<"$OUT"'
 check "binary installed in ~/.local/bin" '[[ -x "$H1/.local/bin/cwm" ]]'
 check "installed binary is the snapshot" '"$H1/.local/bin/cwm" --version | grep -q "$VER"'
@@ -98,6 +101,33 @@ check "service step ran in dry-run mode" 'grep -q "cwm service install (dry run"
 check "dry run printed the autostart plan" 'grep -q "would write $H1/.config/" <<<"$OUT"'
 check "dry run wrote no autostart files" '[[ ! -e "$H1/.config/systemd" && ! -e "$H1/.config/autostart" ]]'
 check "no agent was started (no server.toml)" '[[ ! -e "$H1/.cwm/server.toml" ]]'
+# v0.6.1 look (D51): banner, numbered steps, short hash, summary box; the
+# non-TTY run is plain ASCII with no escape sequences.
+check "banner names the product and version" 'grep -q "Claude Workspace Manager .*cwm $TAG" <<<"$OUT"'
+check "numbered steps [1/8]..[8/8]" 'grep -q "^\[1/8\] Detecting platform" <<<"$OUT" && grep -q "^\[8/8\] Opening the dashboard" <<<"$OUT"'
+SUM=$(awk -v f="$ARCHIVE" '$2 == f {print $1}' "$DL/checksums.txt")
+check "checksum shown as 12 chars, never all 64" 'grep -q "checksum OK ${SUM:0:12}$" <<<"$OUT" && ! grep -q "$SUM" <<<"$OUT"'
+check "child output is indented under its step" 'grep -q "^      | ok cwm home initialized at" <<<"$OUT"'
+check "summary box with next steps and uninstall" 'grep -q "| cwm $TAG is installed" <<<"$OUT" && grep -q "cwm account add main" <<<"$OUT" && grep -q "install.sh | sh -s -- --uninstall" <<<"$OUT"'
+check "plain mode: no escape sequences" '! grep -q $'"'"'\033'"'"' <<<"$OUT"'
+check "plain mode: pure ASCII (cwm glyphs too, D50)" '! LC_ALL=C grep -q "[^[:print:][:space:]]" <<<"$OUT"'
+
+echo "== 1b. terminal look (CWM_INSTALL_FANCY=1, UTF-8 locale; then NO_COLOR)"
+set +e
+INSTALL_ENV=(LANG=C.UTF-8 TERM=xterm CWM_INSTALL_FANCY=1)
+OUT=$(run_install "$SANDBOX/home1b" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "fancy install exits 0" '[[ $CODE -eq 0 ]]'
+check "fancy: colours" 'grep -q $'"'"'\033\[32m'"'"' <<<"$OUT"'
+check "fancy: unicode glyphs and box" 'grep -q "✓" <<<"$OUT" && grep -q "╭" <<<"$OUT" && grep -q "│ ✓ cwm home initialized" <<<"$OUT"'
+set +e
+INSTALL_ENV=(LANG=C.UTF-8 TERM=xterm CWM_INSTALL_FANCY=1 NO_COLOR=1)
+OUT=$(run_install "$SANDBOX/home1c" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "NO_COLOR: glyphs stay, colours go" '[[ $CODE -eq 0 ]] && grep -q "✓" <<<"$OUT" && ! grep -q $'"'"'\033'"'"' <<<"$OUT"'
+INSTALL_ENV=()
 
 echo "== 2. re-run is idempotent (explicit --version)"
 touch "$H1/.bashrc"
@@ -191,6 +221,16 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     check "ps1: cwm.exe + cwmd.exe installed" '[[ -x "$P1/AppData/Local/cwm/bin/cwm.exe" && -f "$P1/AppData/Local/cwm/bin/cwmd.exe" ]]'
     check "ps1: cwm init ran" '[[ -f "$P1/.cwm/config.toml" ]]'
     check "ps1: service step ran (dry run)" 'grep -q "cwm service install (dry run" <<<"$OUT"'
+    WSUM=$(awk -v f="$WZIP" '$2 == f {print $1}' "$DL/checksums.txt")
+    check "ps1: banner + numbered steps + summary box" 'grep -q "Claude Workspace Manager .*cwm $TAG" <<<"$OUT" && grep -q "^\[3/8\] Verifying SHA-256" <<<"$OUT" && grep -q "| cwm $TAG is installed" <<<"$OUT" && grep -q "CWM_UNINSTALL=.1.; irm .*install.ps1 | iex" <<<"$OUT"'
+    check "ps1: checksum shown as 12 chars, never all 64" 'grep -q "checksum OK ${WSUM:0:12}$" <<<"$OUT" && ! grep -q "$WSUM" <<<"$OUT"'
+    check "ps1: child output indented, plain ASCII when redirected" 'grep -q "^      | ok cwm home initialized at" <<<"$OUT" && ! LC_ALL=C grep -q "[^[:print:][:space:]]" <<<"$OUT"'
+    P4="$SANDBOX/ps-home4"
+    set +e
+    OUT=$(run_ps1 "$P4" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 CWM_INSTALL_FANCY=1 "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    check "ps1: terminal look uses unicode glyphs (non-Windows host), cwm matches" '[[ $CODE -eq 0 ]] && grep -q "✓ checksum OK" <<<"$OUT" && grep -q "╭" <<<"$OUT" && grep -q "│ ✓ cwm home initialized" <<<"$OUT"'
     # irm | iex path: the script text through Invoke-Expression.
     P2="$SANDBOX/ps-home2"
     set +e

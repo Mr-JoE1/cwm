@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/manifest"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -120,11 +121,11 @@ func Open(repo string, mode Mode, extra []string, account string, stdout, stderr
 	if err != nil {
 		return err
 	}
-	bin, _, err := storage.ClaudeBin()
+	res, err := claudebin.Find(layout)
 	if err != nil {
-		return err
+		return fmt.Errorf("launcher: %w", err)
 	}
-	return execClaude(bin, args)
+	return execClaude(res.Path, args)
 }
 
 // resolveConfigDir picks the dir claude should treat as CLAUDE_CONFIG_DIR:

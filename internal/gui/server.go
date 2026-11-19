@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net"
@@ -31,6 +32,8 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/debugbundle"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -77,6 +80,13 @@ type Options struct {
 	CwmPath    string
 	GOOS       string
 	Reserved   func(name string) bool
+	// FindClaude resolves claude for the wizard and the Add-account
+	// precheck (D49); nil = claudebin.Lookup (poll) / claudebin.Find (precheck).
+	FindClaude func() (claudebin.Result, error)
+	// DebugSources seeds GET /api/debug with what only the CLI can build
+	// (service status needs its environment); the server adds itself,
+	// its API errors and anything left unset (D52).
+	DebugSources func() debugbundle.Sources
 
 	// v0.6 agent mode (D31-D33). Bind is the listen address ("" =
 	// 127.0.0.1); AllowHosts extends the Host allow-list (H matches H:port,
@@ -108,6 +118,14 @@ type Server struct {
 	// actionMu serializes state-changing actions (init, pair, launches):
 	// two tabs double-clicking must not race the config files.
 	actionMu sync.Mutex
+	// claude lookup cache: /api/state is polled every 2 s while the wizard
+	// waits for a login, and a miss can cost an `npm prefix -g`.
+	claudeMu  sync.Mutex
+	claudeAt  time.Time
+	claudeRes claudebin.Result
+	claudeErr error
+	// apiErrors remembers the last API errors for the debug bundle.
+	apiErrors errorRing
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -389,6 +407,8 @@ func (s *Server) routes() map[string]route {
 		"/api/sessions/resume": {post: s.apiResume},
 		"/api/pair":            {post: s.apiPair},
 		"/api/agent":           {get: s.apiAgent},
+		"/api/claude":          {get: s.apiClaude},
+		"/api/debug":           {get: s.apiDebug},
 	}
 }
 
@@ -402,11 +422,11 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	if !readOnly {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, HEAD, POST")
-			writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed"})
+			s.writeError(w, r, http.StatusMethodNotAllowed, apiError{Error: "method not allowed"})
 			return
 		}
 		if !s.csrfOK(r.Header.Get(CSRFHeader)) {
-			writeAPI(w, http.StatusForbidden, apiError{Error: "forbidden: missing or invalid " + CSRFHeader + " header"})
+			s.writeError(w, r, http.StatusForbidden, apiError{Error: "forbidden: missing or invalid " + CSRFHeader + " header"})
 			return
 		}
 	}
@@ -416,7 +436,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	rt, ok := s.routes()[r.URL.Path]
 	if !ok {
-		writeAPI(w, http.StatusNotFound, apiError{Error: "no such endpoint " + r.URL.Path})
+		s.writeError(w, r, http.StatusNotFound, apiError{Error: "no such endpoint " + r.URL.Path})
 		return
 	}
 	ep := rt.get
@@ -426,17 +446,17 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	if ep == nil {
 		if readOnly {
 			w.Header().Set("Allow", "POST")
-			writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (action endpoint: POST only)"})
+			s.writeError(w, r, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (action endpoint: POST only)"})
 		} else {
 			w.Header().Set("Allow", "GET, HEAD")
-			writeAPI(w, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (read-only endpoint)"})
+			s.writeError(w, r, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (read-only endpoint)"})
 		}
 		return
 	}
 	if !readOnly {
 		mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mt != "application/json" {
-			writeAPI(w, http.StatusUnsupportedMediaType, apiError{Error: "POST body must be Content-Type: application/json"})
+			s.writeError(w, r, http.StatusUnsupportedMediaType, apiError{Error: "POST body must be Content-Type: application/json"})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
@@ -450,13 +470,26 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &ce) {
 			resp.Command = ce.command
 		}
-		writeAPI(w, code, resp)
+		s.writeError(w, r, code, resp)
 		return
 	}
 	writeAPI(w, code, body)
 }
 
+// writeError answers with an apiError and remembers it for the debug
+// bundle (D52).
+func (s *Server) writeError(w http.ResponseWriter, r *http.Request, code int, e apiError) {
+	s.recordError(r, code, e.Error)
+	writeAPI(w, code, e)
+}
+
 func writeAPI(w http.ResponseWriter, code int, v any) {
+	if text, ok := v.(plainText); ok {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(code)
+		_, _ = io.WriteString(w, string(text))
+		return
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		code = http.StatusInternalServerError

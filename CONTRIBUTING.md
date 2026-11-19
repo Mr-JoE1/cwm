@@ -14,7 +14,8 @@ security problems privately ([SECURITY.md](SECURITY.md)), never in public issues
 ## Before you start
 
 - **Bugs:** use the [bug report form](https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml)
-  and attach `cwm version` and a redacted `cwm doctor --json`
+  and attach the debug report: **Copy debug logs** in the dashboard or `cwm debug --copy`
+  (redacted automatically; read it before posting)
   ([how to redact](https://github.com/Mr-JoE1/cwm/wiki/Reporting-Issues)).
 - **Features:** check the [Roadmap](https://github.com/Mr-JoE1/cwm/wiki/Roadmap), then use the
   [feature request form](https://github.com/Mr-JoE1/cwm/issues/new?template=feature_request.yml).

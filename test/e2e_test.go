@@ -92,6 +92,7 @@ func (e *env) childEnv(extra ...string) []string {
 		"CWM_HOME="+e.root,
 		"CWM_REPOS_ROOT="+e.repos,
 		"FAKECLAUDE_CAPTURE="+e.capture,
+		"CWM_CLAUDE_NO_SEARCH=1", // only the fakeclaude on PATH, never a real claude (D49)
 		"PATH="+e.binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	return append(out, extra...)

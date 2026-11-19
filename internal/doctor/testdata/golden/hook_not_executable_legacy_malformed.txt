@@ -5,6 +5,7 @@ ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
 ok:   .stignore present (sync ignore policy installed)
 warn: claude 2.1.100 < 2.1.234 — project-name pinning unsupported; upgrade to >= 2.1.234
+ok:   claude binary: <BIN>/claude (source: PATH)
 ok:   CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile
 warn: repos.tsv has 1 malformed line(s) (expected: name<TAB>url)
 warn: unpinned session folders (resume via cwm to keep sessions cross-OS; these were created by plain claude): -Users-x-legacy
@@ -13,4 +14,4 @@ ok:   WIP log tail (last 3 lines of logs/wip.log):
       line three
       line four
 warn: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
-doctor: 7 ok, 5 warn, 0 fail
+doctor: 8 ok, 5 warn, 0 fail

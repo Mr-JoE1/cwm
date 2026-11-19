@@ -11,12 +11,14 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/Mr-JoE1/cwm/internal/gui"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
+	"github.com/Mr-JoE1/cwm/internal/storage"
 )
 
 // Seams for tests: the shutdown signal context and the browser opener.
@@ -26,7 +28,7 @@ var (
 	}
 	guiOpenBrowser = gui.OpenBrowser
 	// guiLauncher opens the terminal windows behind wizard/resume (D27).
-	guiLauncher term.Launcher = term.NewSystem()
+	guiLauncher term.Launcher = newGuiLauncher()
 )
 
 // guiCwmPath is argv[0] for terminal commands: this very binary, so the
@@ -85,10 +87,10 @@ func cmdGui(e *Env, args []string) error {
 
 // HoldOnError keeps a terminal window that `cwm gui` opened (D27) on
 // screen after a failed command: the window would otherwise close with
-// the error unread. Only when the launcher asked for it (term.HoldEnv)
-// and stdin is an interactive terminal.
+// the error unread. Only when the launcher asked for it (term.HoldEnv or
+// the term.HoldFlag global flag) and stdin is an interactive terminal.
 func HoldOnError(code int, getenv func(string) string, isTTY func() bool, stdin io.Reader, stderr io.Writer) {
-	if code == ExitOK || getenv(term.HoldEnv) != "1" || !isTTY() {
+	if code == ExitOK || (getenv(term.HoldEnv) != "1" && !holdRequested.Load()) || !isTTY() {
 		return
 	}
 	fmt.Fprintln(stderr, "\ncwm: the command above failed — press Enter to close this window")
@@ -97,3 +99,17 @@ func HoldOnError(code int, getenv func(string) string, isTTY func() bool, stdin 
 
 // StdinIsTTY reports whether stdin is an interactive terminal.
 func StdinIsTTY() bool { return stdinIsTTY() }
+
+// newGuiLauncher is the system launcher logging each terminal's own
+// output to logs/terminal.log (part of the debug bundle, D52).
+func newGuiLauncher() *term.System {
+	l := term.NewSystem()
+	l.LogPath = func() string {
+		layout, err := storage.NewLayout()
+		if err != nil {
+			return ""
+		}
+		return filepath.Join(layout.LogsDir(), "terminal.log")
+	}
+	return l
+}

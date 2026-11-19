@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -89,6 +90,8 @@ func goldenCases() []goldenCase {
 	}
 }
 
+var stubPathRe = regexp.MustCompile(`claude binary: \S+ \(`)
+
 func TestDoctorGolden(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
@@ -103,6 +106,8 @@ func TestDoctorGolden(t *testing.T) {
 				got = strings.ReplaceAll(got, from, to)
 			}
 			got = strings.ReplaceAll(got, root, "<ROOT>")
+			// The claude stub lives in a fresh temp dir per run.
+			got = stubPathRe.ReplaceAllString(got, "claude binary: <BIN>/claude (")
 			path := filepath.Join("testdata", "golden", tc.name+".txt")
 			if *updateGolden {
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

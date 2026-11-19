@@ -171,6 +171,7 @@
       close,
       detail ? el("div", { class: "detail" }, [richText(detail)]) : null,
       opts.cmd ? commandBox(opts.cmd) : null,
+      opts.link ? el("a", { class: "toast-link", href: opts.link.href, target: "_blank", rel: "noopener noreferrer", text: opts.link.text }) : null,
     ]);
     let timer = 0;
     const dismiss = () => {
@@ -205,12 +206,119 @@
   // toastLaunch reports a terminal-launch action (D27): success, the 501
   // copy-the-command fallback, or an error.
   function toastLaunch(r, okText) {
-    if (r.ok) return toast("ok", okText, "running: " + r.data.command);
+    if (r.ok) {
+      toastPathHint(r.data);
+      return toast("ok", okText, "running: " + r.data.command);
+    }
+    if (r.status === 424) return toastNoClaude(r);
     if (r.status === 501) {
       return toast("error", "No terminal window could be opened on this machine",
         "Run this command in a terminal instead:", { cmd: r.command, sticky: true });
     }
     return toast("error", "Could not start it", r.error, { cmd: r.command, sticky: !!r.command });
+  }
+
+  // toastNoClaude: the launch was refused because claude cannot be found
+  // (D49) — the install command, copyable, instead of a terminal window
+  // that fails and closes.
+  function toastNoClaude(r) {
+    return toast("error", "Claude Code is needed first", r.error,
+      { cmd: r.command, sticky: true });
+  }
+
+  // toastPathHint: claude was found outside PATH. cwm works, but the user's
+  // own terminals will not find `claude` until its folder is on PATH.
+  function toastPathHint(d) {
+    if (!d || !d.pathHint) return;
+    toast("info", "claude is not on your PATH", "cwm uses " + d.claudePath +
+      ". To run `claude` in your own terminals too, run this once and open a new terminal:", { cmd: d.pathHint, sticky: true });
+  }
+
+  // --- debug logs (D52) -----------------------------------------------------------
+
+  const BUG_URL = document.querySelector("a[href*='/issues/new']") ? document.querySelector("a[href*='/issues/new']").href : "";
+
+  // copyQuiet tries the async Clipboard API, then a hidden textarea +
+  // execCommand("copy"). Resolves true when either worked.
+  async function copyQuiet(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext !== false) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) { /* lost the user gesture while fetching, or denied: fall through */ }
+    }
+    const area = el("textarea", { readonly: "", class: "offscreen", "aria-hidden": "true" });
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+    area.remove();
+    return ok;
+  }
+
+  function selectAll(node) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    node.focus();
+  }
+
+  function showDebugText(text) {
+    const pre = $("debug-text");
+    pre.textContent = text;
+    const dlg = $("debug-dialog");
+    if (!dlg.open) dlg.showModal();
+    selectAll(pre);
+  }
+
+  let debugBusy = false;
+  async function copyDebugLogs() {
+    if (debugBusy) return;
+    debugBusy = true;
+    const buttons = document.querySelectorAll("[data-debug-copy]");
+    buttons.forEach((b) => { b.disabled = true; });
+    const done = toast("info", "Collecting debug logs…", "runs the health checks and reads the recent logs", { sticky: true });
+    let res = null;
+    let text = "";
+    try {
+      res = await fetch("/api/debug", { credentials: "same-origin", headers: { Accept: "text/plain" } });
+      text = await res.text();
+    } catch (err) {
+      res = null;
+    }
+    done();
+    buttons.forEach((b) => { b.disabled = false; });
+    debugBusy = false;
+    if (!res || !res.ok) {
+      if (res && res.status === 401) $("auth-banner").hidden = false;
+      let msg = "cwm is not reachable — is the agent still running?";
+      if (res) {
+        try { msg = JSON.parse(text).error || msg; } catch (err) { msg = "HTTP " + res.status; }
+      }
+      return toast("error", "Could not collect debug logs", msg + " In a terminal, `cwm debug --copy` does the same.", { cmd: "cwm debug --copy" });
+    }
+    const lines = text.replace(/\n+$/, "").split("\n").length;
+    if (await copyQuiet(text)) {
+      return toast("ok", "Debug logs copied (" + lines + " lines) — paste into a GitHub issue", "Redacted: no tokens, e-mails, keys or user names. Give it a quick read before posting.",
+        BUG_URL ? { link: { href: BUG_URL, text: "Report a bug →" } } : null);
+    }
+    showDebugText(text);
+  }
+
+  function wireDebug() {
+    document.querySelectorAll("[data-debug-copy]").forEach((b) => b.addEventListener("click", copyDebugLogs));
+    const dlg = $("debug-dialog");
+    $("debug-close").addEventListener("click", () => dlg.close());
+    $("debug-select").addEventListener("click", () => {
+      const pre = $("debug-text");
+      selectAll(pre);
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+      if (ok) toast("ok", "Debug logs copied (" + pre.textContent.replace(/\n+$/, "").split("\n").length + " lines) — paste into a GitHub issue");
+    });
   }
 
   // Device IDs are shown dashed by Syncthing; the API wants them bare.
@@ -493,8 +601,30 @@
       for (const id of ["wiz-own-id", "pair-own-id"]) {
         $(id).textContent = state.deviceID || "unavailable — Syncthing is not running on this device";
       }
+      renderClaude(state.claude);
     }
     return r;
+  }
+
+  // renderClaude shows whether Add account can work (D49): claude missing →
+  // the install command; found outside PATH → where, plus the PATH command
+  // for the user's own terminals. Nothing when all is well.
+  let claudeShown = "";
+  function renderClaude(c) {
+    const box = $("wiz-claude");
+    if (!box || !c) return;
+    const key = JSON.stringify(c);
+    if (key === claudeShown) return; // polled every 2 s; keep text selection stable
+    claudeShown = key;
+    if (!c.found) {
+      return say(box, "warn", "Claude Code was not found on this machine — install it first, then add the account.",
+        "Run this in a terminal (or set `CWM_CLAUDE` / `claude_path` in config.toml if it lives somewhere unusual):", c.install);
+    }
+    if (!c.onPath) {
+      return say(box, "info", "Claude Code found at " + c.path + " — cwm will use it.",
+        "Its folder is not on your PATH, so a plain `claude` in a new terminal will not find it. To fix that, run:", c.pathHint);
+    }
+    box.replaceChildren();
   }
 
   const STEPS = ["init", "account", "pair", "done"];
@@ -567,6 +697,12 @@
       say(addBox, "wait", "Opening a terminal…");
       const r = await post("/api/accounts", { name: name });
       addBtn.disabled = false;
+      if (r.status === 424) {
+        refreshState();
+        toastNoClaude(r);
+        return say(addBox, "error", "Claude Code is needed first.", r.error, r.command);
+      }
+      if (r.ok) toastPathHint(r.data);
       if (!r.ok && r.status !== 501) return say(addBox, "error", "Could not add the account.", r.error, r.command);
       if (r.ok) {
         say(addBox, "wait", "Finish the Claude login in the terminal window that just opened — waiting for account “" + name + "” to appear…",
@@ -898,7 +1034,7 @@
         ev.target.blur();
         return;
       }
-      if (typing(ev.target) || dlg.open) return;
+      if (typing(ev.target) || dlg.open || $("debug-dialog").open) return;
       const k = ev.key;
       if (k >= "1" && k <= "5" && dashboardVisible()) {
         const name = TABS[Number(k) - 1];
@@ -914,6 +1050,8 @@
         $("bg-toggle").click();
       } else if (k === "r") {
         refreshNow(true);
+      } else if (k === "d") {
+        copyDebugLogs();
       } else if (k === "?") {
         dlg.showModal();
       } else {
@@ -948,6 +1086,7 @@
     wireWizard();
     wirePairForm();
     wireKeys();
+    wireDebug();
 
     const v = await api("/api/version");
     if (v.ok && v.data) {

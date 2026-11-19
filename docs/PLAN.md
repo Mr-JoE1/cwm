@@ -3,6 +3,92 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-19 (v0.6.1 — Windows field fixes + debug bundle, SPEC-V0.6.1)
+
+From the first real Windows 11 + PowerShell 5.1 test of v0.6.0: the
+installer's cwm lines were mojibake (`Γ£ô` for `✓`), and the dashboard's
+Add account failed with "claude not found on PATH" although Claude Code was
+installed.
+
+- **D49: find claude where it is, then remember it.** PATH is the wrong
+  source of truth on Windows. The Claude Code installer edits the *user* Path,
+  but every process that was already running keeps the old one, and that
+  includes the cwm agent and every terminal it opens. One resolver
+  (`internal/claudebin`) now serves every caller: `$CWM_CLAUDE` →
+  `config.toml` `claude_path` → PATH → well-known install folders per OS →
+  `npm prefix -g` (3 s cap). An off-PATH hit is used at once, written back
+  to `claude_path` (only into an existing config.toml, so the installer's
+  "initialised?" test stays honest), and reported with the exact copy-paste
+  command that puts its folder on PATH. The v0.4 PATH-hash cache
+  (`state/claude-path`) is dropped: `claude_path` is the persistent answer,
+  and a PATH lookup costs nothing. The dashboard checks before it opens a
+  login terminal (424 + install command) instead of opening one that dies
+  before the user can read it, and the wizard shows the claude status up
+  front. `CWM_CLAUDE_NO_SEARCH=1` limits the lookup to PATH and the explicit
+  settings; tests set it so they can never reach a real claude.
+- **D50: ASCII glyphs where the console can't show them; never switch the
+  console's code page.** The mojibake came from PowerShell decoding cwm's
+  piped UTF-8 with the OEM code page. When stdout is the console itself, Go
+  already writes UTF-16 (WriteConsoleW), but the legacy conhost font has no
+  ✓/⚠/✗. So on Windows each output handle keeps Unicode only when
+  `GetConsoleOutputCP() == 65001`, or when it is a console inside Windows
+  Terminal. Otherwise an ASCII writer maps cwm's own glyphs (`✓→ok`,
+  `✗→[x]`, `⚠→!`, `—→-`, …) and leaves all other bytes alone, so data such
+  as non-ASCII user names is never rewritten. `CWM_GLYPHS=ascii|unicode`
+  overrides. Rejected: `SetConsoleOutputCP(65001)` at startup. The code page
+  belongs to the console, not the process, so it would stay switched in the
+  user's shell after cwm exits, and it cannot fix a pipe whose reader has
+  already chosen its decoder. kernel32 is bound with `syscall.NewLazyDLL`
+  (no `golang.org/x/sys`).
+- **D51: installers show steps, not logs.** Both installers share one layout:
+  a small ASCII banner, `[n/8]` steps with ok/warn/fail glyphs, child
+  output indented under its step, and a closing summary box (binary,
+  version, dashboard URL, next steps, uninstall). Colours honour `NO_COLOR`.
+  Non-terminal output is plain ASCII, so logs and CI stay greppable.
+  install.ps1 switches `[Console]::OutputEncoding` to UTF-8 for its own
+  run only (restored on every path), keeps its source pure ASCII
+  (`irm | iex` decodes with whatever charset the server claims), and on
+  failure does not `exit` under `iex`, because that would close the user's
+  window. CI now runs install.ps1 end to end under Windows PowerShell 5.1
+  (`scripts/test-install-windows.ps1`), the tester's exact shell.
+- **D52: one redacted debug bundle, built in one place, redacted as a
+  whole.** Bug reports so far meant asking for `cwm version`, `doctor
+  --json`, a log or two and "which claude?", then hand-redacting each.
+  `internal/debugbundle` builds a single plain-text report (versions,
+  agent, service status, the claude lookup and the PATH it ran with,
+  config keys, workspace and account names with counts, syncthing counts,
+  doctor, about 200 lines of `~/.cwm/logs`, the agent's last 100 API errors
+  from an in-memory ring) for both `GET /api/debug` and `cwm debug
+  [--copy]`. The redactor runs over the finished text, not per section, so
+  a section that forgets to be careful still cannot leak. Its rules are
+  deliberately greedy (any secret-named key, any 64+ hex run, every e-mail,
+  PEM private keys, the home dir and the login name inside paths): a false
+  positive costs one unreadable value, a false negative publishes a secret
+  in a public issue. Some things are never read in the first place: account
+  dirs, `.credentials.json`, `server.toml` (it holds the dashboard token);
+  config values under secret-looking keys print as `<set, not shown>`.
+  `cwm debug` borrows the agent's error list and its claude view over the
+  local API, because "works in my shell, fails in the dashboard" is
+  exactly a PATH difference between the two processes (D49). Copying tries
+  the Clipboard API, then `execCommand`, then shows the text, already
+  selected, in a modal; the CLI tries the OS clipboard tools and falls back
+  to stdout. The dashboard gets one external *link* (the bug-report form,
+  opened by the user's click); it makes no external request, and the asset
+  test allows exactly that URL. The terminal launcher now keeps the
+  emulator's own output in `logs/terminal.log`, so a window that never
+  opened leaves a trace in the bundle.
+- **D53: the hold-open request travels in argv; Resume prechecks claude
+  too.** v0.6.0's failing window closed even though cwm sets
+  `CWM_HOLD_ON_ERROR=1` for it: terminals that hand the command to an
+  already-running instance (wt.exe, gnome-terminal-server) start it with
+  that instance's environment. The dashboard now launches `cwm
+  --hold-on-error <args…>` (the command shown for copying stays without
+  it), and the env var keeps working for older callers. Resume gets the
+  same claude precheck as Add account (424 + install command, no window),
+  and a launch whose claude was found off PATH returns the PATH command, so
+  the dashboard can show it with a Copy button instead of leaving the user
+  to discover it later.
+
 ## 2026-11-18 (v0.7)
 
 UI-only decisions for the v0.7 "cyber UI + brand" branch (`feat/v0.7-ui`),

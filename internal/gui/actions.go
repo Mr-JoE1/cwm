@@ -48,6 +48,10 @@ func (e *commandError) Unwrap() error { return e.err }
 type launchResult struct {
 	Launched bool   `json:"launched"`
 	Command  string `json:"command"`
+	// ClaudePath + PathHint: claude was found outside PATH (D49); the
+	// dashboard offers the PATH command with a Copy button.
+	ClaudePath string `json:"claudePath,omitempty"`
+	PathHint   string `json:"pathHint,omitempty"`
 }
 
 // decodeBody reads exactly one JSON object into v; unknown fields,
@@ -90,7 +94,12 @@ func (s *Server) launch(args ...string) (any, int, error) {
 	if s.opts.Launcher == nil {
 		return nil, http.StatusNotImplemented, &commandError{err: term.ErrNoTerminal, command: cmd}
 	}
-	if err := s.opts.Launcher.Open(argv); err != nil {
+	// The hold flag travels in argv, not only in the environment: a
+	// terminal that hands the command to an already-running instance
+	// (wt.exe, gnome-terminal-server) starts it with that instance's
+	// environment, and the window closed with the error unread (v0.6.0).
+	held := append([]string{bin, term.HoldFlag}, args...)
+	if err := s.opts.Launcher.Open(held); err != nil {
 		if errors.Is(err, term.ErrNoTerminal) {
 			return nil, http.StatusNotImplemented, &commandError{err: term.ErrNoTerminal, command: cmd}
 		}
@@ -114,6 +123,7 @@ func (s *Server) apiState(*http.Request) (any, int, error) {
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
+	st.Claude = s.claudeState()
 	return st, http.StatusOK, nil
 }
 
@@ -162,7 +172,15 @@ func (s *Server) apiAccountAdd(r *http.Request) (any, int, error) {
 	if _, exists := cfg.Account(req.Name); exists {
 		return nil, http.StatusConflict, fmt.Errorf("account %q already exists", req.Name)
 	}
-	return s.launch("account", "add", req.Name)
+	res, code, err := s.claudePrecheck()
+	if err != nil {
+		return nil, code, err
+	}
+	body, code, err := s.launch("account", "add", req.Name)
+	if err != nil {
+		return nil, code, err
+	}
+	return s.withClaudeHint(body, res), code, nil
 }
 
 type resumeRequest struct {
@@ -201,7 +219,15 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 	if !ok {
 		return nil, http.StatusNotFound, fmt.Errorf("unknown session %q in project %q", req.ID, req.Project)
 	}
-	return s.launch(launcher.ResumeCLIArgs(sess.Project, sess.ID)...)
+	res, code, err := s.claudePrecheck()
+	if err != nil {
+		return nil, code, err
+	}
+	body, code, err := s.launch(launcher.ResumeCLIArgs(sess.Project, sess.ID)...)
+	if err != nil {
+		return nil, code, err
+	}
+	return s.withClaudeHint(body, res), code, nil
 }
 
 type pairRequest struct {

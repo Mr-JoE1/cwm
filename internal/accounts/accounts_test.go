@@ -297,3 +297,60 @@ func TestRemoveUnknown(t *testing.T) {
 		t.Fatal("removing an unknown account must fail")
 	}
 }
+
+// TestMain keeps the claude resolver (D49) off this machine's real install
+// folders; tests that exercise the search clear the variable themselves.
+func TestMain(m *testing.M) {
+	os.Setenv("CWM_CLAUDE_NO_SEARCH", "1")
+	os.Exit(m.Run())
+}
+
+// The v0.6.0 Windows report: claude installed by its native installer in
+// ~/.local/bin, but that folder is not on the PATH cwm inherited. Add must
+// find it, pin it in config and print the PATH command.
+func TestAddFindsClaudeOffPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
+	t.Setenv("CWM_CLAUDE_NO_SEARCH", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stubClaude(t, "dev@example.com") // puts a stub dir on PATH; move it off
+	stubDir := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+	dest := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(stubDir, "claude"), filepath.Join(dest, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	l, cfg := newTestEnv(t)
+	var out bytes.Buffer
+	if err := Add(l, cfg, "main", &out); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if cfg.ClaudePath != filepath.Join(dest, "claude") {
+		t.Errorf("claude_path = %q, want %q", cfg.ClaudePath, filepath.Join(dest, "claude"))
+	}
+	if !strings.Contains(out.String(), "note: using claude at "+filepath.Join(dest, "claude")) ||
+		!strings.Contains(out.String(), `export PATH="`+dest+`:$PATH"`) {
+		t.Errorf("output missing the off-PATH note + PATH command:\n%s", out.String())
+	}
+}
+
+func TestAddClaudeMissingLeavesNoDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
+	t.Setenv("PATH", t.TempDir())
+	l, cfg := newTestEnv(t)
+	err := Add(l, cfg, "main", &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "install it with: curl -fsSL https://claude.ai/install.sh | bash") {
+		t.Fatalf("err = %v, want not-found with the install command", err)
+	}
+	if _, serr := os.Stat(filepath.Join(l.AccountsDir(), "main")); !os.IsNotExist(serr) {
+		t.Errorf("a missing claude must not leave accounts/main behind (stat: %v)", serr)
+	}
+}

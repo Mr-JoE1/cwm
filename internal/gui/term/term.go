@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // ErrNoTerminal means no usable terminal emulator exists (none on PATH, a
@@ -25,6 +26,12 @@ var ErrNoTerminal = errors.New("no terminal found")
 // HoldEnv is set on the spawned command's environment; cwm reads it to keep
 // the window open on failure so an error is never a flash-and-gone window.
 const HoldEnv = "CWM_HOLD_ON_ERROR"
+
+// HoldFlag is the global cwm flag with the same meaning as HoldEnv. The
+// dashboard puts it in argv because some terminals start the command in
+// an already-running instance that never sees our environment (wt.exe,
+// gnome-terminal-server).
+const HoldFlag = "--hold-on-error"
 
 // Launcher opens a terminal window running argv (argv[0] = the program).
 type Launcher interface {
@@ -50,6 +57,8 @@ type Spec struct {
 	Path    string
 	Args    []string
 	CmdLine string
+	// log receives the terminal emulator's own output (System.LogPath).
+	log *os.File
 }
 
 // candidate is a terminal emulator and the flag(s) that precede the
@@ -318,6 +327,11 @@ func anyContains(list []string, sub string) bool {
 type System struct {
 	env   Env
 	start func(Spec) error
+	// LogPath, when set, names the file that receives the terminal
+	// emulator's own stdout/stderr (D52): its complaints ("failed to
+	// connect to the session bus", a bad -e flag) were discarded before,
+	// so a window that never opened left no trace. "" = discard.
+	LogPath func() string
 }
 
 // NewSystem returns the platform Launcher.
@@ -331,16 +345,54 @@ func (s *System) Open(argv []string) error {
 	if err != nil {
 		return err
 	}
+	log := s.openLog(spec, argv)
+	if log != nil {
+		spec.log = log
+		defer log.Close() // the child holds its own copy of the handle
+	}
 	if err := s.start(spec); err != nil {
+		if log != nil {
+			fmt.Fprintf(log, "  start failed: %v\n", err)
+		}
 		return fmt.Errorf("term: start %s: %w", filepath.Base(spec.Path), err)
 	}
 	return nil
 }
 
+// openLog appends a header for this launch to LogPath and returns the
+// file for the terminal's output. On the cmd.exe route only the header is
+// written: `start` may hand redirected handles on to the new console's
+// program, and cwm's own output must stay in the window.
+func (s *System) openLog(spec Spec, argv []string) *os.File {
+	if s.LogPath == nil {
+		return nil
+	}
+	path := s.LogPath()
+	if path == "" {
+		return nil
+	}
+	// No MkdirAll: logs/ exists once cwm is initialised, and creating it
+	// earlier would make a fresh home look half set up.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil
+	}
+	fmt.Fprintf(f, "%s open %s for: %s\n", time.Now().UTC().Format(time.RFC3339), filepath.Base(spec.Path), Display(s.env.GOOS, argv))
+	if spec.CmdLine != "" {
+		_ = f.Close()
+		return nil
+	}
+	return f
+}
+
 // command builds the exec.Cmd shared by both platform start files: no
-// stdio (the terminal owns its own), HoldEnv set for the child cwm.
+// stdin (the terminal owns its own), the terminal's own output to the
+// launch log when there is one, HoldEnv set for the child cwm.
 func command(spec Spec) *exec.Cmd {
 	cmd := exec.Command(spec.Path, spec.Args...)
 	cmd.Env = append(os.Environ(), HoldEnv+"=1")
+	if spec.log != nil {
+		cmd.Stdout, cmd.Stderr = spec.log, spec.log
+	}
 	return cmd
 }

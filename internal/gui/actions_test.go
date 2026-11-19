@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -70,6 +71,9 @@ func actionFixture(t *testing.T, sync func() (syncengine.Client, error)) (*fixtu
 	f.srv.opts.CwmPath = fakeCwm
 	f.srv.opts.GOOS = "linux"
 	f.srv.opts.Reserved = func(n string) bool { return n == "gui" || n == "list" }
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		return claudebin.Result{Path: "/usr/bin/claude", Source: claudebin.SourcePath, OnPath: true}, nil
+	}
 	writeFile(t, filepath.Join(f.root, "workspace", "repos.tsv"), "alpha\t/srv/git/alpha.git\nbeta\t/srv/git/beta.git\n")
 	return f, l
 }
@@ -276,7 +280,7 @@ func TestAccountAddLaunchesTerminal(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add = %d\n%s", rec.Code, rec.Body.String())
 	}
-	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != fakeCwm+"|account|add|work-2" {
+	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != fakeCwm+"|--hold-on-error|account|add|work-2" {
 		t.Fatalf("launcher argv = %q", l.calls)
 	}
 	var res launchResult
@@ -352,8 +356,9 @@ func TestResumeLooksUpSession(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume = %d\n%s", rec.Code, rec.Body.String())
 	}
-	// The D20 passthrough, exactly as `cwm sessions --pick` launches it.
-	want := fakeCwm + "|open|alpha|new|--resume|11111111-aaaa"
+	// The D20 passthrough, exactly as `cwm sessions --pick` launches it,
+	// behind the global hold flag (D49) that keeps a failed window open.
+	want := fakeCwm + "|--hold-on-error|open|alpha|new|--resume|11111111-aaaa"
 	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != want {
 		t.Fatalf("launcher argv = %q, want %s", l.calls, want)
 	}
@@ -477,9 +482,77 @@ func TestDashboardHasActions(t *testing.T) {
 			t.Errorf("index.html lacks %s", want)
 		}
 	}
+	for _, want := range []string{`data-debug-copy`, `id="debug-dialog"`, `id="debug-text"`, `id="debug-select"`, bugReportURL} {
+		if !bytes.Contains(html, []byte(want)) {
+			t.Errorf("index.html lacks %s", want)
+		}
+	}
+	if n := bytes.Count(html, []byte("data-debug-copy")); n < 2 {
+		t.Errorf("Copy debug logs must be in the header/footer and on the Health tab, found %d", n)
+	}
+	for _, want := range []string{"/api/debug", "navigator.clipboard.writeText", `execCommand("copy")`, "Debug logs copied (", "pathHint", "424"} {
+		if !bytes.Contains(js, []byte(want)) {
+			t.Errorf("app.js lacks %s", want)
+		}
+	}
 	for _, want := range []string{"/api/state", "/api/init", "/api/accounts", "/api/sessions/resume", "/api/pair", "/api/csrf", CSRFHeader, `"Resume"`} {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Errorf("app.js lacks %s", want)
 		}
+	}
+}
+
+// D49: with no claude anywhere, Add account answers 424 with the install
+// command instead of opening a terminal that fails and closes.
+func TestAccountAddWithoutClaude424(t *testing.T) {
+	f, l := actionFixture(t, okSync)
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		return claudebin.Result{}, &claudebin.NotFoundError{GOOS: "windows"}
+	}
+	f.srv.opts.GOOS = "windows"
+	rec := f.post(t, "/api/accounts", `{"name":"work"}`, nil)
+	if rec.Code != http.StatusFailedDependency {
+		t.Fatalf("code = %d, want 424\n%s", rec.Code, rec.Body.String())
+	}
+	var e apiError
+	decode(t, rec, &e)
+	if e.Command != "irm https://claude.ai/install.ps1 | iex" || !strings.Contains(e.Error, "not installed") {
+		t.Errorf("424 body = %+v", e)
+	}
+	if len(l.calls) != 0 {
+		t.Errorf("no terminal may open without claude: %q", l.calls)
+	}
+}
+
+func TestStateReportsClaude(t *testing.T) {
+	f, _ := actionFixture(t, okSync)
+	calls := 0
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		calls++
+		return claudebin.Result{Path: "/home/u/.local/bin/claude", Source: claudebin.SourceDiscovered}, nil
+	}
+	var st struct {
+		Claude struct {
+			Found    bool   `json:"found"`
+			Path     string `json:"path"`
+			OnPath   bool   `json:"onPath"`
+			PathHint string `json:"pathHint"`
+			Install  string `json:"install"`
+		} `json:"claude"`
+	}
+	getJSON(t, f, "/api/state", 200, &st)
+	c := st.Claude
+	if !c.Found || c.Path != "/home/u/.local/bin/claude" || c.OnPath ||
+		c.PathHint != claudebin.PathHint("linux", filepath.Dir("/home/u/.local/bin/claude")) || c.Install == "" {
+		t.Errorf("claude state = %+v", c)
+	}
+	getJSON(t, f, "/api/state", 200, &st)
+	if calls != 1 {
+		t.Errorf("resolver ran %d times for two polls, want 1 (cached)", calls)
+	}
+	// The precheck never trusts the cache.
+	f.post(t, "/api/accounts", `{"name":"work"}`, nil)
+	if calls != 2 {
+		t.Errorf("precheck must re-resolve: calls = %d", calls)
 	}
 }
