@@ -58,6 +58,17 @@ func goldenCases() []goldenCase {
 			unreachableSyncthing(t)
 			return root, nil
 		}},
+		// D58: what `cwm init` leaves behind: no settings.json and no
+		// hooks dir, neither of which the Go kit uses.
+		{name: "fresh_init", setup: func(t *testing.T) (string, map[string]string) {
+			root := t.TempDir()
+			t.Setenv("CWM_HOME", root)
+			t.Setenv("HOME", t.TempDir())
+			writeFile(t, filepath.Join(root, "workspace", ".stignore"), "(?d)settings.json\n")
+			unreachableSyncthing(t)
+			stubBin(t, map[string]string{"claude": "#!/bin/sh\necho '2.1.319 (Claude Code)'\n"})
+			return root, nil
+		}},
 		{name: "settings_keyless_missing_hook", setup: func(t *testing.T) (string, map[string]string) {
 			root := healthyWorkspace(t)
 			unreachableSyncthing(t)

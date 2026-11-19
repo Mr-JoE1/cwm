@@ -66,6 +66,9 @@ func (c *checkList) ok(name, format string, args ...any)   { c.add(name, StatusO
 func (c *checkList) warn(name, format string, args ...any) { c.add(name, StatusWarn, format, args...) }
 func (c *checkList) fail(name, format string, args ...any) { c.add(name, StatusFail, format, args...) }
 
+// hostOS gates the OS-specific checks; a var so tests can play Windows.
+var hostOS = runtime.GOOS
+
 // quotedStringRe extracts every JSON string literal from raw settings text,
 // standing in for the bash kit's grep-based scanning (no jq allowed).
 var quotedStringRe = regexp.MustCompile(`"([^"\\]*(?:\\.[^"\\]*)*)"`)
@@ -134,9 +137,13 @@ func Checks(root string, netProbe bool) []Check {
 	// 2 + 3. settings.json: present, hooks wired, wired hooks exist + are
 	// executable. Key presence is checked by substring, exactly like the
 	// bash kit's grep: those keys are what actually matter for wiring.
+	// The Go kit never reads workspace/settings.json: it writes one into
+	// each launch dir when it assembles it, so a fresh workspace without
+	// one is healthy (D58). An existing file still gets every check.
 	settings := filepath.Join(ws, "settings.json")
+	bashKitHooks := false
 	if data, err := os.ReadFile(settings); err != nil {
-		r.warn("settings", "settings.json missing — hooks not wired (generated when a launch dir is assembled; run `cwm init`)")
+		r.ok("settings", "no workspace settings.json (not used: the Go kit writes settings.json into each launch dir when it assembles one)")
 	} else {
 		raw := string(data)
 		if strings.Contains(raw, `"hooks"`) && strings.Contains(raw, `"SessionStart"`) {
@@ -146,6 +153,9 @@ func Checks(root string, netProbe bool) []Check {
 		}
 		wired := wiredHookCommands(raw)
 		for _, bin := range wired {
+			if strings.HasSuffix(bin, ".sh") {
+				bashKitHooks = true
+			}
 			path, ok := resolveHookBin(bin)
 			if !ok {
 				r.fail("hook-wired", "hook wired but missing: %s — re-run the cwm bootstrap or `cwm init`", path)
@@ -160,12 +170,17 @@ func Checks(root string, netProbe bool) []Check {
 		}
 	}
 
-	// 4. hook scripts installed (bash-kit layout; the Go kit wires hooks via
-	// settings.json instead, so absence is only a warning).
-	if n := countFiles(filepath.Join(ws, "hooks")); n > 0 {
-		r.ok("hook-scripts", "hook scripts present in %s (%d file(s))", filepath.Join(ws, "hooks"), n)
-	} else {
-		r.warn("hook-scripts", "no hook scripts in %s — the Go kit wires hooks via settings.json; the bash-kit fallback needs the bootstrap", filepath.Join(ws, "hooks"))
+	// 4. hook scripts installed (bash-kit layout). Only a settings.json
+	// that wires bash-kit `…/hooks/*.sh` scripts needs them; the Go kit
+	// runs hooks as `cwm hook …` (D58).
+	hooksDir := filepath.Join(ws, "hooks")
+	switch n := countFiles(hooksDir); {
+	case n > 0:
+		r.ok("hook-scripts", "hook scripts present in %s (%d file(s))", hooksDir, n)
+	case bashKitHooks:
+		r.warn("hook-scripts", "no hook scripts in %s, but settings.json wires bash-kit hooks — re-run the bash-kit bootstrap, or let cwm assemble launch dirs instead", hooksDir)
+	default:
+		r.ok("hook-scripts", "no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)")
 	}
 
 	// 5. sync ignore policy
@@ -175,17 +190,28 @@ func Checks(root string, netProbe bool) []Check {
 		r.warn("stignore", ".stignore missing — sync not configured (re-run the cwm bootstrap)")
 	}
 
-	// 6. claude presence + version (pinning needs >= 2.1.234). Found off
-	// PATH (D49) still works for cwm, but the user's own shells and IDEs
-	// will not see it — a warning with the exact PATH command.
-	if res, err := claudebin.Lookup(storage.NewLayoutAt(root)); err != nil {
-		if errors.Is(err, claudebin.ErrNotFound) {
+	// 6. claude presence + version (pinning needs >= 2.1.234), verified by
+	// behaviour (D54): the probe's own version line, no second spawn.
+	// Found off PATH (D49) still works for cwm, but the user's own shells
+	// and IDEs will not see it — a warning with the exact PATH command.
+	layout := storage.NewLayoutAt(root)
+	if res, err := claudebin.LookupSurvey(layout); err != nil {
+		var nf *claudebin.NotFoundError
+		switch {
+		case errors.As(err, &nf) && len(nf.Rejected) > 0:
+			parts := make([]string, 0, len(nf.Rejected))
+			for _, c := range nf.Rejected {
+				parts = append(parts, c.Path+": "+c.Result)
+			}
+			r.warn("claude", "claude not found (%d candidate(s) found but not Claude Code: %s) — install Claude Code: %s",
+				len(nf.Rejected), strings.Join(parts, "; "), claudebin.InstallCommand(runtime.GOOS))
+		case errors.Is(err, claudebin.ErrNotFound):
 			r.warn("claude", "claude not found (PATH and the usual install folders) — install Claude Code: %s", claudebin.InstallCommand(runtime.GOOS))
-		} else {
+		default:
 			r.warn("claude", "%v", err)
 		}
 	} else {
-		ver := claudebin.Version(res.Path)
+		ver := res.Version
 		where := "on PATH"
 		if !res.OnPath {
 			where = "at " + res.Path
@@ -198,22 +224,45 @@ func Checks(root string, netProbe bool) []Check {
 		default:
 			r.warn("claude", "claude %s < %s — project-name pinning unsupported; upgrade to >= %s", ver, storage.MinVersion, storage.MinVersion)
 		}
-		// The binary check names the exact file and which lookup step
-		// found it, so a report shows at a glance whether cwm and the
-		// user's shell can disagree about claude (D49).
+		// The binary check names the exact file, which lookup step found
+		// it and what it said when probed, so a report shows at a glance
+		// whether cwm and the user's shell can disagree about claude.
+		line := ""
+		for _, c := range res.Candidates {
+			if c.Path == res.Path {
+				line = strings.TrimPrefix(c.Result, "verified: ")
+			}
+		}
 		if res.OnPath {
-			r.ok("claude-binary", "claude binary: %s (source: %s)", res.Path, res.Source.Label())
+			r.ok("claude-binary", "claude binary: %s (source: %s, verified: %s)", res.Path, res.Source.Label(), line)
 		} else {
-			r.warn("claude-binary", "claude binary: %s (source: %s) — its folder is not on PATH, so your own terminals and IDEs will not find `claude` (cwm still does); fix: `%s`",
-				res.Path, res.Source.Label(), claudebin.PathHint(runtime.GOOS, res.Dir()))
+			r.warn("claude-binary", "claude binary: %s (source: %s, verified: %s) — its folder is not on PATH, so your own terminals and IDEs will not find `claude` (cwm still does); fix: `%s`",
+				res.Path, res.Source.Label(), line, claudebin.PathHint(runtime.GOOS, res.Dir()))
+		}
+	}
+	if note := claudebin.ClearedNote(layout); note != "" {
+		r.ok("claude-cleared", "%s (it no longer verified as Claude Code; cwm looks it up afresh)", note)
+	}
+
+	// 7. CLAUDE_CONFIG_DIR persisted in a shell profile — a unix shell
+	// convention; on Windows the claude-binary check covers resolution.
+	if hostOS != "windows" {
+		if persistedConfigDir() {
+			r.ok("config-dir", "CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile")
+		} else {
+			r.warn("config-dir", "CLAUDE_CONFIG_DIR not exported in ~/.bashrc or ~/.profile — run `cwm init` or the cwm bootstrap")
 		}
 	}
 
-	// 7. CLAUDE_CONFIG_DIR persisted in a shell profile
-	if persistedConfigDir() {
-		r.ok("config-dir", "CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile")
-	} else {
-		r.warn("config-dir", "CLAUDE_CONFIG_DIR not exported in ~/.bashrc or ~/.profile — run `cwm init` or the cwm bootstrap")
+	// 7b. duplicate PATH entries: informational only (never a warning,
+	// cwm never rewrites PATH). Installers that append to the user Path
+	// on every run leave these behind.
+	if n := claudebin.PathDuplicates(os.Getenv("PATH"), hostOS); n > 0 {
+		plural := "ies"
+		if n == 1 {
+			plural = "y"
+		}
+		r.ok("path-duplicates", "PATH has %d duplicate entr%s (harmless; cwm does not change PATH)", n, plural)
 	}
 
 	// 8. repos.tsv: readable, every non-empty line is name<TAB>url

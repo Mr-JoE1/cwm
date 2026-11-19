@@ -13,12 +13,13 @@ import (
 	"testing"
 
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
+	"github.com/Mr-JoE1/cwm/internal/testsafe"
 )
 
 // TestMain keeps the claude resolver (D49) off this machine's real install
 // folders; tests that exercise the search clear the variable themselves.
 func TestMain(m *testing.M) {
-	os.Setenv("CWM_CLAUDE_NO_SEARCH", "1")
+	testsafe.NoRealClaude()
 	os.Exit(m.Run())
 }
 
@@ -30,6 +31,9 @@ func TestMain(m *testing.M) {
 func noClaude(t *testing.T) {
 	t.Helper()
 	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
+		t.Setenv(k, t.TempDir())
+	}
 }
 
 func stubBin(t *testing.T, files map[string]string) string {
@@ -169,11 +173,11 @@ func TestDoctorSettingsVariants(t *testing.T) {
 	t.Setenv("CWM_HOME", root)
 	ws := filepath.Join(root, "workspace", "settings.json")
 
-	// No settings.json: warn, no wired-hook sub-checks.
+	// No settings.json: fine for the Go kit (D58), no wired-hook sub-checks.
 	var out strings.Builder
 	Run(&out, root, false)
-	if !strings.Contains(out.String(), "warn: settings.json missing — hooks not wired") {
-		t.Errorf("missing settings should warn:\n%s", out.String())
+	if !strings.Contains(out.String(), "ok:   no workspace settings.json (not used") || strings.Contains(out.String(), "hooks-executable") {
+		t.Errorf("missing settings must be ok:\n%s", out.String())
 	}
 
 	// Present but lacking hook keys.
@@ -284,7 +288,7 @@ func TestDoctorClaudeOffPath(t *testing.T) {
 		t.Errorf("output missing %q:\n%s", want, got)
 	}
 	hint := `echo 'export PATH="` + filepath.Join(home, ".local", "bin") + `:$PATH"' >> ~/`
-	bin := "warn: claude binary: " + filepath.Join(home, ".local", "bin", "claude") + " (source: found in a well-known install folder) — its folder is not on PATH"
+	bin := "warn: claude binary: " + filepath.Join(home, ".local", "bin", "claude") + " (source: found in a well-known install folder, verified: 2.1.300 (Claude Code)) — its folder is not on PATH"
 	if !strings.Contains(got, bin) || !strings.Contains(got, hint) {
 		t.Errorf("output missing the PATH hint %q:\n%s", hint, got)
 	}
@@ -403,5 +407,102 @@ func TestDoctorSyncthingReachableOK(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "ok:   syncthing API reachable at "+srv.URL) {
 		t.Errorf("output missing syncthing ok line:\n%s", out.String())
+	}
+}
+
+// D58: a fresh Go-kit workspace (what `cwm init` creates) has no
+// settings.json and no hooks dir; neither may warn. Workspaces that wire
+// bash-kit hook scripts keep the warning.
+func TestDoctorFreshGoKitWorkspaceIsQuiet(t *testing.T) {
+	noClaude(t)
+	root := t.TempDir()
+	t.Setenv("CWM_HOME", root)
+	writeFile(t, filepath.Join(root, "workspace", ".stignore"), "(?d)settings.json\n")
+	var out strings.Builder
+	Run(&out, root, false)
+	got := out.String()
+	for _, want := range []string{
+		"ok:   no workspace settings.json (not used: the Go kit writes settings.json into each launch dir when it assembles one)",
+		"ok:   no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "warn: settings") || strings.Contains(got, "warn: no hook scripts") {
+		t.Errorf("fresh workspace must not warn about settings/hooks:\n%s", got)
+	}
+
+	// A bash-kit settings.json wiring hooks/*.sh with an empty hooks dir
+	// still warns.
+	script := filepath.Join(root, "workspace", "hooks", "session-start.sh")
+	writeFile(t, filepath.Join(root, "workspace", "settings.json"),
+		fmt.Sprintf(`{"hooks":{"SessionStart":[{"hooks":[{"command":"%s"}]}]}}`, script))
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	Run(&out, root, false)
+	if !strings.Contains(out.String(), "warn: no hook scripts in ") || !strings.Contains(out.String(), "wires bash-kit hooks") {
+		t.Errorf("bash-kit wiring without scripts must warn:\n%s", out.String())
+	}
+}
+
+func TestDoctorConfigDirCheckIsUnixOnly(t *testing.T) {
+	noClaude(t)
+	root := t.TempDir()
+	t.Setenv("CWM_HOME", root)
+	old := hostOS
+	t.Cleanup(func() { hostOS = old })
+	hostOS = "windows"
+	var out strings.Builder
+	Run(&out, root, false)
+	if strings.Contains(out.String(), "CLAUDE_CONFIG_DIR") {
+		t.Errorf("windows must not run the shell-profile check:\n%s", out.String())
+	}
+	hostOS = "linux"
+	out.Reset()
+	Run(&out, root, false)
+	if !strings.Contains(out.String(), "warn: CLAUDE_CONFIG_DIR not exported") {
+		t.Errorf("unix keeps the shell-profile check:\n%s", out.String())
+	}
+}
+
+func TestDoctorPathDuplicatesNote(t *testing.T) {
+	noClaude(t)
+	root := t.TempDir()
+	t.Setenv("CWM_HOME", root)
+	a, b := t.TempDir(), t.TempDir()
+	t.Setenv("PATH", strings.Join([]string{a, b, a, b + string(filepath.Separator), a}, string(os.PathListSeparator)))
+	list := Checks(root, false)
+	var note *Check
+	for i := range list {
+		if list[i].Name == "path-duplicates" {
+			note = &list[i]
+		}
+	}
+	if note == nil || note.Status != StatusOK || note.Detail != "PATH has 3 duplicate entries (harmless; cwm does not change PATH)" {
+		t.Fatalf("path-duplicates = %+v", note)
+	}
+	if strings.Contains(note.Detail, a) {
+		t.Error("the note lists the count, not the entries")
+	}
+}
+
+// D54: a claude on PATH that is not Claude Code is reported, not used.
+func TestDoctorUnverifiedClaude(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
+	noClaude(t)
+	root := t.TempDir()
+	t.Setenv("CWM_HOME", root)
+	bin := stubBin(t, map[string]string{"claude": "#!/bin/sh\necho 'Claude Desktop'\n"})
+	t.Setenv("PATH", bin)
+	var out strings.Builder
+	Run(&out, root, false)
+	want := "warn: claude not found (1 candidate(s) found but not Claude Code: " + filepath.Join(bin, "claude") + ": no Claude Code version line in its --version output)"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("output missing %q:\n%s", want, out.String())
 	}
 }

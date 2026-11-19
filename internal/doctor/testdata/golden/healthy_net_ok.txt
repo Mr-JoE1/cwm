@@ -4,7 +4,7 @@ ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
 ok:   .stignore present (sync ignore policy installed)
 ok:   claude 2.1.234 on PATH (>= 2.1.234: project-name pinning supported)
-ok:   claude binary: <BIN>/claude (source: PATH)
+ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.234 (Claude Code))
 ok:   CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile
 ok:   repos.tsv readable, 1 repo(s) recorded
 ok:   no unpinned (dash-prefixed) session folders
