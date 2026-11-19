@@ -99,9 +99,19 @@ body:
       required: true
 
   - type: textarea
+    id: debug
+    attributes:
+      label: Debug logs (preferred)
+      description: |
+        **Easiest:** in the dashboard press **Copy debug logs** (Health tab, the bug icon in the header, or the footer), or run `cwm debug --copy` in a terminal, then paste here. It collects versions, agent/service state, where cwm found `claude`, config keys, doctor results and a log tail in one go.
+        ⚠️ It is redacted automatically (tokens, secrets, e-mail addresses, private keys, your home path and user name), but **read it before posting**: hostnames, repo names or anything unusual you typed may still be in it. Never paste tokens or credentials.
+        No dashboard and no clipboard? `cwm debug > debug.txt` and paste the file's contents.
+      render: text
+
+  - type: textarea
     id: doctor
     attributes:
-      label: "`cwm doctor --json` output"
+      label: "`cwm doctor --json` output (only if you could not attach debug logs)"
       description: |
         ⚠️ **Redact before pasting:** replace your username or home path (e.g. `/home/<you>`, `C:\Users\<you>`), email addresses, hostnames and device IDs with placeholders. Never paste tokens or credentials.
       render: json
@@ -109,9 +119,9 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Logs
+      label: Other logs or terminal output
       description: |
-        Relevant output, e.g. `~/.cwm/logs/agent.log` or the terminal output. Same redaction rules as above.
+        Anything the debug logs do not cover, e.g. the exact terminal output of the failing command. Same redaction rules as above.
       render: text
 
   - type: checkboxes

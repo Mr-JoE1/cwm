@@ -179,7 +179,7 @@ Details: [Privacy & Data](https://github.com/Mr-JoE1/cwm/wiki/Privacy-and-Data) 
 
 ## Contributing
 
-Bug reports, ideas, docs fixes and pull requests are welcome. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Bug reports, ideas, docs fixes and pull requests are welcome. For a bug, attach the redacted debug report: **Copy debug logs** in the dashboard (Health tab) or `cwm debug --copy`. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
