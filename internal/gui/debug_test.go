@@ -174,7 +174,7 @@ func TestResumePrecheckAndPathHint(t *testing.T) {
 		var res launchResult
 		decode(t, rec, &res)
 		if rec.Code != 200 || res.ClaudePath != "/home/u/.local/bin/claude" ||
-			res.PathHint != claudebin.PathHint("linux", "/home/u/.local/bin") {
+			res.PathHint != claudebin.PathHint("linux", filepath.Dir("/home/u/.local/bin/claude")) {
 			t.Errorf("%s off PATH = %d %+v", target, rec.Code, res)
 		}
 	}
