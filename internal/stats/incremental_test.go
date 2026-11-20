@@ -29,7 +29,9 @@ func newWS(t *testing.T) *ws {
 	return &ws{t: t, dir: t.TempDir(), cache: filepath.Join(t.TempDir(), "cache", "stats.json"), tick: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 }
 
-func (w *ws) path(rel string) string { return filepath.Join(w.dir, "projects", filepath.FromSlash(rel)) }
+func (w *ws) path(rel string) string {
+	return filepath.Join(w.dir, "projects", filepath.FromSlash(rel))
+}
 
 // touch gives every write a distinct mtime, whatever the file system's
 // timestamp granularity.

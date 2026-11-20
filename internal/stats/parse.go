@@ -22,17 +22,17 @@ const syntheticModel = "<synthetic>"
 
 // event is one counted user prompt or assistant message of a file.
 type event struct {
-	kind    uint8
-	ts      int64  // unix milliseconds
-	sess    int    // index into fileRec.Sessions
-	model   int    // index into fileRec.Models, -1 = none
-	owner   int    // index into fileRec.Owners, -1 = no session-owner yet
-	key     uint64 // FNV-1a of message.id (assistant) or uuid (user); 0 = no dedupe
-	in      int64
-	out     int64
-	cw      int64 // cache_creation_input_tokens
-	cw1h    int64 // the 1-hour share of cw (cost only)
-	cr      int64
+	kind  uint8
+	ts    int64  // unix milliseconds
+	sess  int    // index into fileRec.Sessions
+	model int    // index into fileRec.Models, -1 = none
+	owner int    // index into fileRec.Owners, -1 = no session-owner yet
+	key   uint64 // FNV-1a of message.id (assistant) or uuid (user); 0 = no dedupe
+	in    int64
+	out   int64
+	cw    int64 // cache_creation_input_tokens
+	cw1h  int64 // the 1-hour share of cw (cost only)
+	cr    int64
 }
 
 // parser accumulates one file's events; it can resume at an offset with
