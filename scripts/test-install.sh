@@ -52,6 +52,42 @@ banner_of() {
 # banner_ok TEXT — the banner is scripts/banner.txt, byte for byte (D59).
 banner_ok() { [[ "$(banner_of "$1")" == "$(cat "$REPO/scripts/banner.txt")" ]]; }
 
+# plain_lines TEXT — TEXT with CRs and colour escapes removed.
+plain_lines() { printf '%s\n' "$1" | tr -d '\r' | sed 's/\x1b\[[0-9;]*m//g'; }
+# child_text TEXT — child output with the gutter removed and wrapped lines
+# joined back (a soft wrap drops the space it broke at, so callers match
+# "a ?b" across a possible break).
+child_text() { plain_lines "$1" | sed -n 's/^      [|│] //p' | tr -d '\n'; }
+# gutter_max TEXT — the widest line under a step (6-space indent: notes,
+# child output, indented results) in characters, escapes stripped.
+gutter_max() {
+    plain_lines "$1" | LC_ALL=C tr -d '\200-\277' |
+        LC_ALL=C awk '/^      / && length($0) > m { m = length($0) } END { print m + 0 }'
+}
+# wrap_ok TEXT GUTTER FROM WANT [note] — the line starting GUTTER FROM and
+# the ones after it add up (spaces ignored) to exactly WANT, over at least
+# two lines, every one starting with GUTTER; with "note", continuation
+# lines must not carry a child-output bar.
+wrap_ok() {
+    local gutter=$2 want=${4// /} got="" n=0 line started=0
+    while IFS= read -r line; do
+        if ((!started)); then
+            [[ $line == "$gutter$3"* ]] || continue
+            started=1
+        fi
+        [[ $line == "$gutter"* ]] || return 1
+        if [[ ${5:-} == note ]]; then
+            [[ $line == "      |"* || $line == "      │"* || $line == "       "* ]] && return 1
+        fi
+        got+=${line#"$gutter"}
+        got=${got// /}
+        n=$((n + 1))
+        if [[ $got == "$want" ]]; then ((n >= 2)); return; fi
+        [[ $want == "$got"* ]] || return 1
+    done < <(plain_lines "$1")
+    return 1
+}
+
 case "$(uname -s)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) echo "unsupported host"; exit 1 ;; esac
 case "$(uname -m)" in x86_64 | amd64) ARCH=amd64 ;; aarch64 | arm64) ARCH=arm64 ;; *) echo "unsupported arch"; exit 1 ;; esac
 
@@ -110,7 +146,8 @@ check "installed binary is the snapshot" '"$H1/.local/bin/cwm" --version | grep 
 check "PATH line added to ~/.profile" 'grep -q "# added by cwm installer" "$H1/.profile"'
 check "cwm init ran (config.toml)" '[[ -f "$H1/.cwm/config.toml" ]]'
 check "service step ran in dry-run mode" 'grep -q "cwm service install (dry run" <<<"$OUT"'
-check "dry run printed the autostart plan" 'grep -q "would write $H1/.config/" <<<"$OUT"'
+# Redirected output wraps at 80 columns, so join child lines back first.
+check "dry run printed the autostart plan" 'grep -q -E "would write ?$H1/\.config/" <<<"$(child_text "$OUT")"'
 check "dry run wrote no autostart files" '[[ ! -e "$H1/.config/systemd" && ! -e "$H1/.config/autostart" ]]'
 check "no agent was started (no server.toml)" '[[ ! -e "$H1/.cwm/server.toml" ]]'
 # v0.6.1 look (D51): banner, numbered steps, short hash, summary box; the
@@ -142,6 +179,39 @@ CODE=$?
 set -e
 check "NO_COLOR: glyphs stay, colours go" '[[ $CODE -eq 0 ]] && grep -q "✓" <<<"$OUT" && ! grep -q $'"'"'\033'"'"' <<<"$OUT"'
 check "NO_COLOR terminal look: banner art verbatim (sh)" 'banner_ok "$OUT"'
+INSTALL_ENV=()
+
+# Notes and child output wrap at the terminal width with the gutter kept
+# on every continuation line; a long HOME makes both the PATH note and
+# the init line longer than 60 columns.
+echo "== 1d. narrow terminal (COLUMNS=60): notes and child output wrap"
+NH="$SANDBOX/narrow-home-with-a-deliberately-long-directory-name"
+NOTE="open a new terminal (or run: export PATH=\"$NH/.local/bin:\$PATH\") to use cwm directly"
+set +e
+INSTALL_ENV=(COLUMNS=60)
+OUT=$(run_install "$NH" --no-open 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT" | sed 's/^/    | /'
+check "narrow: install exits 0" '[[ $CODE -eq 0 ]]'
+check "narrow: no note/child line wider than 60 columns" '[[ $(gutter_max "$OUT") -le 60 ]]'
+check "narrow: PATH note wraps, continuations indented 6 spaces" 'wrap_ok "$OUT" "      " "open a new terminal" "$NOTE" note'
+check "narrow: child line wraps, continuations keep \"      | \"" 'wrap_ok "$OUT" "      | " "ok cwm home initialized at" "ok cwm home initialized at $NH/.cwm"'
+check "narrow: no trailing spaces on wrapped lines" '! plain_lines "$OUT" | grep -q "^      .* $"'
+check "narrow: banner art still verbatim" 'banner_ok "$OUT"'
+NH="$SANDBOX/narrow-fancy-home-with-a-deliberately-long-directory-name"
+NOTE="open a new terminal (or run: export PATH=\"$NH/.local/bin:\$PATH\") to use cwm directly"
+set +e
+INSTALL_ENV=(LANG=C.UTF-8 TERM=xterm CWM_INSTALL_FANCY=1 COLUMNS=60)
+OUT=$(run_install "$NH" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "narrow fancy: install exits 0" '[[ $CODE -eq 0 ]]'
+check "narrow fancy: no note/child line wider than 60 columns" '[[ $(gutter_max "$OUT") -le 60 ]]'
+check "narrow fancy: PATH note wraps, continuations indented 6 spaces" 'wrap_ok "$OUT" "      " "open a new terminal" "$NOTE" note'
+check "narrow fancy: child line wraps, continuations keep \"      │ \"" 'wrap_ok "$OUT" "      │ " "✓ cwm home initialized at" "✓ cwm home initialized at $NH/.cwm"'
+check "narrow fancy: dim colour starts and resets on every wrapped line" '! grep -a $'"'"'^      \033\[2m'"'"' <<<"$OUT" | grep -a -v -q $'"'"'\033\[0m$'"'"''
+check "narrow fancy: banner art still verbatim" '[[ "$(banner_of "$(plain_lines "$OUT")")" == "$(cat "$REPO/scripts/banner.txt")" ]]'
 INSTALL_ENV=()
 
 echo "== 2. re-run is idempotent (explicit --version)"
@@ -249,6 +319,23 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     set -e
     check "ps1: terminal look uses unicode glyphs (non-Windows host), cwm matches" '[[ $CODE -eq 0 ]] && grep -q "✓ checksum OK" <<<"$OUT" && grep -q "╭" <<<"$OUT" && grep -q "│ ✓ cwm home initialized" <<<"$OUT"'
     check "ps1: terminal look keeps the banner art verbatim" '[[ "$(banner_of "$(sed "s/\x1b\[[0-9;]*m//g" <<<"$OUT")")" == "$(cat "$REPO/scripts/banner.txt")" ]]'
+    # Narrow terminal: child output wraps under its gutter (install.ps1
+    # prints no notes off Windows).
+    P5="$SANDBOX/ps-narrow-home-with-a-deliberately-long-directory-name"
+    set +e
+    OUT=$(run_ps1 "$P5" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 COLUMNS=60 "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    check "ps1 narrow (COLUMNS=60): exits 0, no child line wider than 60 columns" '[[ $CODE -eq 0 ]] && [[ $(gutter_max "$OUT") -le 60 ]]'
+    check "ps1 narrow: child line wraps, continuations keep \"      | \"" 'wrap_ok "$OUT" "      | " "ok cwm home initialized at" "ok cwm home initialized at $P5/.cwm"'
+    check "ps1 narrow: banner art still verbatim" 'banner_ok "$OUT"'
+    P6="$SANDBOX/ps-narrow-fancy-home-with-a-deliberately-long-directory-name"
+    set +e
+    OUT=$(run_ps1 "$P6" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 CWM_INSTALL_FANCY=1 COLUMNS=60 "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    check "ps1 narrow fancy: exits 0, no child line wider than 60 columns" '[[ $CODE -eq 0 ]] && [[ $(gutter_max "$OUT") -le 60 ]]'
+    check "ps1 narrow fancy: continuations keep \"      │ \"" 'wrap_ok "$OUT" "      │ " "✓ cwm home initialized at" "✓ cwm home initialized at $P6/.cwm"'
     # irm | iex path: the script text through Invoke-Expression.
     P2="$SANDBOX/ps-home2"
     set +e
