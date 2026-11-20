@@ -113,7 +113,7 @@
     <div class="row">
       <span class="label">This device</span>
       <code id="wiz-own-id" class="device-id">…</code>
-      <button type="button" class="btn" id="wiz-own-id-copy">Copy</button>
+      <button type="button" class="btn btn-small" id="wiz-own-id-copy">copy</button>
     </div>
     <div class="row">
       <label for="wiz-peer-id">Other device ID</label>
@@ -157,11 +157,11 @@
     <div class="panel-head">
       <h1 class="path"><span class="path-pre">~/cwm/</span>sessions</h1>
       <div class="filter-wrap">
-        <input type="search" id="sessions-filter" class="filter" placeholder="Filter by project or prompt" aria-label="Filter sessions" aria-keyshortcuts="/">
+        <input type="search" id="sessions-filter" class="filter" placeholder="filter by project or prompt" aria-label="Filter sessions" aria-keyshortcuts="/">
         <kbd class="filter-key" aria-hidden="true">/</kbd>
       </div>
     </div>
-    <p class="hint">Every session in the synced workspace, newest first. <strong>Resume</strong> opens a terminal window running the session — the repo clones on demand.</p>
+    <p class="hint">Every session in the synced workspace, newest first. <strong>resume</strong> (or Enter on a row) opens a terminal running it; the repo clones on demand.</p>
     <div class="content" data-content="sessions"></div>
   </section>
 
@@ -179,7 +179,7 @@
       <div class="row">
         <span class="label">This device</span>
         <code id="pair-own-id" class="device-id">…</code>
-        <button type="button" class="btn" id="pair-own-id-copy">Copy</button>
+        <button type="button" class="btn btn-small" id="pair-own-id-copy">copy</button>
       </div>
       <div class="row">
         <label for="pair-device-id">Other device ID</label>
@@ -218,13 +218,16 @@
     <p class="hint">The Claude logins cwm launches with (same data as <code>cwm account list</code>). Each account keeps its own credentials; the <strong>default</strong> one is used by <code>cwm open</code> and Resume. Logging in happens in a terminal window — this page follows it.</p>
     <div id="acct-banner" class="first-banner" role="region" aria-label="First account" hidden></div>
     <div class="acct-list" data-content="accounts"></div>
-    <div class="card add-card">
-      <h3>Add account</h3>
-      <p class="hint">A short name for one Claude login, for example <code>work</code> or <code>personal</code>. A terminal window opens running <code>cwm account login &lt;name&gt;</code>.</p>
-      <div class="row">
-        <label for="acct-name">Account name</label>
-        <input type="text" id="acct-name" class="input" maxlength="32" autocomplete="off" spellcheck="false" placeholder="work">
-        <button type="button" class="btn btn-primary" id="acct-add">Add account</button>
+    <div class="acct-card add-card" id="acct-add-card" hidden>
+      <button type="button" class="add-open" id="acct-add-open"><span aria-hidden="true">+</span> add account</button>
+      <div id="acct-add-form" hidden>
+        <h3>add account</h3>
+        <p class="hint">A short name for one Claude login, for example <code>work</code>. A terminal window opens for the login; this page follows it.</p>
+        <div class="row">
+          <label for="acct-name" class="sr-only">account name</label>
+          <input type="text" id="acct-name" class="input" maxlength="32" autocomplete="off" spellcheck="false" placeholder="work">
+          <button type="button" class="btn btn-primary" id="acct-add">add account</button>
+        </div>
       </div>
       <div class="result" id="acct-add-result" aria-live="polite"></div>
     </div>
@@ -317,13 +320,17 @@
   <p class="pal-hint"><kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>enter</kbd> run · <kbd>esc</kbd> close</p>
 </dialog>
 
-<dialog id="acct-remove-dialog" class="keys" aria-labelledby="acct-remove-title">
-  <h2 id="acct-remove-title">Remove account</h2>
+<dialog id="acct-remove-dialog" class="keys remove-dialog" aria-labelledby="acct-remove-title">
+  <h2 id="acct-remove-title">remove account</h2>
   <p class="hint" id="acct-remove-text"></p>
-  <label class="check"><input type="checkbox" id="acct-remove-dir"> <span>Also delete its config dir (the account's credentials and settings). The backup keeps a copy.</span></label>
+  <div id="acct-remove-form">
+    <label class="check"><input type="checkbox" id="acct-remove-dir"> <span>also delete the folder (its credentials and settings; the backup keeps a copy)</span></label>
+    <label for="acct-remove-name" id="acct-remove-name-label" class="remove-label">type the account name to confirm</label>
+    <input type="text" id="acct-remove-name" class="input" autocomplete="off" spellcheck="false">
+  </div>
   <div class="row">
-    <button type="button" class="btn btn-danger" id="acct-remove-confirm">Back up and remove</button>
-    <button type="button" class="btn" id="acct-remove-cancel">Cancel</button>
+    <button type="button" class="btn btn-danger-fill" id="acct-remove-confirm" disabled>remove account</button>
+    <button type="button" class="btn" id="acct-remove-cancel">cancel</button>
   </div>
 </dialog>
 

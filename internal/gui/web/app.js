@@ -415,44 +415,82 @@
 
   // --- tabs ----------------------------------------------------------------
 
+  // dayGroup labels a session by its local day: today / yesterday / this
+  // week / the date.
+  function dayGroup(iso) {
+    const t = new Date(iso);
+    if (isNaN(t.getTime())) return "earlier";
+    const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const diff = Math.round((day(new Date()) - day(t)) / 86400000);
+    if (diff <= 0) return "today";
+    if (diff === 1) return "yesterday";
+    if (diff < 7) return "this week";
+    return WD[t.getDay()] + ", " + t.getDate() + " " + MON[t.getMonth()] + (t.getFullYear() !== new Date().getFullYear() ? " " + t.getFullYear() : "");
+  }
+
+  function clockTime(iso) {
+    const t = new Date(iso);
+    return isNaN(t.getTime()) ? "" : String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
+  }
+
   function renderSessions(animate) {
-    const q = $("sessions-filter").value.trim().toLowerCase();
-    const rows = [];
-    sessionsCache.forEach((s, i) => {
-      const n = i + 1; // row number matches `cwm sessions --pick N` (unfiltered order)
-      const hay = (s.project + " " + s.firstPrompt + " " + s.summary).toLowerCase();
-      if (q && !hay.includes(q)) return;
-      const prompt = el("td", null, [s.firstPrompt || "(no prompt)"]);
+    const input = $("sessions-filter");
+    const q = input.value.trim().toLowerCase();
+    if (sessionsCache.length === 0) {
+      return show("sessions", message("empty", "No sessions yet — open a repo with cwm open <name> to start one."));
+    }
+    const list = sessionsCache.filter((s) => !q || (s.project + " " + s.firstPrompt + " " + s.summary).toLowerCase().includes(q));
+    if (!list.length) {
+      const clear = el("button", { type: "button", class: "btn btn-small", text: "clear filter" });
+      clear.addEventListener("click", () => { input.value = ""; renderSessions(false); input.focus(); });
+      return show("sessions", el("div", { class: "empty-filter" }, [
+        el("p", { class: "empty-q", text: "no sessions match \u201c" + input.value.trim() + "\u201d" }), clear,
+        el("p", { class: "hint", text: "Search covers the project name and the first prompt." }),
+      ]));
+    }
+    const head = el("thead", null, [el("tr", null, ["prompt", "project", "branch", "msgs", "id", "when", ""].map((h, k) =>
+      el("th", { scope: "col", class: k === 3 || k === 5 ? "num" : null, text: h })))]);
+    const body = el("tbody");
+    let group = "";
+    list.forEach((s, i) => {
+      const g = dayGroup(s.modified);
+      if (g !== group) {
+        group = g;
+        body.appendChild(el("tr", { class: "day-row" }, [el("th", { colspan: "7", scope: "rowgroup", text: g })]));
+      }
+      const prompt = el("td", { class: "s-prompt" }, [s.firstPrompt || "(no prompt)"]);
       if (s.summary) prompt.title = s.summary;
-      rows.push([
-        n,
-        el("td", null, [el("span", { class: "proj", text: s.project })]),
-        el("td", { title: s.id, text: s.id.slice(0, 8) }),
+      const tr = el("tr", { class: "s-row" + (animate ? " reveal" : ""), tabindex: "0", "aria-label": (s.firstPrompt || "(no prompt)") + ", " + s.project + ". Enter resumes." }, [
         prompt,
-        s.messages,
-        el("td", null, [s.branch ? el("span", { class: "branch", text: s.branch }) : ""]),
-        whenCell(s.modified),
+        el("td", { class: "s-proj", text: s.project }),
+        el("td", { class: "s-branch" }, [s.branch ? el("span", { class: "branch", title: s.branch, text: s.branch }) : ""]),
+        el("td", { class: "num s-msgs", text: s.messages ? nf.format(s.messages) : "" }),
+        el("td", { class: "s-id", title: s.id, text: s.id.slice(0, 8) }),
+        el("td", { class: "num s-when", title: s.modified || "", text: g === "today" || g === "yesterday" ? clockTime(s.modified) : relTime(s.modified) }),
         resumeCell(s),
       ]);
+      tr.addEventListener("keydown", (ev) => {
+        if (ev.target !== tr) return;
+        if (ev.key === "Enter") { ev.preventDefault(); tr.querySelector(".s-resume").click(); }
+        else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+          ev.preventDefault();
+          const rows = [...body.querySelectorAll(".s-row")];
+          const next = rows[rows.indexOf(tr) + (ev.key === "ArrowDown" ? 1 : -1)];
+          if (next) next.focus();
+        }
+      });
+      if (animate) tr.style.setProperty("--i", String(Math.min(i, 18)));
+      body.appendChild(tr);
     });
-    if (sessionsCache.length === 0) {
-      show("sessions", message("empty", "No sessions yet — open a repo via cwm open <name> to create one."));
-    } else if (rows.length === 0) {
-      show("sessions", message("empty", "No session matches the filter."));
-    } else {
-      show("sessions", table([
-        col("N", "num"), col("Project", "lead"), col("ID", "mono"), col("First prompt", "prompt wide"),
-        col("Msgs", "num"), col("Branch"), col("Modified", "when"), col("", "actions"),
-      ], rows, animate));
-    }
+    show("sessions", el("table", { class: "sessions" }, [head, body]));
   }
 
   function resumeCell(s) {
-    const btn = el("button", { type: "button", class: "btn btn-small", text: "Resume" });
+    const btn = el("button", { type: "button", class: "btn btn-small s-resume", text: "resume" });
     btn.title = "Open a terminal window resuming this session";
     btn.setAttribute("aria-label", "Resume session " + s.id.slice(0, 8) + " of " + s.project);
     btn.addEventListener("click", () => resumeSession(s, btn));
-    return el("td", null, [btn]);
+    return el("td", { class: "actions" }, [btn]);
   }
 
   async function resumeSession(s, btn) {
@@ -538,32 +576,37 @@
           : "Could not load devices.";
         return loadError("devices", r, silent, text);
       }
-      if (r.data && !Array.isArray(r.data) && r.data.status === "not_configured") {
+      const setup = r.data && !Array.isArray(r.data) && r.data.status === "not_configured";
+      // The pair form only makes sense while Syncthing answers (review §3).
+      $("pair-form").hidden = setup;
+      if (setup) {
         if (!changed("devices", r.data)) return;
         return show("devices", syncSetupCard(r.data));
       }
       const list = r.data || [];
       if (!changed("devices", list)) return;
       if (list.length === 0) {
-        return show("devices", message("empty", "No paired devices yet — run cwm pair on both devices."));
+        return show("devices", message("empty", "No paired devices yet. Pair one with the form above, or run cwm pair on both devices."));
       }
       show("devices", table([
-        col("Device", "mono lead"), col("Name"), col("Connected", "status"), col("Address", "mono"),
-        col("In", "num"), col("Out", "num"), col("Completion"),
+        col("device", "lead"), col("state", "status"), col("id", "mono"), col("address", "mono"),
+        col("in", "num"), col("out", "num"),
       ], list.map((d) => {
         const pct = Math.max(0, Math.min(100, Number(d.completion) || 0));
-        const fill = el("span");
-        fill.style.width = pct + "%";
-        const pill = badge(d.connected ? "ok" : "warn", d.connected ? "online" : "offline");
-        if (d.connected) pill.classList.add("badge-live");
+        let state;
+        if (!d.connected) state = el("span", { class: "dev-state dev-off", text: "offline" });
+        else if (pct < 100) {
+          const fill = el("span");
+          fill.style.width = pct + "%";
+          state = el("span", { class: "dev-state dev-sync" }, ["syncing " + Math.floor(pct) + "%", el("span", { class: "bar", "aria-hidden": "true" }, [fill])]);
+        } else state = el("span", { class: "dev-state dev-on", text: "online" });
         return [
-          el("td", { title: d.id, text: d.id.slice(0, 7) }),
-          d.name || "",
-          el("td", null, [pill]),
+          el("td", null, [el("span", { class: "proj", text: d.name || d.id.slice(0, 7) })]),
+          el("td", null, [state]),
+          el("td", { title: groupID(d.id), text: d.id.slice(0, 7) }),
           d.address || "",
           bytes(d.inBytes),
           bytes(d.outBytes),
-          el("td", null, [el("span", { class: "bar" }, [fill]), pct.toFixed(1) + "%"]),
         ];
       }), !silent));
     },
@@ -689,13 +732,33 @@
 
   // --- devices: Syncthing not set up yet (D58) ------------------------------------
 
+  // groupID shows a Syncthing ID the way Syncthing does: 7-char groups.
+  function groupID(id) {
+    const bare = String(id || "").replace(/-/g, "");
+    return bare.match(/.{1,7}/g) ? bare.match(/.{1,7}/g).join("-") : "";
+  }
+
+  // Syncthing install, per OS: the package manager command people expect.
+  function syncthingInstall() {
+    const os = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    if (/win/i.test(os)) return "winget install Syncthing.Syncthing";
+    if (/mac/i.test(os)) return "brew install syncthing";
+    return "sudo apt install syncthing";
+  }
+
+  // The setup card is onboarding, not a warning (review §3).
   function syncSetupCard(d) {
+    const step = (n, title, body) => el("li", { class: "onb-step" }, [el("span", { class: "onb-n", "aria-hidden": "true", text: String(n) }),
+      el("div", { class: "onb-body" }, [el("strong", { text: title }), ...body])]);
     return el("div", { class: "setup-card" }, [
-      el("h3", { text: "Sync is not set up on this device yet" }),
-      el("p", { class: "hint" }, [richText(d.hint || "Syncthing keeps the workspace in sync between devices. It is optional.")]),
-      el("p", { class: "hint", text: "From a terminal, on each device (the pair form above works once Syncthing runs):" }),
-      commandBox("cwm pair --start"),
-      d.error ? el("p", { class: "detail" }, ["details: ", richText(d.error)]) : null,
+      el("h3", { text: "Keep this workspace in sync across your devices" }),
+      el("p", { class: "hint" }, ["Optional. Syncthing copies the workspace peer to peer between your own devices; nothing goes through a server."]),
+      el("ol", { class: "onb" }, [
+        step(1, "install Syncthing", [commandBox(syncthingInstall()), el("p", { class: "hint onb-hint", text: "Any install works; on Linux a distribution package or the official one." })]),
+        step(2, "start sync for cwm", [commandBox("cwm pair --start"), el("p", { class: "hint onb-hint", text: "Sets up the shared workspace folder and prints this device's ID." })]),
+        step(3, "pair the other device", [commandBox("cwm pair <device-id>"), el("p", { class: "hint onb-hint", text: "Run steps 1 and 2 there too, then pair each device with the other's ID. The pair form appears here once Syncthing runs." })]),
+      ]),
+      d.error ? el("details", { class: "check-details" }, [el("summary", { text: "details" }), el("pre", { class: "check-raw", text: d.error })]) : null,
     ]);
   }
 
@@ -812,16 +875,55 @@
     ]);
   }
 
+  function lastLoginText(a, st) {
+    if (a.last_login) return relTime(a.last_login);
+    if (st === "done") return "logged in, time unknown";
+    return st === "never" ? "never" : "unknown";
+  }
+
+  // acctMenu is the ⋯ menu of a card: log in again, make default, remove.
+  function acctMenu(a, st) {
+    const btn = el("button", { type: "button", class: "icon-btn acct-more", "aria-expanded": "false", "aria-label": "More actions for " + a.name, title: "More actions" }, [svgDots()]);
+    const menu = el("div", { class: "menu acct-menu", hidden: "" });
+    const item = (label, run, cls) => {
+      const b = el("button", { type: "button", class: "menu-item" + (cls ? " " + cls : ""), text: label });
+      b.addEventListener("click", () => { close(); run(b); });
+      menu.appendChild(b);
+    };
+    const close = (refocus) => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (refocus) btn.focus(); };
+    if (st !== "in_progress") item(st === "done" ? "log in again" : "log in", () => startLogin(a.name, null));
+    if (!a.is_default) item("make default", (b) => setDefault(a.name, b));
+    item("remove", () => askRemove(a, btn), "menu-danger");
+    menu.lastChild.setAttribute("data-acct-remove", "");
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const open = menu.hidden;
+      document.querySelectorAll(".acct-menu").forEach((m) => { m.hidden = true; });
+      menu.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+      if (open) menu.querySelector("button").focus();
+    });
+    menu.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { ev.stopPropagation(); close(true); } });
+    return el("div", { class: "acct-menu-wrap" }, [btn, menu]);
+  }
+
+  function svgDots() {
+    const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" });
+    for (const x of [5, 12, 19]) s.appendChild(svg("circle", { cx: x, cy: 12, r: 1.2 }));
+    return s;
+  }
+
   function accountCard(a, i, animate) {
     const st = a.login_status || "never";
     const head = el("div", { class: "acct-head" }, [
       el("span", { class: "acct-name", text: a.name }),
       a.is_default ? el("span", { class: "tag tag-default", text: "default" }) : null,
       loginPill(st),
+      acctMenu(a, st),
     ]);
     const meta = el("div", { class: "acct-meta" }, [
       metaLine("login", a.email ? a.email + (a.plan ? " · " + a.plan : "") : "none recorded"),
-      metaLine("last login", relTime(a.last_login), a.last_login),
+      metaLine("last login", lastLoginText(a, st), a.last_login),
       metaLine("last used", a.last_used ? relTime(a.last_used) : "not launched yet", a.last_used),
       a.is_default && a.config_dir_ready === false ? metaLine("config dir", "missing — log in again to recreate it") : null,
     ]);
@@ -830,29 +932,17 @@
       children.push(el("div", { class: "msg msg-error acct-error" }, [
         "The last login did not finish.",
         a.login_error ? el("span", { class: "detail", text: a.login_error }) : null,
-        el("div", { class: "acct-inline" }, [accountLoginButton(a, "Retry login", "btn-primary")]),
+        el("div", { class: "acct-inline" }, [accountLoginButton(a, "retry login", "btn-primary")]),
       ]));
     } else if (st === "in_progress") {
       children.push(el("div", { class: "msg msg-info acct-error" }, [
         el("span", { class: "spinner", "aria-hidden": "true" }),
         "Waiting for the login in its terminal window…",
-        el("div", { class: "acct-inline" }, [accountLoginButton(a, "Open a new login window")]),
+        el("div", { class: "acct-inline" }, [accountLoginButton(a, "open a new login window")]),
       ]));
+    } else if (st === "never") {
+      children.push(el("div", { class: "acct-actions" }, [accountLoginButton(a, "log in", "btn-primary")]));
     }
-    const actions = el("div", { class: "acct-actions" });
-    if (st !== "failed" && st !== "in_progress") {
-      actions.appendChild(accountLoginButton(a, st === "done" ? "Log in again" : "Log in", st === "never" ? "btn-primary" : ""));
-    }
-    if (!a.is_default) {
-      const def = el("button", { type: "button", class: "btn btn-small", text: "Make default" });
-      def.addEventListener("click", () => setDefault(a.name, def));
-      actions.appendChild(def);
-    }
-    const rm = el("button", { type: "button", class: "btn btn-small btn-danger", text: "Remove" });
-    rm.setAttribute("aria-label", "Remove account " + a.name);
-    rm.addEventListener("click", () => askRemove(a));
-    actions.appendChild(rm);
-    children.push(actions);
     const card = el("article", { class: "acct-card" + (a.is_default ? " is-default" : "") + (animate ? " reveal" : ""), "aria-label": "Account " + a.name }, children);
     if (animate) card.style.setProperty("--i", String(Math.min(i, 18)));
     return card;
@@ -863,9 +953,24 @@
     accountsCache = list;
     renderBanner(list);
     const box = content("accounts");
-    if (!list.length) return box.replaceChildren();
-    box.replaceChildren(el("div", { class: "acct-grid" }, list.map((a, i) => accountCard(a, i, animate))));
+    const add = $("acct-add-card");
+    box.replaceChildren(el("div", { class: "acct-grid" }, [...list.map((a, i) => accountCard(a, i, animate)), add]));
+    add.hidden = false;
+    // Add flow: name → login → success, ending with "make default?".
+    if (pendingAdd) {
+      const a = list.find((x) => x.name === pendingAdd);
+      if (a && a.login_status === "done") {
+        const name = pendingAdd;
+        pendingAdd = "";
+        const res = $("acct-add-result");
+        if (a.is_default) return say(res, "ok", "“" + name + "” is logged in and is the default account.");
+        const mk = el("button", { type: "button", class: "btn btn-small btn-primary", text: "make default" });
+        mk.addEventListener("click", () => setDefault(name, mk));
+        res.replaceChildren(el("div", { class: "msg msg-ok" }, ["“" + name + "” is logged in. Make it the default account?", el("div", { class: "acct-inline" }, [mk])]));
+      }
+    }
   }
+  let pendingAdd = "";
 
   function validAccountName(name) {
     if (!name) return "Enter a name.";
@@ -911,7 +1016,7 @@
     say(box, "wait", "Creating “" + name + "” and opening a login window…");
     const r = await post("/api/accounts/add", { name: name });
     btn.disabled = false;
-    if (reportLogin(box, name, r) && r.status !== 424) input.value = "";
+    if (reportLogin(box, name, r) && r.status !== 424) { input.value = ""; pendingAdd = name; }
     await load("accounts", true);
     refreshState();
   }
@@ -936,34 +1041,62 @@
   }
 
   let removing = null;
-  function askRemove(a) {
+  let removeReturn = null;
+  let cwmHome = "";
+  async function askRemove(a, trigger) {
     const dlg = $("acct-remove-dialog");
     removing = a;
-    $("acct-remove-text").textContent = accountsCache.length <= 1
-      ? "“" + a.name + "” is the only account. cwm needs one to launch Claude Code, so it cannot be removed — add another account first."
-      : "Remove “" + a.name + "” from cwm? Its account dir is backed up to ~/.cwm/backups first." +
-        (a.is_default ? " It is the default account; the next remaining account becomes the default." : "");
+    removeReturn = trigger || document.activeElement;
+    if (!cwmHome) {
+      const r = await api("/api/about");
+      cwmHome = r.ok && r.data && r.data.workspace ? String(r.data.workspace.path).replace(/[\\/]workspace$/, "") : "~/.cwm";
+    }
+    const only = accountsCache.length <= 1;
+    $("acct-remove-title").textContent = "remove account “" + a.name + "”";
+    $("acct-remove-text").replaceChildren(...(only
+      ? ["“" + a.name + "” is the only account. cwm needs one to start Claude Code, so it cannot be removed — add another account first."]
+      : ["cwm stops using this login. Its folder is first copied to ", el("code", { text: cwmHome + "/backups/" }), ", so nothing is lost." +
+        (a.is_default ? " It is the default account; the next remaining account becomes the default." : "")]));
     $("acct-remove-dir").checked = false;
-    $("acct-remove-confirm").disabled = accountsCache.length <= 1;
+    $("acct-remove-name").value = "";
+    $("acct-remove-name").placeholder = a.name;
+    $("acct-remove-name-label").textContent = "type “" + a.name + "” to confirm";
+    $("acct-remove-form").hidden = only;
+    $("acct-remove-confirm").disabled = true;
     dlg.showModal();
+    if (!only) $("acct-remove-name").focus();
   }
 
   function wireAccounts() {
     $("acct-add").addEventListener("click", addAccount);
     $("acct-name").addEventListener("keydown", (ev) => { if (ev.key === "Enter") addAccount(); });
+    $("acct-add-open").addEventListener("click", () => {
+      $("acct-add-open").hidden = true;
+      $("acct-add-form").hidden = false;
+      $("acct-name").focus();
+    });
+    // one listener closes every card menu on an outside click
+    document.addEventListener("click", (ev) => {
+      document.querySelectorAll(".acct-menu:not([hidden])").forEach((m) => {
+        if (!m.parentNode.contains(ev.target)) { m.hidden = true; m.previousSibling.setAttribute("aria-expanded", "false"); }
+      });
+    });
     const dlg = $("acct-remove-dialog");
+    dlg.addEventListener("close", () => { if (removeReturn && removeReturn.isConnected) removeReturn.focus(); removeReturn = null; });
+    $("acct-remove-name").addEventListener("input", (ev) => {
+      $("acct-remove-confirm").disabled = !removing || ev.target.value.trim() !== removing.name;
+    });
     $("acct-remove-cancel").addEventListener("click", () => dlg.close());
     $("acct-remove-confirm").addEventListener("click", async () => {
       const a = removing;
-      if (!a) return;
+      if (!a || $("acct-remove-name").value.trim() !== a.name) return;
       const btn = $("acct-remove-confirm");
       btn.disabled = true;
       const r = await post("/api/accounts/remove", { name: a.name, also_delete_config_dir: $("acct-remove-dir").checked });
-      btn.disabled = false;
       dlg.close();
       if (r.ok) {
         toast("ok", "Removed “" + a.name + "”", (r.data.backup ? "Backup: " + r.data.backup + ". " : "") +
-          (r.data.deleted_config_dir ? "Its config dir was deleted. " : "") + "Default account: " + (r.data.default || "none") + ".");
+          (r.data.deleted_config_dir ? "Its folder was deleted. " : "") + "Default account: " + (r.data.default || "none") + ".");
       } else {
         toast("error", "Could not remove “" + a.name + "”", r.error);
       }
@@ -980,8 +1113,10 @@
     if (r.ok && r.data) {
       state = r.data;
       for (const id of ["wiz-own-id", "pair-own-id"]) {
-        $(id).textContent = state.deviceID || "unavailable — Syncthing is not running on this device";
+        $(id).textContent = state.deviceID ? groupID(state.deviceID) : "—";
+        $(id).title = state.deviceID ? "" : "Syncthing is not running on this device";
       }
+      for (const id of ["wiz-own-id-copy", "pair-own-id-copy"]) $(id).disabled = !state.deviceID;
       renderClaude(state.claude);
     }
     return r;
