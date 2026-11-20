@@ -79,62 +79,91 @@
 </div>
 
 <section id="wizard" class="wizard" aria-labelledby="wizard-title" hidden>
-  <p class="eyebrow">first run</p>
-  <h2 id="wizard-title">Set up cwm on this device</h2>
-  <ol class="steps" aria-label="Setup steps">
-    <li data-step="init"><span class="step-n">1</span>Initialize</li>
-    <li data-step="account"><span class="step-n">2</span>Add account</li>
-    <li data-step="pair"><span class="step-n">3</span>Pair <span class="opt">(optional)</span></li>
-    <li data-step="done"><span class="step-n">4</span>Done</li>
-  </ol>
-
-  <div class="step card" data-step="init" hidden>
-    <h3>Initialize the workspace</h3>
-    <p class="hint">Creates the cwm home (workspace, accounts, launch dirs and <code>config.toml</code>). Safe to run again — existing data is kept.</p>
-    <button type="button" class="btn btn-primary" id="wiz-init">Initialize workspace</button>
-    <div class="result" id="wiz-init-result" aria-live="polite"></div>
+  <div class="wiz-rail-col">
+    <p class="eyebrow">first run</p>
+    <h1 id="wizard-title" class="path"><span class="path-pre">~/cwm/</span>setup</h1>
+    <p class="hint">Four short steps. Each one shows what it runs in the log.</p>
+    <ol class="steps" aria-label="Setup steps">
+      <li data-step="init"><span class="step-n">1</span><span><span class="step-l">initialize</span><span class="step-sub">workspace and config</span></span></li>
+      <li data-step="account"><span class="step-n">2</span><span><span class="step-l">add account</span><span class="step-sub">one Claude login</span></span></li>
+      <li data-step="pair"><span class="step-n">3</span><span><span class="step-l">pair <span class="opt">(optional)</span></span><span class="step-sub">sync with another device</span></span></li>
+      <li data-step="done"><span class="step-n">4</span><span><span class="step-l">done</span><span class="step-sub">open the dashboard</span></span></li>
+    </ol>
+    <p class="wizard-foot"><button type="button" class="link" id="wiz-dismiss">skip setup and open the dashboard</button></p>
   </div>
 
-  <div class="step card" data-step="account" hidden>
-    <h3>Add a Claude account</h3>
-    <p class="hint">Pick a short name for this login (for example <code>work</code>). A terminal window opens running <code>cwm account add &lt;name&gt;</code> — finish the Claude login there; this page notices when it is done.</p>
-    <div class="result" id="wiz-claude" aria-live="polite"></div>
-    <div class="row">
-      <label for="wiz-account-name">Account name</label>
-      <input type="text" id="wiz-account-name" class="input" maxlength="32" autocomplete="off" spellcheck="false" placeholder="work">
-      <button type="button" class="btn btn-primary" id="wiz-account-add">Add account</button>
+  <div class="wiz-main">
+    <div class="step card" data-step="init" hidden>
+      <h3>initialize the workspace</h3>
+      <p class="hint">Creates the cwm home: workspace, accounts, launch folders and <code>config.toml</code>. Safe to run again; existing data is kept.</p>
+      <div class="cmd-slot" data-cmd="cwm init"></div>
+      <div class="row"><button type="button" class="btn btn-primary" id="wiz-init">initialize workspace</button></div>
+      <div class="result" id="wiz-init-result" aria-live="polite"></div>
     </div>
-    <div class="result" id="wiz-account-result" aria-live="polite"></div>
-  </div>
 
-  <div class="step card" data-step="pair" hidden>
-    <h3>Pair another device (optional)</h3>
-    <p class="hint">Syncs the workspace with another device over Syncthing (peer-to-peer). Run the same pairing on the other device with this device's ID.</p>
-    <div class="row">
-      <span class="label">This device</span>
-      <code id="wiz-own-id" class="device-id">…</code>
-      <button type="button" class="btn btn-small" id="wiz-own-id-copy">copy</button>
+    <div class="step card" data-step="account" hidden>
+      <h3>add a Claude account</h3>
+      <p class="hint">Pick a short name for this login, for example <code>work</code>. A terminal window opens for the Claude login; this page notices when it is done.</p>
+      <div class="result" id="wiz-claude" aria-live="polite"></div>
+      <div class="cmd-slot" data-cmd="cwm account add &lt;name&gt;"></div>
+      <div class="row">
+        <label for="wiz-account-name">account name</label>
+        <input type="text" id="wiz-account-name" class="input" maxlength="32" autocomplete="off" spellcheck="false" placeholder="work">
+        <button type="button" class="btn btn-primary" id="wiz-account-add">add account</button>
+      </div>
+      <div class="result" id="wiz-account-result" aria-live="polite"></div>
     </div>
-    <div class="row">
-      <label for="wiz-peer-id">Other device ID</label>
-      <input type="text" id="wiz-peer-id" class="input input-wide" autocomplete="off" spellcheck="false" placeholder="ABCDEFG-HIJKLMN-…">
-    </div>
-    <div class="row">
-      <label for="wiz-peer-name">Name (optional)</label>
-      <input type="text" id="wiz-peer-name" class="input" maxlength="64" autocomplete="off" placeholder="laptop">
-      <button type="button" class="btn btn-primary" id="wiz-pair">Pair</button>
-      <button type="button" class="btn" id="wiz-pair-skip">Skip</button>
-    </div>
-    <div class="result" id="wiz-pair-result" aria-live="polite"></div>
-  </div>
 
-  <div class="step card" data-step="done" hidden>
-    <h3>All set</h3>
-    <p class="hint">Your workspace is ready. Open a repo with <code>cwm open &lt;name&gt;</code>, or resume any session from the Sessions tab.</p>
-    <button type="button" class="btn btn-primary" id="wiz-done">Open dashboard</button>
-  </div>
+    <div class="step card" data-step="pair" hidden>
+      <h3>pair another device (optional)</h3>
+      <p class="hint">Syncs the workspace with another device over Syncthing, peer to peer. Run the same pairing on the other device with this device's ID.</p>
+      <div class="row">
+        <span class="label">this device</span>
+        <code id="wiz-own-id" class="device-id">…</code>
+        <button type="button" class="btn btn-small" id="wiz-own-id-copy">copy</button>
+      </div>
+      <div class="row">
+        <label for="wiz-peer-id">other device ID</label>
+        <input type="text" id="wiz-peer-id" class="input input-wide" autocomplete="off" spellcheck="false" placeholder="ABCDEFG-HIJKLMN-…">
+      </div>
+      <div class="row">
+        <label for="wiz-peer-name">name (optional)</label>
+        <input type="text" id="wiz-peer-name" class="input" maxlength="64" autocomplete="off" placeholder="laptop">
+        <button type="button" class="btn btn-primary" id="wiz-pair">pair</button>
+        <button type="button" class="btn" id="wiz-pair-skip">skip</button>
+      </div>
+      <div class="result" id="wiz-pair-result" aria-live="polite"></div>
+    </div>
 
-  <p class="wizard-foot"><button type="button" class="link" id="wiz-dismiss">Skip setup and open the dashboard</button></p>
+    <div class="step card done-card" data-step="done" hidden>
+      <svg class="done-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <path class="mark-frame" pathLength="1" d="M32 4.5 55.8 18.25v27.5L32 59.5 8.2 45.75v-27.5Z" fill="none" stroke-width="4" stroke-linejoin="round"/>
+        <path class="mark-prompt" pathLength="1" d="m20.5 23 9 9-9 9" fill="none" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect class="mark-cursor" x="33" y="37.5" width="12" height="5" rx="1"/>
+      </svg>
+      <div class="done-body">
+        <h3>cwm is ready</h3>
+        <p class="hint">Your workspace is set up on this device. Next:</p>
+        <ul class="next-list">
+          <li><strong>open a repo</strong> in Claude Code<div class="cmd-slot" data-cmd="cwm open &lt;name&gt;"></div></li>
+          <li><strong>resume any session</strong> from the sessions tab, or press Enter on its row</li>
+          <li><strong>pair another device</strong> later from the devices tab<div class="cmd-slot" data-cmd="cwm pair --start"></div></li>
+        </ul>
+        <dl class="key-hints">
+          <dt><kbd>1</kbd>–<kbd>7</kbd></dt><dd>switch section</dd>
+          <dt><kbd>ctrl</kbd> <kbd>k</kbd></dt><dd>command palette</dd>
+          <dt><kbd>/</kbd></dt><dd>filter sessions</dd>
+          <dt><kbd>?</kbd></dt><dd>all shortcuts</dd>
+        </dl>
+        <button type="button" class="btn btn-primary" id="wiz-done">open the dashboard</button>
+      </div>
+    </div>
+
+    <div class="wiz-term">
+      <div class="wiz-term-bar" aria-hidden="true"><span class="wiz-dots"><i></i><i></i><i></i></span>setup log</div>
+      <ol id="wiz-log" class="wiz-log" aria-label="Setup log" aria-live="polite"></ol>
+    </div>
+  </div>
 </section>
 
 <div id="dashboard">

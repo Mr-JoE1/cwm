@@ -1146,14 +1146,30 @@
   const STEPS = ["init", "account", "pair", "done"];
   let accountPoll = null;
 
+  // The wizard's terminal log: what each step runs and how it ended.
+  // kind: cmd ($ …) | out | ok | fail | note.
+  function wlog(kind, text, fix) {
+    const box = $("wiz-log");
+    const tag = { ok: "[  OK  ] ", fail: "[FAILED] ", cmd: "$ ", note: "# " }[kind] || "";
+    const li = el("li", { class: "wl wl-" + kind }, [tag ? el("span", { class: "wl-tag", text: tag }) : null, text]);
+    if (fix) li.appendChild(commandBox(fix));
+    box.appendChild(li);
+    box.scrollTop = box.scrollHeight;
+  }
+
   function gotoStep(name) {
     const at = STEPS.indexOf(name);
     document.querySelectorAll(".steps li").forEach((li) => {
       const i = STEPS.indexOf(li.dataset.step);
-      li.className = i < at ? "done" : i === at ? "current" : "";
+      li.className = i < at ? "done" : i === at ? "current" : "next";
       if (i === at) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
     });
     document.querySelectorAll(".step").forEach((div) => { div.hidden = div.dataset.step !== name; });
+    if (name === "done") {
+      wlog("ok", "cwm is ready on this device");
+      const btn = $("wiz-done");
+      setTimeout(() => btn.focus(), 50);
+    }
   }
 
   function showWizard(on) {
@@ -1184,15 +1200,19 @@
     initBtn.addEventListener("click", async () => {
       initBtn.disabled = true;
       say(initBox, "wait", "Initializing the workspace…");
+      wlog("cmd", "cwm init");
       const r = await post("/api/init", {});
       initBtn.disabled = false;
       if (!r.ok) {
         toast("error", "Initialization failed", r.error);
+        wlog("fail", "initialize: " + r.error, "cwm init");
         return say(initBox, "error", "Initialization failed.", r.error);
       }
       const checks = r.data.checks || [];
       const fails = checks.filter((c) => c.status === "fail").length;
       const warns = checks.filter((c) => c.status === "warn").length;
+      checks.forEach((c) => wlog(c.status === "ok" ? "ok" : c.status === "fail" ? "fail" : "out", (c.status === "warn" ? "[ WARN ] " : "") + c.name + ": " + String(c.detail || "").split(" — ")[0]));
+      wlog("ok", "workspace initialized");
       say(initBox, "ok", "Workspace initialized.",
         "health: " + (checks.length - fails - warns) + " ok, " + warns + " warn, " + fails + " fail (details in the Health tab)");
       toast("ok", "Workspace initialized");
@@ -1211,15 +1231,21 @@
       if (hasAccount(name)) return afterAccountStep();
       addBtn.disabled = true;
       say(addBox, "wait", "Opening a terminal…");
+      wlog("cmd", "cwm account add " + name);
       const r = await post("/api/accounts", { name: name });
       addBtn.disabled = false;
       if (r.status === 424) {
         refreshState();
         toastNoClaude(r);
+        wlog("fail", "Claude Code is not installed", r.command);
         return say(addBox, "error", "Claude Code is needed first.", r.error, r.command);
       }
       if (r.ok) toastPathHint(r.data);
-      if (!r.ok && r.status !== 501) return say(addBox, "error", "Could not add the account.", r.error, r.command);
+      if (!r.ok && r.status !== 501) {
+        wlog("fail", "add account: " + r.error, r.command);
+        return say(addBox, "error", "Could not add the account.", r.error, r.command);
+      }
+      wlog("out", r.ok ? "opened a terminal for the Claude login; waiting for “" + name + "”…" : "no terminal window could be opened; run it yourself:");
       if (r.ok) {
         say(addBox, "wait", "Finish the Claude login in the terminal window that just opened — waiting for account “" + name + "” to appear…",
           "If the window closed without logging in, run this in a terminal:", r.data.command);
@@ -1234,6 +1260,7 @@
           clearInterval(accountPoll);
           accountPoll = null;
           say(addBox, "ok", "Account “" + name + "” added.");
+          wlog("ok", "account “" + name + "” added");
           toast("ok", "Account “" + name + "” added");
           setTimeout(afterAccountStep, 700);
         } else if (!s.ok || Date.now() - started > 10 * 60 * 1000) {
@@ -1250,10 +1277,12 @@
 
     const pairBtn = $("wiz-pair");
     pairBtn.addEventListener("click", async () => {
+      wlog("cmd", "cwm pair " + normalizeDeviceID($("wiz-peer-id").value).slice(0, 7) + "…");
       const ok = await pairWith($("wiz-peer-id"), $("wiz-peer-name"), $("wiz-pair-result"), pairBtn);
+      wlog(ok ? "ok" : "fail", ok ? "paired" : "pairing did not work", ok ? "" : "cwm pair --start");
       if (ok) setTimeout(() => gotoStep("done"), 1500);
     });
-    $("wiz-pair-skip").addEventListener("click", () => gotoStep("done"));
+    $("wiz-pair-skip").addEventListener("click", () => { wlog("note", "pairing skipped (cwm pair --start sets it up later)"); gotoStep("done"); });
     $("wiz-done").addEventListener("click", leaveWizard);
     $("wiz-dismiss").addEventListener("click", () => {
       try { sessionStorage.setItem("cwm-wizard-dismissed", "1"); } catch (err) { /* private mode */ }
@@ -2270,6 +2299,7 @@
     wireMenu();
     wirePalette();
     wireAbout();
+    document.querySelectorAll(".cmd-slot[data-cmd]").forEach((n) => n.replaceWith(commandBox(n.dataset.cmd)));
     $("live").addEventListener("click", retryNow);
     $("offline-retry").addEventListener("click", retryNow);
 
@@ -2280,6 +2310,9 @@
     try { dismissed = sessionStorage.getItem("cwm-wizard-dismissed") === "1"; } catch (err) { dismissed = false; }
     if (st.ok && state && (!state.initialized || !hasAccount()) && !dismissed) {
       showWizard(true);
+      wlog("note", "cwm first run on this device");
+      wlog("out", "workspace: " + (state.initialized ? "initialized" : "not initialized yet"));
+      if (state.claude) wlog(state.claude.found ? "ok" : "fail", state.claude.found ? "Claude Code found" + (state.claude.path ? " at " + state.claude.path : "") : "Claude Code not found", state.claude.found ? "" : state.claude.install);
       gotoStep(!state.initialized ? "init" : "account");
       return;
     }

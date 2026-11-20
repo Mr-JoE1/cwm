@@ -469,27 +469,72 @@ tbody tr.day-row:hover { background: none; box-shadow: none; }
 .row label, .row .label { min-width: 130px; color: var(--muted); font-size: var(--fs-md); }
 .device-id { overflow-wrap: anywhere; background: var(--surface-solid); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 9px; }
 
-.wizard { max-width: 880px; width: 100%; margin: 34px auto; padding: 0 var(--gap); }
-.eyebrow { margin: 0 0 6px; font: 600 var(--fs-sm)/1 var(--font-mono); letter-spacing: .02em; color: var(--magenta); }
-.wizard > h2 { margin-bottom: 18px; font-size: var(--fs-2xl); }
-.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 18px; flex-wrap: wrap; counter-reset: none; }
+/* first run (P6): rail left, step card above a terminal log right */
+.wizard { width: 100%; max-width: 1240px; margin: 0 auto; padding: var(--s5) var(--gap) calc(var(--statusline-h) + var(--s5)); }
+.eyebrow { margin: 0 0 6px; font: 600 var(--fs-sm)/1 var(--font-mono); color: var(--magenta); }
+.wizard h1 { margin-bottom: var(--s2); }
+.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: var(--s4) 0; flex-wrap: wrap; }
 .steps li {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--line);
-  color: var(--muted); background: var(--surface); font: 500 var(--fs-md)/1 var(--font-mono);
-  transition: all var(--t-med) var(--ease);
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 8px; border-radius: var(--r-lg);
+  border: 1px solid var(--line); color: var(--muted); background: var(--surface); font: 500 var(--fs-md)/1.2 var(--font-mono);
 }
+.step-sub { display: none; color: var(--faint); font: var(--fs-sm)/1.4 var(--font-sans); }
 .step-n {
-  display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
   border: 1px solid currentColor; font-size: var(--fs-sm); font-weight: 700;
 }
-.opt { opacity: .7; }
+.opt { color: var(--faint); }
 .steps li.current { border-color: var(--line-strong); color: var(--accent); background: var(--accent-soft); }
 .steps li.current .step-n { background: var(--accent-fill); color: var(--accent-ink); border-color: var(--accent-fill); }
 .steps li.done { color: var(--ok); }
 .steps li.done .step-n { background: var(--ok-soft); }
+.steps li.done .step-n::before { content: "✓"; }
+.steps li.done .step-n { font-size: 0; }
+.steps li.done .step-n::before { font-size: var(--fs-sm); }
+.wizard-foot { font-size: var(--fs-md); }
+.wiz-main { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.wiz-main .card { margin: 0; }
 .step.card { animation: panel-in var(--t-med) var(--ease); }
-.wizard-foot { text-align: center; font-size: var(--fs-md); }
+.wiz-main .cmd { margin: var(--s2) 0 var(--s3); }
+.wiz-term { display: flex; flex-direction: column; min-height: 240px; flex: 1; background: var(--surface-solid); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.wiz-term-bar { display: flex; align-items: center; gap: var(--s3); padding: 8px var(--s3); border-bottom: 1px solid var(--line); color: var(--faint); font: var(--fs-sm)/1 var(--font-mono); background: var(--surface-2); }
+.wiz-dots { display: inline-flex; gap: 5px; }
+.wiz-dots i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--control-line); }
+.wiz-log { list-style: none; margin: 0; padding: var(--s3) var(--s4); overflow-y: auto; flex: 1; font: var(--fs-md)/1.6 var(--font-mono); color: var(--text); }
+.wl { overflow-wrap: anywhere; }
+.wl:nth-child(even) { background: var(--band); }
+.wl-tag { white-space: pre; font-weight: 700; }
+.wl-cmd .wl-tag { color: var(--accent); }
+.wl-cmd { color: var(--text-strong); margin-top: 6px; }
+.wl-ok .wl-tag { color: var(--ok); }
+.wl-fail .wl-tag { color: var(--fail); }
+.wl-note, .wl-note .wl-tag { color: var(--faint); }
+.wl-out { color: var(--muted); }
+.wl .cmd { margin: 4px 0 6px; }
+.done-card { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--s5); align-items: start; }
+.done-mark { width: 120px; height: 120px; }
+.done-mark .mark-frame, .done-mark .mark-prompt { stroke: var(--accent); stroke-dasharray: 1; stroke-dashoffset: 0; }
+.done-mark .mark-cursor { fill: var(--magenta); }
+.done-card:not([hidden]) .mark-frame, .done-card:not([hidden]) .mark-prompt { animation: draw 600ms var(--ease) both; }
+.done-card:not([hidden]) .mark-prompt { animation-delay: 300ms; }
+.done-body h3 { font-size: var(--fs-xl); }
+.next-list { margin: var(--s2) 0 var(--s4); padding-left: 1.2em; display: grid; gap: var(--s3); }
+.next-list strong { color: var(--text-strong); font-family: var(--font-mono); font-weight: 600; }
+.key-hints { display: grid; grid-template-columns: max-content 1fr; gap: 6px var(--s3); margin: 0 0 var(--s4); align-items: center; }
+.key-hints dd { margin: 0; color: var(--muted); }
+@keyframes draw { from { stroke-dashoffset: 1; } }
+@media (min-width: 960px) {
+  .wizard:not([hidden]) { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--s6); align-items: stretch; min-height: calc(100vh - 68px); }
+  .wiz-rail-col { position: sticky; top: 88px; align-self: start; }
+  .steps { flex-direction: column; gap: 0; position: relative; }
+  .steps li { border: 0; background: none; padding: 10px 8px; align-items: flex-start; }
+  .steps li > span:last-child { display: grid; gap: 2px; }
+  .step-sub { display: block; }
+  .steps li { position: relative; }
+  .steps li:not(:last-child)::after { content: ""; position: absolute; left: 19px; top: 38px; bottom: -8px; width: 1px; background: var(--control-line); }
+  .steps li.current { background: var(--accent-soft); border-radius: var(--r-sm); }
+  .wiz-term { min-height: 300px; }
+}
 
 .result:empty { display: none; }
 .result { margin-top: 12px; }
@@ -868,6 +913,8 @@ button.heat-cell:focus-visible { outline: 2px solid var(--accent-2); outline-off
   .tab-pal kbd { display: none; }
   .tab { padding: 12px 7px 10px; }
   .row label, .row .label { min-width: 100%; }
+  .done-card { grid-template-columns: 1fr; }
+  .done-mark { width: 84px; height: 84px; }
   .input, .input-wide { width: 100%; }
 
   /* tables become stacked cards: every cell carries its column label */
