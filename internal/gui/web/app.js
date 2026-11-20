@@ -1411,37 +1411,6 @@
     document.querySelectorAll("[data-motion-toggle]").forEach((b) => b.addEventListener("click", toggleMotion));
   }
 
-  // --- typing tagline ----------------------------------------------------------------
-
-  function typeTagline() {
-    const node = $("tagline");
-    const phrases = ["one workspace · every device", "workspace dashboard"];
-    if (reduceMotion.matches) return; // static text already in the DOM
-    let p = 0, i = 0, deleting = false;
-    const tick = () => {
-      if (document.hidden) { setTimeout(tick, 500); return; }
-      const word = phrases[p];
-      if (!deleting) {
-        i++;
-        node.textContent = word.slice(0, i);
-        if (i === word.length) {
-          if (p === phrases.length - 1) return; // settle on the last phrase
-          deleting = true;
-          setTimeout(tick, 1500);
-          return;
-        }
-        setTimeout(tick, 35 + Math.random() * 40);
-      } else {
-        i--;
-        node.textContent = word.slice(0, i);
-        if (i === 0) { deleting = false; p++; setTimeout(tick, 300); return; }
-        setTimeout(tick, 16);
-      }
-    };
-    node.textContent = "";
-    setTimeout(tick, 250);
-  }
-
   // --- live updates: SSE when the server has /api/events, else polling ----------------
 
   let pollTimer = 0;
@@ -1899,13 +1868,13 @@
     const days = (d.daily || []).length;
     const st = d.streaks || {};
     return el("div", { class: "kpis" }, [
-      kpi("Sessions", nf.format(t.sessions), null),
-      kpi("Messages", compact(t.messages), nf.format(t.user_messages) + " prompts · " + nf.format(t.assistant_messages) + " replies", nf.format(t.messages)),
-      kpi("Tokens", compact(t.tokens.total), "in, out and cache", nf.format(t.tokens.total) + " tokens"),
-      kpi("Active days", nf.format(t.active_days), "of " + plural(days, "day")),
-      kpi("Streak", plural(st.current || 0, "day"), "longest " + plural(st.longest || 0, "day"),
+      kpi("sessions", nf.format(t.sessions), null),
+      kpi("messages", compact(t.messages), nf.format(t.user_messages) + " prompts · " + nf.format(t.assistant_messages) + " replies", nf.format(t.messages)),
+      kpi("tokens", compact(t.tokens.total), "in, out and cache", nf.format(t.tokens.total) + " tokens"),
+      kpi("active days", nf.format(t.active_days), "of " + plural(days, "day")),
+      kpi("streak", plural(st.current || 0, "day"), "longest " + plural(st.longest || 0, "day"),
         st.longest ? "longest: " + st.longest_start + " to " + st.longest_end : null),
-      kpi("Est. cost", "$" + (cost.usd || 0).toFixed(2), cost.note || "est., list prices — your plan may be flat-rate",
+      kpi("est. cost", "≈ $" + (cost.usd || 0).toFixed(2), cost.note || "est., list prices — your plan may be flat-rate",
         "API-equivalent at list prices as of " + (cost.prices_updated || "?") + (unpriced ? " · " + unpriced : "")),
     ]);
   }
@@ -1938,7 +1907,8 @@
         });
         return b;
       }));
-    card.appendChild(el("div", { class: "card-head" }, [el("h3", { text: "Activity" }), toggle]));
+    // Always the last 12 months, whatever the range selector says (D73).
+    card.appendChild(el("div", { class: "card-head" }, [el("h3", { text: "activity, last 12 months" }), toggle]));
     if (!cal.length) return card;
 
     const ws = weekStart();
@@ -1947,7 +1917,7 @@
     const startIdx = last - ((todayDow - ws + 7) % 7) - 52 * 7;
     const cells = cal.slice(Math.max(0, startIdx));
     const lv = levels(cells.map(cellValue));
-    const grid = el("div", { class: "heat", role: "grid", "aria-label": "Daily " + statsMetric + ", last 53 weeks" });
+    const grid = el("div", { class: "heat", role: "grid", "aria-label": "Daily " + statsMetric + ", last 12 months" });
     const tip = el("div", { class: "heat-tip", role: "tooltip", hidden: "" });
     const unit = statsMetric === "sessions" ? "session" : statsMetric === "messages" ? "message" : "token";
     const buttons = [];
@@ -2012,8 +1982,8 @@
       ev.preventDefault();
       ev.stopPropagation();
     });
-    const legend = el("div", { class: "heat-legend", "aria-hidden": "true" }, ["Less",
-      ...[0, 1, 2, 3, 4].map((l) => el("span", { class: "heat-cell", "data-l": String(l) })), "More"]);
+    const legend = el("div", { class: "heat-legend", "aria-hidden": "true" }, ["less",
+      ...[0, 1, 2, 3, 4].map((l) => el("span", { class: "heat-cell", "data-l": String(l) })), "more"]);
     card.appendChild(el("div", { class: "heat-scroll" }, [grid, tip]));
     card.appendChild(legend);
     return card;
@@ -2039,27 +2009,30 @@
     return card;
   }
 
+  // Token kinds as two bars (D73): billed = input + output, cache = write + read.
   function tokenSplit(tok) {
-    const card = el("div", { class: "card stats-card" }, [el("h3", { text: "Token kinds" })]);
-    const total = Math.max(1, tok.total);
-    const bar = el("div", { class: "stack", role: "img", "aria-label": KINDS.map(([k, n]) => n + " " + nf.format(tok[k])).join(", ") });
-    const legend = el("ul", { class: "stack-legend" });
-    KINDS.forEach(([k, name], i) => {
-      const seg = el("span", { class: "stack-" + i, title: name + ": " + nf.format(tok[k]) });
-      seg.style.width = (tok[k] / total) * 100 + "%";
-      bar.appendChild(seg);
-      legend.appendChild(el("li", null, [el("span", { class: "sw stack-" + i, "aria-hidden": "true" }),
-        name + " ", el("strong", { text: compact(tok[k]), title: nf.format(tok[k]) }),
-        el("span", { class: "muted", text: " " + Math.round((tok[k] / total) * 100) + "%" })]));
-    });
-    card.appendChild(bar);
-    card.appendChild(legend);
+    const card = el("div", { class: "card stats-card" }, [el("h3", { text: "token kinds" })]);
+    const rows = [
+      ["billed", tok.input + tok.output, "input " + compact(tok.input) + " · output " + compact(tok.output), "chart-billed"],
+      ["cache", tok.cache_write + tok.cache_read, "write " + compact(tok.cache_write) + " · read " + compact(tok.cache_read), "chart-cache"],
+    ];
+    const most = Math.max(1, rows[0][1], rows[1][1]);
+    card.appendChild(el("ol", { class: "hbars kinds" }, rows.map(([name, v, sub, cls]) => {
+      const fill = el("span", { class: cls });
+      fill.style.width = Math.max(1, Math.round((v / most) * 100)) + "%";
+      return el("li", null, [
+        el("span", { class: "hb-name" }, [el("span", { class: "sw " + cls, "aria-hidden": "true" }), name]),
+        el("span", { class: "bar", "aria-hidden": "true" }, [fill]),
+        el("span", { class: "hb-val", text: compact(v), title: nf.format(v) + " tokens" }),
+        el("span", { class: "hb-sub", text: sub + " · " + Math.round((v / Math.max(1, tok.total)) * 100) + "%" }),
+      ]);
+    })));
     return card;
   }
 
   function trend(d) {
     const days = (d.calendar || []).slice(-30);
-    const card = el("div", { class: "card stats-card" }, [el("h3", { text: "Tokens, last 30 days" })]);
+    const card = el("div", { class: "card stats-card" }, [el("h3", { text: "tokens, last 30 days" })]);
     if (!days.length) return card;
     const W = 300, H = 80, P = 4;
     const peak = Math.max(1, ...days.map((x) => x.tokens));
@@ -2095,11 +2068,11 @@
       statsKPIs(d),
       heatmap(d),
       el("div", { class: "stats-cols" }, [
-        barList("Top projects", d.top_projects || []),
-        barList("Top models", d.top_models || [], (g) => g.cost_usd ? "$" + g.cost_usd.toFixed(2) + " est." : ""),
+        barList("top projects", d.top_projects || []),
+        barList("top models", d.top_models || [], (g) => g.cost_usd ? "≈ $" + g.cost_usd.toFixed(2) + " est." : ""),
         tokenSplit(d.totals.tokens),
         trend(d),
-        (d.accounts || []).length > 1 ? barList("Accounts", d.accounts) : null,
+        (d.accounts || []).length > 1 ? barList("accounts", d.accounts) : null,
       ]),
     ]));
     // Newest weeks first in view when the heatmap scrolls (narrow screens).
@@ -2272,7 +2245,6 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     wireToggles();
-    typeTagline();
     document.querySelectorAll(".tab").forEach((btn) => {
       btn.addEventListener("click", () => activate(btn.dataset.tab));
       btn.addEventListener("keydown", (ev) => {
