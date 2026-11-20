@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,32 +19,14 @@ import (
 // statsNow is the clock of `cwm stats` (tests pin it).
 var statsNow = time.Now
 
-// statsAccountMap maps accountUuid → cwm account name (D62): the uuid
-// recorded at login in config.toml, else the account dir's .claude.json.
-// Unreadable files are skipped; nothing is guessed.
+// statsAccountMap maps accountUuid → cwm account name (D62) through
+// accounts.UUIDMap; an unreadable config attributes nothing.
 func statsAccountMap(l *storage.Layout) map[string]string {
-	out := map[string]string{}
 	cfg, err := config.Load(l.ConfigPath())
 	if err != nil {
-		return out
+		return map[string]string{}
 	}
-	for _, a := range cfg.Accounts {
-		uuid := ""
-		if a.Login != nil {
-			uuid = a.Login.AccountUUID
-		}
-		if uuid == "" {
-			if id, err := accounts.ReadIdentity(filepath.Join(a.ExpandedDir(), ".claude.json")); err == nil {
-				uuid = id.AccountUUID
-			}
-		}
-		if uuid != "" {
-			if _, dup := out[uuid]; !dup {
-				out[uuid] = a.Name
-			}
-		}
-	}
-	return out
+	return accounts.UUIDMap(cfg)
 }
 
 type statsArgs struct {

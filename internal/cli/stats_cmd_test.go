@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -141,5 +142,56 @@ func TestStatsEmptyAndBadFlags(t *testing.T) {
 		if got := runCLI(t, args...); got.code != ExitError || got.err == "" {
 			t.Errorf("%v: code %d err %q", args, got.code, got.err)
 		}
+	}
+}
+
+// TestStatsAttribution: an owner uuid recorded for a cwm account (here
+// only in its .claude.json, camelCase as Claude Code writes it) names the
+// account; another uuid stays unattributed and never appears raw.
+func TestStatsAttribution(t *testing.T) {
+	home := statsSandbox(t)
+	acctDir := filepath.Join(home, "accounts", "work")
+	if err := os.MkdirAll(acctDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(acctDir, ".claude.json"), []byte(`{"oauthAccount":{"accountUuid":"uuid-work","emailAddress":"w@example.invalid"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "version = 1\ndefault_account = \"work\"\n\n[[account]]\nname = \"work\"\ndir = " + strconv.Quote(acctDir) + "\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for i, owner := range []string{"uuid-work", "uuid-other"} {
+		rel := fmt.Sprintf("p/s%d.jsonl", i)
+		writeStatsTranscript(t, home, rel, now.Add(-time.Hour), 10)
+		p := filepath.Join(home, "workspace", "projects", filepath.FromSlash(rel))
+		body, _ := os.ReadFile(p)
+		if err := os.WriteFile(p, append([]byte(`{"type":"session-owner","accountUuid":"`+owner+`"}`+"\n"), body...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := runCLI(t, "stats", "--json")
+	if got.code != ExitOK {
+		t.Fatalf("stats: %d %s", got.code, got.err)
+	}
+	if strings.Contains(got.out, "uuid-") {
+		t.Error("raw uuid in cwm stats --json")
+	}
+	var s struct {
+		Accounts []struct {
+			Name     string `json:"name"`
+			Messages int    `json:"messages"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal([]byte(got.out), &s); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]int{}
+	for _, a := range s.Accounts {
+		names[a.Name] = a.Messages
+	}
+	if names["work"] != 2 || names["unattributed"] != 2 || len(names) != 2 {
+		t.Errorf("accounts = %v", names)
 	}
 }
