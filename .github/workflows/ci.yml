@@ -67,6 +67,15 @@ jobs:
           GOOS=darwin go vet ./...
           GOOS=windows go vet ./...
 
+      - name: Dashboard contrast + DOM sinks (D68)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          node scripts/contrast-check.js
+          if grep -nE 'innerHTML|insertAdjacentHTML|outerHTML|document\.write' internal/gui/web/*.js; then
+            echo "::error::HTML-parsing DOM sink in internal/gui/web"; exit 1
+          fi
+
       - name: Legacy bash kit
         if: matrix.os == 'ubuntu-latest'
         shell: bash

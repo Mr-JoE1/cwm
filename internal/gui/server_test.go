@@ -1,6 +1,8 @@
 package gui
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -305,10 +307,13 @@ func TestStaticDashboard(t *testing.T) {
 	}
 	// Every embedded asset (v0.7: theme.js, bg.js, favicon.svg too): no
 	// external CDN / remote resources, no HTML-parsing sinks in scripts,
-	// and the whole UI stays under its 150KB budget (uncompressed).
+	// and the whole UI stays under its D71 budget: 200KB raw, < 60KB gzip.
+	// Every absolute URL is either the SVG namespace or a GitHub link of
+	// this project (opened by the user with target=_blank, never loaded).
 	external := regexp.MustCompile(`(?i)(src|href)\s*=\s*["']?(https?:)?//|url\(\s*["']?(https?:)?//`)
 	sinks := regexp.MustCompile(`innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function`)
-	total := 0
+	anyURL := regexp.MustCompile(`https?://[^\s"'<>)]*`)
+	total, gz := 0, 0
 	err := fs.WalkDir(webFS, "web", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -318,6 +323,16 @@ func TestStaticDashboard(t *testing.T) {
 			return err
 		}
 		total += len(data)
+		var zb bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&zb, gzip.BestCompression)
+		_, _ = zw.Write(data)
+		_ = zw.Close()
+		gz += zb.Len()
+		for _, u := range anyURL.FindAllString(string(data), -1) {
+			if u != "http://www.w3.org/2000/svg" && !strings.HasPrefix(u, "https://github.com/Mr-JoE1") {
+				t.Errorf("%s contains a foreign URL %q", name, u)
+			}
+		}
 		// One navigation link is allowed (D52): the bug-report form,
 		// opened by the user's click, never loaded by the page.
 		nav := `href="` + bugReportURL + `" target="_blank" rel="noopener noreferrer"`
@@ -332,8 +347,11 @@ func TestStaticDashboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total > 150<<10 {
-		t.Errorf("embedded web assets = %d bytes, budget is 150KB", total)
+	if total > 200<<10 {
+		t.Errorf("embedded web assets = %d bytes, budget is 200KB (D71)", total)
+	}
+	if gz >= 60<<10 {
+		t.Errorf("embedded web assets = %d bytes gzipped, budget is < 60KB (D71)", gz)
 	}
 	// The pre-paint theme script must be a blocking <head> script (no
 	// defer/async) so the first paint already has the right theme; inline
