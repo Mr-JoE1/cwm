@@ -3,6 +3,8 @@ package stats
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,9 +48,15 @@ func ParseRange(s string) (string, int, error) {
 	return "", 0, fmt.Errorf("unknown range %q (want 7d, 30d, 90d, 365d or all)", s)
 }
 
-// ParseTZ resolves an IANA zone name ("" = the machine's zone).
+// ParseTZ resolves an IANA zone name ("" = the machine's zone, reported
+// by its IANA name when $TZ or /etc/localtime tell it, else "Local").
 func ParseTZ(name string) (*time.Location, error) {
 	if name == "" || name == "Local" {
+		if n := localZoneName(); n != "" {
+			if loc, err := time.LoadLocation(n); err == nil {
+				return loc, nil
+			}
+		}
 		return time.Local, nil
 	}
 	loc, err := time.LoadLocation(name)
@@ -408,4 +416,25 @@ func FormatCompact(n int64) string {
 		}
 	}
 	return strconv.FormatInt(n, 10)
+}
+
+// localZoneName is the machine zone's IANA name when it can be told
+// without guessing: $TZ, or the /etc/localtime symlink target
+// (…/zoneinfo/Europe/Berlin). "" otherwise (Windows, copied files).
+func localZoneName() string {
+	if tz, ok := os.LookupEnv("TZ"); ok {
+		tz = strings.TrimPrefix(tz, ":")
+		if tz == "" || filepath.IsAbs(tz) {
+			return ""
+		}
+		return tz
+	}
+	target, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		return ""
+	}
+	if _, after, ok := strings.Cut(filepath.ToSlash(target), "zoneinfo/"); ok && after != "" {
+		return after
+	}
+	return ""
 }

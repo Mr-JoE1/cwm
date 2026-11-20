@@ -200,6 +200,7 @@ func runAgent(e *Env, o agentOpts) error {
 		Bind:             bind,
 		AllowHosts:       o.allowHosts,
 		PersistentCookie: true,
+		StatsAccounts:    func() map[string]string { return statsAccountMap(layout) },
 	}, port, cfg.Token)
 	if err != nil {
 		_ = ln.Close()

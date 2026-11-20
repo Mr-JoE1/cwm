@@ -16,7 +16,7 @@ import (
 
 // cacheVersion guards the stats.json format; any other version is a full
 // rescan (D61).
-const cacheVersion = 1
+const cacheVersion = 2
 
 // headBytes is how much of a file's start is hashed to tell an append
 // from a rewrite.

@@ -35,6 +35,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/debugbundle"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
+	"github.com/Mr-JoE1/cwm/internal/stats"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
@@ -98,6 +99,12 @@ type Options struct {
 	PersistentCookie bool
 	EventsPoll       time.Duration
 	Heartbeat        time.Duration
+
+	// v0.7.1 stats (D62, D64). StatsAccounts maps accountUuid → cwm
+	// account name (nil = everything unattributed); StatsInterval is the
+	// shortest time between two scans (0 = stats.MinInterval, 60 s).
+	StatsAccounts func() map[string]string
+	StatsInterval time.Duration
 }
 
 // Server is the dashboard http.Handler bound to one port and one token.
@@ -128,6 +135,9 @@ type Server struct {
 	apiErrors errorRing
 	// logins is the in-memory account login state (D55).
 	logins loginTracker
+	// stats is the lazily created stats engine (D64).
+	statsOnce sync.Once
+	stats     *stats.Engine
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -415,6 +425,7 @@ func (s *Server) routes() map[string]route {
 		"/api/agent":                {get: s.apiAgent},
 		"/api/claude":               {get: s.apiClaude},
 		"/api/debug":                {get: s.apiDebug},
+		"/api/stats":                {get: s.apiStats},
 	}
 }
 

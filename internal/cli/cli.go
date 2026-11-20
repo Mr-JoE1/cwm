@@ -40,7 +40,7 @@ const (
 var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
-	"pair", "devices", "sessions", "agent", "service", "dashboard", "debug",
+	"pair", "devices", "sessions", "agent", "service", "dashboard", "debug", "stats",
 }
 
 // IsReserved reports whether name is reserved.
@@ -94,6 +94,7 @@ var commands = []*command{
 	{name: "agent", args: "[--bind ADDR] [--port N] [--open|--no-open] [--allow-host H]", short: "run the always-on dashboard agent (one per user; a second launch opens it)"},
 	{name: "dashboard", args: "[--no-open] [--wait SECONDS]", short: "open the dashboard, starting the agent in the background if needed"},
 	{name: "service", args: "install|uninstall|status|start|stop|rotate-token", short: "start the agent at login and open the dashboard (per user, no admin)"},
+	{name: "stats", args: "[--range 7d|30d|90d|365d|all] [--tz ZONE] [--json]", short: "usage stats from the local session transcripts: sessions, messages, tokens, streaks, est. cost"},
 	{name: "debug", args: "[--copy]", short: "print a redacted debug report for bug reports (--copy puts it on the clipboard)"},
 }
 
@@ -141,6 +142,8 @@ func init() {
 			c.run = cmdService
 		case "debug":
 			c.run = cmdDebug
+		case "stats":
+			c.run = cmdStats
 		}
 	}
 }

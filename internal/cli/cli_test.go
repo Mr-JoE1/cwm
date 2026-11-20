@@ -217,7 +217,7 @@ func TestFlagErrors(t *testing.T) {
 }
 
 func TestIsReserved(t *testing.T) {
-	reserved := []string{"init", "import", "open", "list", "wip", "doctor", "account", "mcp", "hook", "version", "help", "statusline", "gui", "pair", "devices", "sessions", "agent", "service", "dashboard", "debug"}
+	reserved := []string{"init", "import", "open", "list", "wip", "doctor", "account", "mcp", "hook", "version", "help", "statusline", "gui", "pair", "devices", "sessions", "agent", "service", "dashboard", "debug", "stats"}
 	if len(ReservedNames) != len(reserved) {
 		t.Fatalf("len(ReservedNames) = %d, want %d", len(ReservedNames), len(reserved))
 	}

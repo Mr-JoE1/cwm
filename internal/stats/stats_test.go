@@ -254,3 +254,27 @@ func TestFormatCompact(t *testing.T) {
 		}
 	}
 }
+
+// TestSpacedJSONCounts: entries written with a space after the colons
+// (any JSON encoder but Claude Code's) count exactly like compact ones.
+func TestSpacedJSONCounts(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "projects", "p", "s.jsonl")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"type": "session-owner", "accountUuid": "acct-a"}` + "\n" +
+		`{"type": "user", "uuid": "u1", "sessionId": "s", "timestamp": "2026-11-19T08:00:00Z", "message": {"content": "hi"}}` + "\n" +
+		`{"type": "assistant", "sessionId": "s", "timestamp": "2026-11-19T08:00:01Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": {"input_tokens": 1, "output_tokens": 2, "cache_creation_input_tokens": 3, "cache_read_input_tokens": 4}}}` + "\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Build(dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := snap(t, ix, Query{Range: "all", Loc: time.UTC, Now: goldenNow, Accounts: map[string]string{"acct-a": "work"}})
+	if s.Totals.Messages != 2 || s.Totals.Tokens.Total != 10 || len(s.Accounts) != 1 || s.Accounts[0].Name != "work" {
+		t.Errorf("spaced JSON: totals %+v accounts %+v", s.Totals, s.Accounts)
+	}
+}

@@ -89,9 +89,11 @@ func (p *parser) intern(m map[string]int, list *[]string, v string) int {
 }
 
 var (
-	markAssistant = []byte(`"type":"assistant"`)
-	markUser      = []byte(`"type":"user"`)
-	markOwner     = []byte(`"type":"session-owner"`)
+	// The type values alone, not `"type":"…"`: a writer that puts a
+	// space after the colon must not be silently skipped.
+	markAssistant = []byte(`"assistant"`)
+	markUser      = []byte(`"user"`)
+	markOwner     = []byte(`"session-owner"`)
 )
 
 // feed handles one complete line. It never fails: anything that does not
