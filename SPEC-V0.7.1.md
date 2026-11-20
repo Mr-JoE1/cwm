@@ -48,7 +48,8 @@ unterminated last line is not consumed: the next scan reads it again.
   run of consecutive active days ending today, or ending yesterday while
   today has no activity yet; else 0. Longest streak: the longest such run,
   with its first and last day (the latest one on a tie).
-- **First / last activity**: the earliest and latest counted timestamp.
+- **First / last activity**: the earliest and latest counted timestamp
+  in the range.
 
 ### Account attribution (D62)
 Claude Code writes a `{"type":"session-owner","accountUuid":…}` entry into
@@ -85,7 +86,10 @@ the byte offset parsed so far, a SHA-256 of the first 4 KiB (or of the
 whole file when shorter), the parse state needed to resume (the last
 `session-owner` uuid), and the file's events. An event is one counted
 user prompt or assistant message: kind, 15-minute UTC bucket, session,
-model, account, the four token counts (plus the 1h share of cache writes),
+model, session-owner uuid (mapped to an account name only when a
+snapshot is built, so a renamed or newly logged-in account needs no
+rescan; the cache is local, 0600, and never part of the debug bundle),
+the four token counts (plus the 1h share of cache writes),
 `output_tokens` and the timestamp for the dedupe rule, and a 64-bit hash of
 `message.id` / `uuid` for the cross-file dedupe.
 
