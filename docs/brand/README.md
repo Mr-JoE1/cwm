@@ -18,7 +18,7 @@ icon replaces it (below).
 | `cwm-logo-on-dark.svg`, `cwm-logo-on-light.svg` | The same logo with a fixed palette (dark or light), for places that choose the variant themselves, such as the README's `<picture>` element, which follows the GitHub theme rather than the OS setting. |
 | `../../internal/gui/web/favicon.svg` | App icon: the mark on a near-black rounded tile. Same on any background (used as the dashboard favicon). |
 | `cwm-icon-512.png`, `cwm-icon-192.png`, `cwm-icon-32.png` | PNG renders of the app icon (headless Chromium). |
-| `cwm-favicon-16.svg` (= `../../internal/gui/web/favicon-16.svg`), `cwm-icon-16.png` | The 16 px icon, hand-tuned on the pixel grid: a bold `>` and the cursor bar, **no hexagon** (at 16 px the frame turns into a blur that eats the prompt). `shape-rendering="crispEdges"`, every edge on a whole pixel. Use it only at 16 px; 32 px and up keep the hex mark. |
+| `cwm-favicon-16.svg` (= `../../internal/gui/web/favicon-16.svg`) | The 16 px icon (v0.7.2, designer review §3): a filled hexagon in `--accent-fill` with the prompt and cursor knocked out in the background colour. A filled shape survives 16 px where the stroked frame blurred. Use it only at 16 px; 32 px and up keep the full hex mark. (`cwm-icon-16.png` and the .ico still carry the v0.7.1 pixel-grid frame until they are re-rendered.) |
 | `cwm-favicon.ico` | Windows/legacy icon: the 16 px hand-tuned frame plus the 32 px hex render, both PNG-encoded. |
 | `cwm-logo-dark.png`, `cwm-logo-light.png` | Preview renders of logo + mark on both backgrounds. |
 

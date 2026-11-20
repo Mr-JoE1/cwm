@@ -17,6 +17,26 @@
 <canvas id="bg" aria-hidden="true"></canvas>
 <div class="scan" aria-hidden="true"></div>
 
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3.5H10"/></symbol>
+<symbol id="i-motion" viewBox="0 0 16 16"><path d="M6.5 2l1.1 3.4L11 6.5 7.6 7.6 6.5 11 5.4 7.6 2 6.5l3.4-1.1zM12 10l.5 1.5L14 12l-1.5.5L12 14l-.5-1.5L10 12l1.5-.5z"/></symbol>
+<symbol id="i-bug" viewBox="0 0 16 16"><rect x="4.5" y="5" width="7" height="9" rx="3.5"/><path d="M6 5V4a2 2 0 0 1 4 0v1M8 8v6M2 9h2.5M11.5 9H14M3 5l2 1.5M13 5l-2 1.5"/></symbol>
+<symbol id="i-sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></symbol>
+<symbol id="i-moon" viewBox="0 0 16 16"><path d="M13.5 9.5A5.5 5.5 0 1 1 6.5 2.5a4.5 4.5 0 0 0 7 7z"/></symbol>
+<symbol id="i-auto" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5M8 11.5v3"/></symbol>
+<symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.5v9l7-4.5z"/></symbol>
+<symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7a4 4 0 0 1-4 4h-3"/></symbol>
+<symbol id="i-device" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="8" rx="1"/><path d="M1 13.5h14"/></symbol>
+<symbol id="i-sync" viewBox="0 0 16 16"><path d="M2.5 7a5.5 5.5 0 0 1 9.6-2.6M13.5 9a5.5 5.5 0 0 1-9.6 2.6M12.5 1.5v3h-3M3.5 14.5v-3h3"/></symbol>
+<symbol id="i-account" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="3"/><path d="M2.5 14.5a5.5 5.5 0 0 1 11 0"/></symbol>
+<symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1zM8 6v4M8 12v.5"/></symbol>
+<symbol id="i-ok" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="m5 8 2 2 4-4"/></symbol>
+<symbol id="i-fail" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></symbol>
+<symbol id="i-external" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5 7 9M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"/></symbol>
+<symbol id="i-more" viewBox="0 0 16 16"><circle cx="3" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="13" cy="8" r=".9"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="m4.5 6 2 2-2 2M8.5 10.5h3"/></symbol>
+</defs></svg>
 <div class="shell">
 <header class="top">
   <div class="brand">
@@ -46,11 +66,11 @@
       <button type="button" class="btn btn-small toggle" data-motion-toggle aria-pressed="true" title="Animated background (b)"><span class="toggle-box" aria-hidden="true"></span>motion</button>
     </div>
     <button type="button" id="refresh" class="btn btn-small btn-refresh" title="Refresh (r)">
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>
+      <svg class="i" aria-hidden="true" focusable="false"><use href="#i-refresh"/></svg>
       <span class="btn-label">refresh</span><span class="sr-only">Refresh</span>
     </button>
     <button type="button" id="menu-btn" class="icon-btn menu-btn" aria-expanded="false" aria-controls="menu" aria-label="More options" title="More options">
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>
+      <svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg>
     </button>
     <div id="menu" class="menu" hidden>
       <p class="menu-label">theme</p>
@@ -279,6 +299,13 @@
 </main>
 </div>
 
+<nav class="bottombar" aria-label="Sections">
+  <button type="button" class="bb-item" data-tab-go="sessions"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg><span>sessions</span></button>
+  <button type="button" class="bb-item" data-tab-go="projects"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-branch"/></svg><span>projects</span></button>
+  <button type="button" class="bb-item" data-tab-go="health"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-ok"/></svg><span>health</span><span class="tab-badge" id="bb-badge-health" hidden></span></button>
+  <button type="button" class="bb-item" data-tab-go="accounts"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-account"/></svg><span>accounts</span><span class="tab-badge" id="bb-badge-accounts" hidden></span></button>
+  <button type="button" class="bb-item" data-more-open aria-haspopup="dialog"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg><span>more</span></button>
+</nav>
 <footer class="statusline">
   <div class="sl-left">
     <button type="button" class="sl-seg sl-ver" id="sl-version" data-about-open title="About cwm">[cwm]</button>
@@ -312,6 +339,26 @@
     <dt><kbd>Esc</kbd></dt><dd>Close / leave the filter</dd>
   </dl>
   <div class="row"><button type="button" class="btn" id="keys-close">Close</button><button type="button" class="btn" data-about-open>About cwm</button></div>
+</dialog>
+
+<dialog id="more-sheet" class="sheet" aria-label="More sections and settings">
+  <div class="sheet-grip" aria-hidden="true"></div>
+  <p class="menu-label">sections</p>
+  <div class="sheet-grid">
+    <button type="button" class="sheet-item" data-tab-go="devices"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-device"/></svg>devices</button>
+    <button type="button" class="sheet-item" data-tab-go="handoff"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-sync"/></svg>handoff</button>
+    <button type="button" class="sheet-item" data-tab-go="stats"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-play"/></svg>stats</button>
+  </div>
+  <p class="menu-label">theme</p>
+  <div class="seg seg-text" role="group" aria-label="Theme">
+    <button type="button" class="seg-btn" data-theme-set="system" aria-pressed="false">auto</button>
+    <button type="button" class="seg-btn" data-theme-set="dark" aria-pressed="false">dark</button>
+    <button type="button" class="seg-btn" data-theme-set="light" aria-pressed="false">light</button>
+  </div>
+  <button type="button" class="menu-item" data-motion-toggle aria-pressed="true"><span class="toggle-box" aria-hidden="true"></span>motion</button>
+  <button type="button" class="menu-item" data-about-open>about cwm</button>
+  <button type="button" class="menu-item" data-debug-copy>copy debug logs</button>
+  <button type="button" class="menu-item" id="sheet-close">close</button>
 </dialog>
 
 <dialog id="about" class="about" aria-labelledby="about-title">

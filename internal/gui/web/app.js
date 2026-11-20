@@ -794,12 +794,13 @@
 
   // Tab badges appear only when something needs the user (D67).
   function setBadge(tab, text, label) {
-    const b = $("badge-" + tab);
-    if (!b) return;
-    b.hidden = !text;
-    b.textContent = text || "";
-    b.title = label || "";
-    if (label) b.setAttribute("aria-label", label); else b.removeAttribute("aria-label");
+    for (const b of [$("badge-" + tab), $("bb-badge-" + tab)]) {
+      if (!b) continue;
+      b.hidden = !text;
+      b.textContent = text || "";
+      b.title = label || "";
+      if (label) b.setAttribute("aria-label", label); else b.removeAttribute("aria-label");
+    }
   }
 
   function healthBadge(list) {
@@ -908,8 +909,8 @@
   }
 
   function svgDots() {
-    const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" });
-    for (const x of [5, 12, 19]) s.appendChild(svg("circle", { cx: x, cy: 12, r: 1.2 }));
+    const s = svg("svg", { class: "i", "aria-hidden": "true", focusable: "false" });
+    s.appendChild(svg("use", { href: "#i-more" }));
     return s;
   }
 
@@ -1323,7 +1324,7 @@
       const panel = $("panel-" + t);
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
-      if (selected && tab.scrollIntoView) tab.scrollIntoView({ inline: "nearest", block: "nearest" });
+      if (selected && tab.scrollIntoView && tab.offsetParent) tab.scrollIntoView({ inline: "nearest", block: "nearest" });
       if (selected && panel.hidden) {
         panel.classList.remove("enter");
         void panel.offsetWidth; // restart the enter animation
@@ -1331,6 +1332,12 @@
       }
       panel.hidden = !selected;
     }
+    document.querySelectorAll("[data-tab-go]").forEach((b) => {
+      if (b.dataset.tabGo === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
+    // "more" stands for the sections that are not on the bottom bar
+    const more = document.querySelector(".bb-item[data-more-open]");
+    if (more) more.classList.toggle("is-active", !document.querySelector('.bb-item[data-tab-go="' + name + '"]'));
     if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
     if (!loaded[name]) load(name);
     else if (stale[name]) load(name, true);
@@ -1443,7 +1450,10 @@
     if (mode === "offline") label = "offline – retry";
     else if ((mode === "sse" || mode === "poll") && lastSeen) label = "live " + ago(Date.now() - lastSeen);
     const text = $("live-text");
-    if (text.textContent !== label) text.textContent = label;
+    if (text.textContent !== label) {
+      text.textContent = label;
+      box.setAttribute("aria-label", "connection: " + label);
+    }
   }
 
   function setLive(mode) {
@@ -2270,6 +2280,15 @@
     wireStats();
     wireMenu();
     wirePalette();
+    const sheet = $("more-sheet");
+    document.querySelectorAll("[data-more-open]").forEach((b) => b.addEventListener("click", () => sheet.showModal()));
+    document.querySelectorAll("[data-tab-go]").forEach((b) => b.addEventListener("click", () => {
+      if (sheet.open) sheet.close();
+      activate(b.dataset.tabGo);
+      window.scrollTo(0, 0);
+    }));
+    $("sheet-close").addEventListener("click", () => sheet.close());
+    sheet.addEventListener("click", (ev) => { if (ev.target === sheet || ev.target.closest("[data-about-open], [data-debug-copy]")) sheet.close(); });
     wireAbout();
     document.querySelectorAll(".cmd-slot[data-cmd]").forEach((n) => n.replaceWith(commandBox(n.dataset.cmd)));
     $("live").addEventListener("click", retryNow);
