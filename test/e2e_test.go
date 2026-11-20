@@ -743,10 +743,11 @@ func TestDoctorJSON(t *testing.T) {
 		t.Fatalf("healthy doctor --json: exit %d\n%s", res.code, res.stdout)
 	}
 	type check struct {
-		Name   string   `json:"name"`
-		Status string   `json:"status"`
-		Detail string   `json:"detail"`
-		Lines  []string `json:"lines"`
+		Name     string   `json:"name"`
+		Status   string   `json:"status"`
+		Detail   string   `json:"detail"`
+		Lines    []string `json:"lines"`
+		Optional bool     `json:"optional"`
 	}
 	var checks []check
 	if err := json.Unmarshal([]byte(res.stdout), &checks); err != nil {
@@ -759,7 +760,8 @@ func TestDoctorJSON(t *testing.T) {
 		}
 		byName[c.Name] = c
 	}
-	if byName["workspace"].Status != "ok" || byName["syncthing"].Status != "warn" {
+	// D75: unreachable syncthing keeps status "warn" but is flagged optional.
+	if byName["workspace"].Status != "ok" || byName["syncthing"].Status != "warn" || !byName["syncthing"].Optional || byName["workspace"].Optional {
 		t.Errorf("checks = %+v", checks)
 	}
 	if len(byName["wip-log"].Lines) != 1 {

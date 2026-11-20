@@ -105,7 +105,7 @@ func buildDebug(e *Env) (string, error) {
 	}
 	src := debugBase()
 	src.From = "cwm debug"
-	src.Version = status.Version{Version: Version, Commit: Commit, OS: runtime.GOOS, Arch: runtime.GOARCH}
+	src.Version = versionInfo()
 	src.Layout = layout
 	src.Claude = func() (claudebin.Result, error) { return claudebin.Lookup(layout) }
 	src.SyncClient = debugSync

@@ -495,7 +495,7 @@ func TestDashboardHasActions(t *testing.T) {
 			t.Errorf("app.js lacks %s", want)
 		}
 	}
-	for _, want := range []string{"/api/state", "/api/init", "/api/accounts", "/api/sessions/resume", "/api/pair", "/api/csrf", CSRFHeader, `"Resume"`} {
+	for _, want := range []string{"/api/state", "/api/init", "/api/accounts", "/api/sessions/resume", "/api/pair", "/api/csrf", CSRFHeader, `"resume"`} {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Errorf("app.js lacks %s", want)
 		}

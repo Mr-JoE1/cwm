@@ -12,5 +12,5 @@ ok:   WIP log tail (last 3 lines of logs/wip.log):
       line two
       line three
       line four
-warn: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
-doctor: 11 ok, 1 warn, 0 fail
+skip: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
+doctor: 11 ok, 0 warn, 0 fail, 1 skipped

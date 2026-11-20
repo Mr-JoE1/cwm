@@ -35,20 +35,29 @@ const (
 
 // Check is one health-check outcome. Detail is the message exactly as the
 // text report prints it after the prefix; Lines are indented follow-up
-// lines (the WIP log tail) printed under it.
+// lines (the WIP log tail) printed under it. Optional marks a check that
+// is optional by design (sync, D75): when it is not ok its JSON status
+// stays "warn" for compatibility, but the text report prints it as
+// "skip:" and no count treats it as a problem (see Skipped).
 type Check struct {
-	Name   string   `json:"name"`
-	Status Status   `json:"status"`
-	Detail string   `json:"detail"`
-	Lines  []string `json:"lines,omitempty"`
+	Name     string   `json:"name"`
+	Status   Status   `json:"status"`
+	Detail   string   `json:"detail"`
+	Lines    []string `json:"lines,omitempty"`
+	Optional bool     `json:"optional,omitempty"`
 }
 
+// Skipped reports whether c is an optional check that is not set up.
+func (c Check) Skipped() bool { return c.Optional && c.Status != StatusOK }
+
 // textPrefix aligns exactly like the bash kit's ok:/warn:/FAIL: printf widths.
-func textPrefix(s Status) string {
-	switch s {
-	case StatusOK:
+func textPrefix(c Check) string {
+	switch {
+	case c.Skipped():
+		return "skip: "
+	case c.Status == StatusOK:
 		return "ok:   "
-	case StatusWarn:
+	case c.Status == StatusWarn:
 		return "warn: "
 	default:
 		return "FAIL: "
@@ -66,6 +75,9 @@ func (c *checkList) ok(name, format string, args ...any)   { c.add(name, StatusO
 func (c *checkList) warn(name, format string, args ...any) { c.add(name, StatusWarn, format, args...) }
 func (c *checkList) fail(name, format string, args ...any) { c.add(name, StatusFail, format, args...) }
 
+// optional marks the last check as optional by design (D75).
+func (c *checkList) optional() { (*c)[len(*c)-1].Optional = true }
+
 // hostOS gates the OS-specific checks; a var so tests can play Windows.
 var hostOS = runtime.GOOS
 
@@ -80,13 +92,15 @@ func Run(w io.Writer, root string, netProbe bool) bool {
 	return Render(w, Checks(root, netProbe))
 }
 
-// Counts tallies outcomes by status.
+// Counts tallies outcomes by status; skipped optional checks (D75) are in
+// none of the three.
 func Counts(list []Check) (nOK, nWarn, nFail int) {
 	for _, c := range list {
-		switch c.Status {
-		case StatusOK:
+		switch {
+		case c.Skipped():
+		case c.Status == StatusOK:
 			nOK++
-		case StatusWarn:
+		case c.Status == StatusWarn:
 			nWarn++
 		default:
 			nFail++
@@ -95,17 +109,32 @@ func Counts(list []Check) (nOK, nWarn, nFail int) {
 	return nOK, nWarn, nFail
 }
 
+// Skipped counts the optional checks that are not set up (D75).
+func Skipped(list []Check) int {
+	n := 0
+	for _, c := range list {
+		if c.Skipped() {
+			n++
+		}
+	}
+	return n
+}
+
 // Render writes list in the bash kit's text format plus the summary line,
 // and reports whether no check failed.
 func Render(w io.Writer, list []Check) bool {
 	for _, c := range list {
-		fmt.Fprintf(w, "%s%s\n", textPrefix(c.Status), c.Detail)
+		fmt.Fprintf(w, "%s%s\n", textPrefix(c), c.Detail)
 		for _, line := range c.Lines {
 			fmt.Fprintf(w, "      %s\n", line)
 		}
 	}
 	nOK, nWarn, nFail := Counts(list)
-	fmt.Fprintf(w, "doctor: %d ok, %d warn, %d fail\n", nOK, nWarn, nFail)
+	skipped := ""
+	if n := Skipped(list); n > 0 {
+		skipped = fmt.Sprintf(", %d skipped", n)
+	}
+	fmt.Fprintf(w, "doctor: %d ok, %d warn, %d fail%s\n", nOK, nWarn, nFail, skipped)
 	return nFail == 0
 }
 
@@ -113,8 +142,8 @@ func Render(w io.Writer, list []Check) bool {
 // and returns them in report order — the single source for the text
 // report, `cwm doctor --json` and the GUI (D26). netProbe adds the SSH
 // probe (check 11); without it ssh is never invoked. Check 12 (syncthing
-// reachability) is a local HTTP call and always runs (warn only: sync is
-// optional per machine, D17).
+// reachability) is a local HTTP call and always runs; sync is optional per
+// machine (D17), so it is an optional check, never a warning (D75).
 func Checks(root string, netProbe bool) []Check {
 	r := checkList{}
 	if root == "" {
@@ -191,7 +220,8 @@ func Checks(root string, netProbe bool) []Check {
 	}
 
 	// 6. claude presence + version (pinning needs >= 2.1.234), verified by
-	// behaviour (D54): the probe's own version line, no second spawn.
+	// behaviour (D54): the probe's own version line, no second spawn. No
+	// verified Claude Code at all is a FAIL: it is the core dependency (D75).
 	// Found off PATH (D49) still works for cwm, but the user's own shells
 	// and IDEs will not see it — a warning with the exact PATH command.
 	layout := storage.NewLayoutAt(root)
@@ -203,10 +233,10 @@ func Checks(root string, netProbe bool) []Check {
 			for _, c := range nf.Rejected {
 				parts = append(parts, c.Path+": "+c.Result)
 			}
-			r.warn("claude", "claude not found (%d candidate(s) found but not Claude Code: %s) — install Claude Code: %s",
+			r.fail("claude", "claude not found (%d candidate(s) found but not Claude Code: %s) — install Claude Code: %s",
 				len(nf.Rejected), strings.Join(parts, "; "), claudebin.InstallCommand(runtime.GOOS))
 		case errors.Is(err, claudebin.ErrNotFound):
-			r.warn("claude", "claude not found (PATH and the usual install folders) — install Claude Code: %s", claudebin.InstallCommand(runtime.GOOS))
+			r.fail("claude", "claude not found (PATH and the usual install folders) — install Claude Code: %s", claudebin.InstallCommand(runtime.GOOS))
 		default:
 			r.warn("claude", "%v", err)
 		}
@@ -338,7 +368,7 @@ func Checks(root string, netProbe bool) []Check {
 	}
 
 	// 12. syncthing API reachable (optional per machine: `cwm pair` sets
-	// sync up — never FAIL, D17).
+	// sync up — never FAIL, D17; an optional check, never a warning, D75).
 	if ep, err := syncthing.Discover(); err != nil {
 		r.warn("syncthing", "syncthing not reachable (optional per machine — cwm pair sets it up): %v", err)
 	} else if err := syncthing.NewClient(ep).Ping(); err != nil {
@@ -346,6 +376,7 @@ func Checks(root string, netProbe bool) []Check {
 	} else {
 		r.ok("syncthing", "syncthing API reachable at %s", ep.BaseURL)
 	}
+	r.optional()
 
 	return r
 }

@@ -3,6 +3,71 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-20 (v0.7.2 — UI refresh, terminal vocabulary, SPEC-V0.7.2)
+
+The designer review (`docs/ui/DESIGN-REVIEW-V0.7.2.md`) is the input; its
+OWNER DECISIONS section wins over every option it lists. The companion
+reference HTML was never delivered, so the written review is all there is.
+
+- **D67: navigation is a tmux window list plus a Ctrl-K palette.** Desktop
+  tabs read `[cwm] 1:sessions … 7:stats*` (option C of the review); the
+  palette is a shell prompt `cwm ❯` over sections, actions and sessions.
+  Under 720 px a bottom bar (sessions, projects, health, accounts, more)
+  replaces the tab strip, and "more" opens a sheet with the rest plus
+  theme and motion. The footer becomes a solid, fixed statusline. Rejected:
+  a sidebar (costs width on the tables) and About as an eighth tab (it is
+  a modal: About is reference, not a place you work in).
+- **D68: one token set, checked by a script.** Review §2.4 replaces the
+  token block; old names stay as aliases for one release. Contrast is not
+  reviewed by eye any more: `scripts/contrast-check.js` (node, no deps)
+  parses the two theme blocks of `app.css`, flattens translucent surfaces
+  over `--bg` and fails CI when a text pair is under 4.5:1 or a control /
+  chart-mark pair under 3:1. Node is already on the CI runners; the script
+  is not part of the Go build.
+- **D69: build info lives in `internal/buildinfo`; About is local.**
+  `Version`, `Commit`, `BuildDate` come from the release ldflags; without
+  them `debug.ReadBuildInfo()` gives the vcs revision, time and dirty
+  flag, and the UI says `dev build a1b2c3d`. `cli.Version/Commit` remain
+  as overrides so older build scripts keep working. Author metadata is
+  three hard-coded constants (name, GitHub profile, repo), nothing more.
+  `GET /api/about` never touches the network; the only update check is a
+  CSRF-protected POST the user triggers, made by the agent (never the
+  browser) with a 5 s timeout through an injectable client.
+- **D70: "WIP" is called "handoff".** It is what the tab is for: work left
+  on another machine. The API (`/api/wip`), the CLI (`cwm wip`) and the
+  event topic keep their names; `#wip` redirects to `#handoff`. Projects
+  does not absorb it until the tab count would reach nine.
+- **D71: asset budget 200 KB raw, < 60 KB gzip.** The owner raised the hard
+  cap from 150 KB for the refresh (command palette, About, sprite, bottom
+  bar). Gzip is the number that crosses the wire; the raw cap keeps the
+  embedded binary honest. A Go test enforces both. Still no frameworks,
+  no CDN, no runtime fonts, no external requests from the browser.
+- **D72: one copyable-command component, plain Health copy.** Every
+  command in the UI is `[$ command | copy]` with copy → copied (1.4 s,
+  announced). Health reads like a boot log, problems first; the plain
+  title / why / fix copy lives in the dashboard keyed by the doctor check
+  id, so `cwm doctor`, `/api/doctor` and the ids do not change, and the
+  raw detail stays one click away.
+- **D73: the heatmap is always 12 months.** Titled "activity, last 12
+  months", it ignores the range selector, which only drives the KPIs and
+  breakdowns. Token kinds are two bars, billed (input + output) and cache
+  (write + read). Money is `--text-strong` with "≈", never a status
+  colour.
+- **D74: screenshots come from generated demo data.** A throwaway HOME
+  with invented projects, sessions, accounts and 12 months of stats; never
+  a real workspace. The same generator feeds the README and wiki images.
+- **D75: doctor levels: optional checks skip, a missing claude fails.**
+  `doctor.Check` gains `optional` (additive in `--json` and `/api/doctor`).
+  An optional check that is not set up (Syncthing, D17) keeps JSON status
+  `warn` for existing scripts, but prints `skip:`, shows `[ SKIP ]` in
+  `--muted` after the warnings, and counts in no total: not in "N things
+  to fix", not in "N of M checks passed", not in the warn count; the text
+  summary appends ", N skipped" when N > 0. The dashboard reads the flag,
+  never the detail text. `claude not found` (no verified Claude Code
+  binary at all) becomes `FAIL`, so `cwm doctor` exits 1: claude is the
+  core dependency. A verified claude that is only off PATH stays a warn.
+  These two checks are the only CLI output / exit-code changes.
+
 ## 2026-11-20 (v0.7.1 — stats & activity, SPEC-V0.7.1)
 
 The roadmap row v0.7.1 under D48 ("stats are local and derived"): a Stats

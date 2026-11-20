@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +18,6 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/gui"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
-	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
 )
@@ -187,7 +185,7 @@ func runAgent(e *Env, o agentOpts) error {
 		return err
 	}
 	srv, err := gui.New(gui.Options{
-		Version:   status.Version{Version: Version, Commit: Commit, OS: runtime.GOOS, Arch: runtime.GOARCH},
+		Version:   versionInfo(),
 		Layout:    layout,
 		ReposRoot: reposRoot,
 		SyncClient: func() (syncengine.Client, error) {
@@ -214,7 +212,7 @@ func runAgent(e *Env, o agentOpts) error {
 		fmt.Fprintln(e.Stdout, "bound to 127.0.0.1 only; the token in the URL is your dashboard key (persistent; rotate with `cwm service rotate-token`) — press Ctrl-C to stop")
 	} else {
 		// The token never goes to the log (journald / launchd / agent.log).
-		fmt.Fprintf(e.Stdout, "%s %s: serving on %s (pid %d) — open it with `cwm dashboard`\n", name, Version, base, os.Getpid())
+		fmt.Fprintf(e.Stdout, "%s %s: serving on %s (pid %d) — open it with `cwm dashboard`\n", name, buildInfo().Label(), base, os.Getpid())
 	}
 	if !agent.IsLoopback(bind) {
 		fmt.Fprintf(e.Stderr, "%s: WARNING: bound to %s — reachable from the network over plain HTTP; "+

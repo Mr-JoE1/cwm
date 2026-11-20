@@ -135,8 +135,8 @@ func TestDoctorHealthyWorkspace(t *testing.T) {
 	if strings.Contains(got, "FAIL:") {
 		t.Errorf("healthy workspace must have no FAIL lines:\n%s", got)
 	}
-	if !regexp.MustCompile(`(?m)^doctor: 11 ok, 1 warn, 0 fail$`).MatchString(got) {
-		t.Errorf("summary line wrong (11 ok + syncthing warn, no syncthing configured in the sandbox):\n%s", got)
+	if !regexp.MustCompile(`(?m)^doctor: 11 ok, 0 warn, 0 fail, 1 skipped$`).MatchString(got) {
+		t.Errorf("summary line wrong (11 ok + syncthing skipped, no syncthing configured in the sandbox):\n%s", got)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("default mode must never invoke ssh, but the ssh stub was called")
@@ -159,7 +159,7 @@ func TestDoctorMissingWorkspaceFails(t *testing.T) {
 	if !strings.Contains(got, "FAIL: workspace dir missing") {
 		t.Errorf("output missing workspace FAIL:\n%s", got)
 	}
-	if !regexp.MustCompile(`(?m)^doctor: \d+ ok, \d+ warn, [1-9]\d* fail$`).MatchString(got) {
+	if !regexp.MustCompile(`(?m)^doctor: \d+ ok, \d+ warn, [1-9]\d* fail(, \d+ skipped)?$`).MatchString(got) {
 		t.Errorf("summary must report at least one fail:\n%s", got)
 	}
 	if _, err := os.Stat(marker); err == nil {
@@ -223,10 +223,12 @@ func TestDoctorLegacySessionFolders(t *testing.T) {
 	writeFile(t, filepath.Join(root, "workspace", "projects", "-Users-x-legacy", "s.jsonl"), "{}\n")
 
 	var out strings.Builder
-	if !Run(&out, root, false) {
-		t.Fatalf("warn-only doctor must not fail:\n%s", out.String())
-	}
+	Run(&out, root, false)
 	got := out.String()
+	// The legacy folders are a warning; the only FAIL is the missing claude (D75).
+	if n := strings.Count(got, "FAIL: "); n != 1 || !strings.Contains(got, "FAIL: claude not found") || !strings.Contains(got, "warn: unpinned session folders") {
+		t.Fatalf("legacy folders must warn, not fail:\n%s", got)
+	}
 	if !strings.Contains(got, "-Users-x-legacy") || !strings.Contains(got, "plain claude") {
 		t.Errorf("output must name the legacy folder and its cause:\n%s", got)
 	}
@@ -259,9 +261,11 @@ func TestDoctorClaudeNotOnPath(t *testing.T) {
 	t.Setenv("PATH", bin)
 
 	var out strings.Builder
-	Run(&out, root, false)
-	if !strings.Contains(out.String(), "warn: claude not found (PATH and the usual install folders) — install Claude Code: ") {
-		t.Errorf("output missing claude-not-found warn:\n%s", out.String())
+	if Run(&out, root, false) {
+		t.Errorf("no verified claude at all is a FAIL (D75), so Run must report unhealthy:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "FAIL: claude not found (PATH and the usual install folders) — install Claude Code: ") {
+		t.Errorf("output missing claude-not-found FAIL:\n%s", out.String())
 	}
 }
 
@@ -328,8 +332,8 @@ func TestDoctorNetProbeSuccess(t *testing.T) {
 	} else if !strings.Contains(string(data), "-T git@github.com") {
 		t.Errorf("ssh stub args = %q, want BatchMode/ConnectTimeout/-T git@github.com", string(data))
 	}
-	if !regexp.MustCompile(`(?m)^doctor: 12 ok, 1 warn, 0 fail$`).MatchString(got) {
-		t.Errorf("summary must count 12 oks plus the syncthing warn with --net:\n%s", got)
+	if !regexp.MustCompile(`(?m)^doctor: 12 ok, 0 warn, 0 fail, 1 skipped$`).MatchString(got) {
+		t.Errorf("summary must count 12 oks plus the skipped syncthing check with --net:\n%s", got)
 	}
 }
 
@@ -378,11 +382,14 @@ func TestDoctorSyncthingUnreachableWarns(t *testing.T) {
 
 	var out strings.Builder
 	if !Run(&out, root, false) {
-		t.Fatalf("unreachable syncthing is a warn, never a FAIL (exit stays 0):\n%s", out.String())
+		t.Fatalf("unreachable syncthing is optional, never a FAIL (exit stays 0):\n%s", out.String())
 	}
 	got := out.String()
-	if !strings.Contains(got, "warn: syncthing not reachable (optional per machine — cwm pair sets it up)") {
-		t.Errorf("output missing syncthing warn:\n%s", got)
+	if !strings.Contains(got, "skip: syncthing not reachable (optional per machine — cwm pair sets it up)") {
+		t.Errorf("output missing syncthing skip:\n%s", got)
+	}
+	if !strings.Contains(got, ", 1 skipped\n") {
+		t.Errorf("summary must count the skipped optional check:\n%s", got)
 	}
 	if strings.Contains(got, "FAIL:") {
 		t.Errorf("check 12 must never FAIL:\n%s", got)
@@ -503,8 +510,36 @@ func TestDoctorUnverifiedClaude(t *testing.T) {
 	t.Setenv("PATH", bin)
 	var out strings.Builder
 	Run(&out, root, false)
-	want := "warn: claude not found (1 candidate(s) found but not Claude Code: " + filepath.Join(bin, "claude") + ": no Claude Code version line in its --version output)"
+	want := "FAIL: claude not found (1 candidate(s) found but not Claude Code: " + filepath.Join(bin, "claude") + ": no Claude Code version line in its --version output)"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("output missing %q:\n%s", want, out.String())
+	}
+}
+
+// D75: an optional check that is not set up keeps its JSON status for
+// compatibility, but counts as neither a warning nor a pass.
+func TestOptionalCheckCounts(t *testing.T) {
+	list := []Check{
+		{Name: "workspace", Status: StatusOK},
+		{Name: "config-dir", Status: StatusWarn},
+		{Name: "syncthing", Status: StatusWarn, Optional: true},
+		{Name: "claude", Status: StatusFail},
+	}
+	nOK, nWarn, nFail := Counts(list)
+	if nOK != 1 || nWarn != 1 || nFail != 1 || Skipped(list) != 1 {
+		t.Fatalf("counts = %d ok, %d warn, %d fail, %d skipped", nOK, nWarn, nFail, Skipped(list))
+	}
+	if (Check{Status: StatusOK, Optional: true}).Skipped() {
+		t.Error("a passing optional check is not skipped")
+	}
+	var out strings.Builder
+	Render(&out, list[:3])
+	if got := out.String(); !strings.Contains(got, "skip: \n") || !strings.HasSuffix(got, "doctor: 1 ok, 1 warn, 0 fail, 1 skipped\n") {
+		t.Errorf("render:\n%s", got)
+	}
+	out.Reset()
+	Render(&out, list[:2])
+	if !strings.HasSuffix(out.String(), "doctor: 1 ok, 1 warn, 0 fail\n") {
+		t.Errorf("no skipped checks: the summary keeps the bash-kit format:\n%s", out.String())
 	}
 }
