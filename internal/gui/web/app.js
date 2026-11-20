@@ -10,7 +10,7 @@
 "use strict";
 
 (function () {
-  const TABS = ["sessions", "projects", "devices", "wip", "health", "accounts", "stats"];
+  const TABS = ["sessions", "projects", "devices", "handoff", "health", "accounts", "stats"];
   const POLL_MS = 15000;
   const root = document.documentElement;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -452,16 +452,23 @@
     const btn = el("button", { type: "button", class: "btn btn-small", text: "Resume" });
     btn.title = "Open a terminal window resuming this session";
     btn.setAttribute("aria-label", "Resume session " + s.id.slice(0, 8) + " of " + s.project);
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => resumeSession(s, btn));
+    return el("td", null, [btn]);
+  }
+
+  async function resumeSession(s, btn) {
+    let old = "";
+    if (btn) {
       btn.disabled = true;
-      const old = btn.textContent;
+      old = btn.textContent;
       btn.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "Opening…");
-      const r = await post("/api/sessions/resume", { project: s.project, id: s.id });
+    }
+    const r = await post("/api/sessions/resume", { project: s.project, id: s.id });
+    if (btn) {
       btn.disabled = false;
       btn.textContent = old;
-      toastLaunch(r, "Opened a terminal for " + s.project + " · " + s.id.slice(0, 8));
-    });
-    return el("td", null, [btn]);
+    }
+    toastLaunch(r, "Opened a terminal for " + s.project + " · " + s.id.slice(0, 8));
   }
 
   // Each loader fetches one endpoint and renders it. silent = background
@@ -562,15 +569,15 @@
       }), !silent));
     },
 
-    async wip(silent) {
+    async handoff(silent) {
       const r = await api("/api/wip");
-      if (!r.ok) return loadError("wip", r, silent, "Could not scan repos.");
+      if (!r.ok) return loadError("handoff", r, silent, "Could not scan repos.");
       const list = r.data || [];
-      if (!changed("wip", list)) return;
+      if (!changed("handoff", list)) return;
       if (list.length === 0) {
-        return show("wip", message("empty", "No dirty repos — everything committed."));
+        return show("handoff", message("empty", "Nothing to hand off: every local clone is committed."));
       }
-      show("wip", table([col("Repo", "lead"), col("Changed", "status"), col("Last commit", "muted wide")], list.map((d) => [
+      show("handoff", table([col("Repo", "lead"), col("Changed", "status"), col("Last commit", "muted wide")], list.map((d) => [
         el("td", null, [el("span", { class: "proj", text: d.name })]),
         el("td", null, [badge("warn", d.changed + " file" + (d.changed === 1 ? "" : "s"))]),
         d.lastCommit,
@@ -584,6 +591,7 @@
       if (!changed("health", list)) return;
       const counts = { ok: 0, warn: 0, fail: 0 };
       list.forEach((c) => { counts[c.status] = (counts[c.status] || 0) + 1; });
+      healthBadge(list);
       const summary = el("div", { class: "summary" }, [
         badge("ok", counts.ok + " ok"),
         badge("warn", counts.warn + " warn"),
@@ -653,7 +661,29 @@
   }
 
   function renderAccountsDot(list) {
-    $("accounts-dot").hidden = !defaultWithoutLogin(list);
+    const need = defaultWithoutLogin(list);
+    setBadge("accounts", need ? "!" : "", need ? (need.none ? "no account yet" : "the default account has no login") : "");
+  }
+
+  // Tab badges appear only when something needs the user (D67).
+  function setBadge(tab, text, label) {
+    const b = $("badge-" + tab);
+    if (!b) return;
+    b.hidden = !text;
+    b.textContent = text || "";
+    b.title = label || "";
+    if (label) b.setAttribute("aria-label", label); else b.removeAttribute("aria-label");
+  }
+
+  function healthBadge(list) {
+    const n = list.filter((c) => c.status === "warn" || c.status === "fail").length;
+    setBadge("health", n ? String(n) : "", n ? n + (n === 1 ? " thing" : " things") + " to fix" : "");
+  }
+
+  async function refreshHealthBadge() {
+    if (current() === "health" && loaded.health) return; // the tab sets it itself
+    const r = await api("/api/doctor");
+    if (r.ok && Array.isArray(r.data)) healthBadge(r.data);
   }
 
   let accountsPoll = 0;
@@ -1065,10 +1095,7 @@
       const panel = $("panel-" + t);
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
-      if (selected) { // keep the active tab visible in a scrolled (mobile) tab bar
-        const bar = tab.parentNode;
-        if (tab.offsetLeft < bar.scrollLeft || tab.offsetLeft + tab.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = tab.offsetLeft - 16;
-      }
+      if (selected && tab.scrollIntoView) tab.scrollIntoView({ inline: "nearest", block: "nearest" });
       if (selected && panel.hidden) {
         panel.classList.remove("enter");
         void panel.offsetWidth; // restart the enter animation
@@ -1082,7 +1109,8 @@
   }
 
   function current() {
-    const name = location.hash.replace(/^#/, "");
+    let name = location.hash.replace(/^#/, "");
+    if (name === "wip") name = "handoff"; // v0.7.1 bookmarks (D70)
     return TABS.includes(name) ? name : TABS[0];
   }
 
@@ -1093,6 +1121,7 @@
   async function refreshNow(manual) {
     const btn = $("refresh");
     if (manual) btn.classList.add("spinning");
+    if (manual && liveMode === "poll") lastSeen = Date.now();
     if (dashboardVisible()) await load(current(), !manual);
     if (manual) {
       setTimeout(() => btn.classList.remove("spinning"), 300);
@@ -1128,10 +1157,17 @@
 
   function applyBg(on, persist) {
     root.setAttribute("data-bg", on ? "on" : "off");
-    const btn = $("bg-toggle");
-    btn.setAttribute("aria-pressed", String(on));
-    btn.title = "Animated background (" + (on ? "on" : "off") + (reduceMotion.matches ? " — reduced motion: still image" : "") + ")";
+    document.querySelectorAll("[data-motion-toggle]").forEach((btn) => {
+      btn.setAttribute("aria-pressed", String(on));
+      btn.title = "Motion: animated background " + (on ? "on" : "off") + (reduceMotion.matches ? " (reduced motion: still image)" : "") + " (b)";
+    });
     if (persist) store("cwm-bg", on ? "on" : "off");
+  }
+
+  function toggleMotion() {
+    const on = root.getAttribute("data-bg") === "off";
+    applyBg(on, true);
+    toast("info", "Motion " + (on ? "on" : "off"));
   }
 
   function wireToggles() {
@@ -1144,11 +1180,7 @@
     };
     if (systemLight.addEventListener) systemLight.addEventListener("change", onSystem);
     applyBg(root.getAttribute("data-bg") !== "off", false);
-    $("bg-toggle").addEventListener("click", () => {
-      const on = root.getAttribute("data-bg") === "off";
-      applyBg(on, true);
-      toast("info", "Animated background " + (on ? "on" : "off"));
-    });
+    document.querySelectorAll("[data-motion-toggle]").forEach((b) => b.addEventListener("click", toggleMotion));
   }
 
   // --- typing tagline ----------------------------------------------------------------
@@ -1187,26 +1219,61 @@
   let pollTimer = 0;
   let liveMode = "init";
   let lastRefresh = Date.now();
+  let lastSeen = 0; // last sign of life from the agent (any event, any poll answer)
+  let liveTick = 0;
 
   // beat replays the live dot's single ping: one heartbeat per data refresh.
   function beat() {
+    lastSeen = Date.now();
     const box = $("live");
     box.classList.remove("beat");
     void box.offsetWidth;
     box.classList.add("beat");
+    renderLive();
+  }
+
+  function ago(ms) {
+    const sec = Math.max(0, Math.round(ms / 1000));
+    if (sec < 60) return sec + "s ago";
+    if (sec < 3600) return Math.floor(sec / 60) + "m ago";
+    return Math.floor(sec / 3600) + "h ago";
+  }
+
+  function renderLive() {
+    const box = $("live");
+    const mode = box.dataset.mode;
+    let label = "connecting…";
+    if (mode === "offline") label = "offline – retry";
+    else if ((mode === "sse" || mode === "poll") && lastSeen) label = "live " + ago(Date.now() - lastSeen);
+    const text = $("live-text");
+    if (text.textContent !== label) text.textContent = label;
   }
 
   function setLive(mode) {
     liveMode = mode === "offline" ? liveMode : mode;
     const box = $("live");
     box.dataset.mode = mode;
-    const label = { init: "connecting", sse: "live", poll: "auto · 15s", offline: "offline" }[mode] || mode;
-    $("live-text").textContent = label;
     box.title = {
-      sse: "Live updates: server-sent events from cwm",
+      sse: "Live updates from cwm (server-sent events)",
       poll: "Auto-refresh every 15 seconds (this cwm has no live event stream)",
-      offline: "cwm gui is not reachable — retrying",
-    }[mode] || "Live updates";
+      offline: "cwm is not reachable. Click to retry.",
+    }[mode] || "Connecting to cwm";
+    $("offline-banner").hidden = mode !== "offline";
+    renderLive();
+    // A text clock, not an animation: one update a second while visible.
+    clearInterval(liveTick);
+    if (mode === "sse" || mode === "poll") {
+      liveTick = setInterval(() => { if (!document.hidden) renderLive(); }, 1000);
+    }
+  }
+
+  async function retryNow() {
+    const v = await api("/api/version");
+    if (!v.ok) return toast("error", "cwm is still not reachable", "Start it with `cwm dashboard`, then retry.");
+    setLive(liveMode === "init" || liveMode === "offline" ? "poll" : liveMode);
+    beat();
+    for (const t of TABS) stale[t] = true;
+    if (dashboardVisible()) load(current(), true);
   }
 
   // sseAvailable probes GET /api/events: 200 + text/event-stream means the
@@ -1229,7 +1296,7 @@
     }
   }
 
-  const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "wip", accounts: "accounts", stats: "stats" };
+  const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "handoff", accounts: "accounts", stats: "stats" };
   const QUIET = new Set(["ping", "heartbeat", "hello", "keepalive", "open", "connected"]);
   let pendingTopics = new Set();
   let eventTimer = 0;
@@ -1246,6 +1313,7 @@
       }
     } catch (err) { /* plain-text payloads are fine */ }
     topic = topic.toLowerCase();
+    lastSeen = Date.now();
     if (QUIET.has(topic)) return;
     pendingTopics.add(topic || "*");
     parts.forEach((c) => pendingTopics.add(c));
@@ -1259,6 +1327,7 @@
     let tabs = [];
     for (const t of topics) {
       if (t === "state" || t === "accounts" || t === "initialized") refreshState();
+      if (t === "doctor" || t === "health" || t === "*") refreshHealthBadge();
       if (TOPIC_TAB[t]) tabs.push(TOPIC_TAB[t]);
       else if (t !== "state") tabs = TABS.slice();
     }
@@ -1293,6 +1362,9 @@
     let opened = false;
     es.onopen = () => { opened = true; setLive("sse"); beat(); };
     es.onmessage = onServerEvent;
+    for (const name of ["heartbeat", "hello"]) {
+      es.addEventListener(name, () => { lastSeen = Date.now(); if ($("live").dataset.mode === "offline") setLive("sse"); });
+    }
     for (const name of ["change", "update", "refresh", "state", "accounts", "sessions", "projects", "devices", "wip", "doctor", "health"]) {
       es.addEventListener(name, onServerEvent);
     }
@@ -1322,18 +1394,182 @@
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
   }
 
+  function openKeys() {
+    closeMenu(false);
+    const dlg = $("keys");
+    root.setAttribute("data-keys", "open");
+    if (!dlg.open) dlg.showModal();
+  }
+
+  // --- header menu (narrow screens) -------------------------------------------------
+
+  function closeMenu(refocus) {
+    const m = $("menu");
+    if (m.hidden) return;
+    m.hidden = true;
+    $("menu-btn").setAttribute("aria-expanded", "false");
+    if (refocus) $("menu-btn").focus();
+  }
+
+  function wireMenu() {
+    const btn = $("menu-btn");
+    const m = $("menu");
+    btn.addEventListener("click", () => {
+      const open = m.hidden;
+      m.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+      if (open) { const first = m.querySelector("button"); if (first) first.focus(); }
+    });
+    document.addEventListener("click", (ev) => {
+      if (!m.hidden && !m.contains(ev.target) && !btn.contains(ev.target)) closeMenu(false);
+    });
+    m.addEventListener("click", (ev) => {
+      if (ev.target.closest(".menu-item")) closeMenu(false);
+    });
+  }
+
+  // --- command palette (D67): a shell prompt over sections, actions, sessions --------
+
+  let palReturn = null;
+  let palItems = [];
+  let palAt = 0;
+
+  function palEntries() {
+    const out = TABS.map((t, i) => ({ kind: "section", label: t, hint: (i + 1) + ":", run: () => { activate(t); $("tab-" + t).focus({ preventScroll: true }); } }));
+    const act = (label, hint, run) => out.push({ kind: "action", label: label, hint: hint, run: run });
+    act("theme auto", "t", () => applyTheme("system", true));
+    act("theme dark", "t", () => applyTheme("dark", true));
+    act("theme light", "t", () => applyTheme("light", true));
+    act("motion on/off", "b", toggleMotion);
+    act("refresh", "r", () => refreshNow(true));
+    act("copy debug logs", "d", copyDebugLogs);
+    act("filter sessions", "/", () => { activate("sessions"); $("sessions-filter").focus(); });
+    act("keyboard shortcuts", "?", openKeys);
+    if (window.cwmAbout) act("about cwm", "", window.cwmAbout);
+    sessionsCache.forEach((s) => out.push({ kind: "session", label: "resume " + s.project, sub: s.firstPrompt || "(no prompt)", hint: s.id.slice(0, 8),
+      run: () => resumeSession(s, null) }));
+    return out;
+  }
+
+  // fuzzy: every query character in order; contiguous runs and word starts score higher.
+  function fuzzy(q, text) {
+    if (!q) return 1;
+    const t = text.toLowerCase();
+    let at = -1, score = 0, run = 0;
+    for (const ch of q) {
+      const i = t.indexOf(ch, at + 1);
+      if (i < 0) return 0;
+      run = i === at + 1 ? run + 1 : 0;
+      score += 1 + run * 2 + (i === 0 || t[i - 1] === " " || t[i - 1] === "-" ? 3 : 0);
+      at = i;
+    }
+    return score - t.length / 100;
+  }
+
+  function renderPalette() {
+    const q = $("pal-input").value.trim().toLowerCase().replace(/^cwm\s+/, "");
+    const scored = palEntries().map((e) => ({ e: e, s: Math.max(fuzzy(q, e.label), e.sub ? fuzzy(q, e.label + " " + e.sub) * 0.9 : 0) }))
+      .filter((x) => x.s > 0);
+    if (q) scored.sort((a, b) => b.s - a.s);
+    palItems = scored.slice(0, 12).map((x) => x.e);
+    palAt = Math.min(palAt, Math.max(0, palItems.length - 1));
+    const list = $("pal-list");
+    list.replaceChildren(...palItems.map((e, i) => {
+      const li = el("li", { role: "option", id: "pal-" + i, class: "pal-item pal-" + e.kind, "aria-selected": String(i === palAt) }, [
+        el("span", { class: "pal-kind", text: e.kind }),
+        el("span", { class: "pal-label" }, [e.label, e.sub ? el("span", { class: "pal-sub", text: e.sub }) : null]),
+        e.hint ? el("span", { class: "pal-key", text: e.hint }) : null,
+      ]);
+      li.addEventListener("mousemove", () => { if (palAt !== i) { palAt = i; markPalette(); } });
+      li.addEventListener("click", () => runPalette(i));
+      return li;
+    }));
+    if (!palItems.length) list.appendChild(el("li", { class: "pal-empty", text: "no match for \u201c" + q + "\u201d" }));
+    markPalette();
+  }
+
+  function markPalette() {
+    $("pal-list").querySelectorAll(".pal-item").forEach((li, i) => {
+      li.setAttribute("aria-selected", String(i === palAt));
+      if (i === palAt && li.scrollIntoView) li.scrollIntoView({ block: "nearest" });
+    });
+    const input = $("pal-input");
+    if (palItems.length) input.setAttribute("aria-activedescendant", "pal-" + palAt); else input.removeAttribute("aria-activedescendant");
+  }
+
+  function runPalette(i) {
+    const e = palItems[i];
+    if (!e) return;
+    closePalette(false);
+    e.run();
+  }
+
+  function openPalette() {
+    const dlg = $("palette");
+    if (dlg.open) return;
+    closeMenu(false);
+    palReturn = document.activeElement;
+    $("pal-input").value = "";
+    palAt = 0;
+    renderPalette();
+    dlg.showModal();
+    $("pal-input").focus();
+    if (!sessionsCache.length) {
+      api("/api/sessions").then((r) => {
+        if (r.ok && Array.isArray(r.data)) { sessionsCache = r.data; if (dlg.open) renderPalette(); }
+      });
+    }
+  }
+
+  function closePalette(refocus) {
+    const dlg = $("palette");
+    if (dlg.open) dlg.close();
+    if (refocus !== false && palReturn && palReturn.focus) palReturn.focus();
+    palReturn = null;
+  }
+
+  function wirePalette() {
+    const dlg = $("palette");
+    const input = $("pal-input");
+    document.querySelectorAll("[data-palette-open]").forEach((b) => b.addEventListener("click", openPalette));
+    input.addEventListener("input", () => { palAt = 0; renderPalette(); });
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        const n = palItems.length;
+        if (n) palAt = (palAt + (ev.key === "ArrowDown" ? 1 : n - 1)) % n;
+        markPalette();
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        runPalette(palAt);
+      }
+    });
+    dlg.addEventListener("cancel", (ev) => { ev.preventDefault(); closePalette(); });
+    dlg.addEventListener("click", (ev) => { if (ev.target === dlg) closePalette(); });
+  }
+
   function wireKeys() {
     const dlg = $("keys");
     $("keys-close").addEventListener("click", () => dlg.close());
     // While the shortcut help is open the tab key hints show (D66).
     dlg.addEventListener("close", () => root.removeAttribute("data-keys"));
+    document.querySelectorAll("[data-keys-open]").forEach((b) => b.addEventListener("click", () => openKeys()));
     document.addEventListener("keydown", (ev) => {
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === "k" || ev.key === "K")) {
+        ev.preventDefault();
+        if ($("palette").open) closePalette(); else openPalette();
+        return;
+      }
+      if (ev.key === "Escape" && !$("menu").hidden) {
+        closeMenu(true);
+        return;
+      }
       if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey) return;
       if (ev.key === "Escape" && ev.target === $("sessions-filter")) {
         ev.target.blur();
         return;
       }
-      if (typing(ev.target) || dlg.open || $("debug-dialog").open || $("acct-remove-dialog").open) return;
+      if (typing(ev.target) || document.querySelector("dialog[open]")) return;
       const k = ev.key;
       if (k >= "1" && k <= "7" && dashboardVisible()) {
         const name = TABS[Number(k) - 1];
@@ -1346,14 +1582,13 @@
       } else if (k === "t") {
         cycleTheme();
       } else if (k === "b") {
-        $("bg-toggle").click();
+        toggleMotion();
       } else if (k === "r") {
         refreshNow(true);
       } else if (k === "d") {
         copyDebugLogs();
       } else if (k === "?") {
-        root.setAttribute("data-keys", "open");
-        dlg.showModal();
+        openKeys();
       } else {
         return;
       }
@@ -1665,6 +1900,47 @@
     });
   }
 
+  // --- statusline (D67) -------------------------------------------------------------
+
+  // versionLabel never says "dev … dev": a build without release ldflags is
+  // "dev build <commit>" (or just "dev build").
+  function versionLabel(v) {
+    const ver = String(v.version || "").replace(/^v/, "");
+    const commit = v.commit && v.commit !== "dev" && v.commit !== "unknown" ? String(v.commit).slice(0, 7) : "";
+    if (v.dev || !ver || ver === "dev") return "dev build" + (commit ? " " + commit : "");
+    return "v" + ver;
+  }
+
+  function uptime(fromISO) {
+    const t = new Date(fromISO).getTime();
+    if (isNaN(t)) return "";
+    const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+    if (m < 60) return m + "m";
+    const h = Math.floor(m / 60);
+    if (h < 48) return h + "h" + String(m % 60).padStart(2, "0") + "m";
+    return Math.floor(h / 24) + "d" + (h % 24) + "h";
+  }
+
+  let agentInfo = null;
+  async function statusline() {
+    const [v, a] = await Promise.all([api("/api/version"), api("/api/agent")]);
+    if (v.ok && v.data) {
+      $("sl-version").textContent = "[cwm " + versionLabel(v.data) + "]";
+      $("sl-os").textContent = v.data.os + "/" + v.data.arch;
+    }
+    if (a.ok && a.data) {
+      agentInfo = a.data;
+      const bind = a.data.bind || "127.0.0.1";
+      const local = bind === "127.0.0.1" || bind === "localhost" || bind === "::1";
+      const listen = $("sl-listen");
+      listen.textContent = (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + a.data.port + (local ? ", localhost only" : ", reachable from the network");
+      listen.classList.toggle("sl-warn", !local);
+      const tick = () => { $("sl-agent-text").textContent = "agent up " + uptime(agentInfo.started); };
+      tick();
+      setInterval(() => { if (!document.hidden) tick(); }, 30000);
+    }
+  }
+
   // --- boot ------------------------------------------------------------------------------
 
   document.addEventListener("DOMContentLoaded", async () => {
@@ -1693,11 +1969,12 @@
     wireKeys();
     wireDebug();
     wireStats();
+    wireMenu();
+    wirePalette();
+    $("live").addEventListener("click", retryNow);
+    $("offline-retry").addEventListener("click", retryNow);
 
-    const v = await api("/api/version");
-    if (v.ok && v.data) {
-      $("version").textContent = "cwm " + v.data.version + " (" + v.data.os + "/" + v.data.arch + ", " + v.data.commit + ")";
-    }
+    statusline();
     startLive();
     const st = await refreshState();
     let dismissed = false;
@@ -1708,5 +1985,6 @@
       return;
     }
     activate(current());
+    refreshHealthBadge();
   });
 })();

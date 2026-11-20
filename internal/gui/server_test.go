@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -281,9 +282,21 @@ func TestStaticDashboard(t *testing.T) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, tab := range []string{"Sessions", "Projects", "Devices", "WIP", "Health", "Accounts", "Stats"} {
-		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, ">"+tab+"</button>") {
-			t.Errorf("dashboard missing tab %q", tab)
+	// v0.7.2 (D67, D70): a tmux window list, "<k>:<name>"; WIP is "handoff".
+	for i, tab := range []string{"sessions", "projects", "devices", "handoff", "health", "accounts", "stats"} {
+		k := strconv.Itoa(i + 1)
+		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, `<span class="tk" aria-hidden="true">`+k+`:</span>`+tab+`<span`) {
+			t.Errorf("dashboard missing tab %s:%s", k, tab)
+		}
+	}
+	for _, gone := range []string{"Ctrl-C", ">WIP<", "bug-icon"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("index.html still contains %q", gone)
+		}
+	}
+	for _, want := range []string{`class="statusline"`, `id="palette"`, `class="tmux-prefix"`, `~/cwm/</span>sessions</h1>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index.html lacks %s", want)
 		}
 	}
 	for _, asset := range []string{"/app.js", "/app.css", "/theme.js", "/bg.js", "/favicon.svg", "/favicon-16.svg"} {
