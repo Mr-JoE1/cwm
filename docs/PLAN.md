@@ -3,6 +3,92 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-20 (v0.7.1 — stats & activity, SPEC-V0.7.1)
+
+The roadmap row v0.7.1 under D48 ("stats are local and derived"): a Stats
+tab, `cwm stats` and `GET /api/stats`, all computed from the session
+transcripts already in the workspace. Nothing is fetched from an Anthropic
+API and nothing leaves the machine.
+
+- **D60: what counts, and the dedupe rule.** Only `projects/*/*.jsonl` at
+  the top of each project dir (the `cwm sessions` discovery, D19; no
+  `agent-*` sidechains, no `subagents/`). One API response is written as
+  several lines sharing `message.id`, so every id counts once across all
+  files, with usage/model/timestamp from the line with the largest
+  `output_tokens` (ties: earliest timestamp, then scan order).
+  `model: "<synthetic>"` (Claude Code's local error placeholder) is not a
+  response. A user prompt is a `user` entry whose content is a string or
+  has at least one non-`tool_result` block, not `isMeta`, once per `uuid`
+  (resumed transcripts copy entries). Messages = prompts + distinct
+  replies. Tokens are the four usage fields; the 1 h share of cache writes
+  only feeds the cost. A line that does not parse is skipped, an
+  unterminated last line is left for the next scan. The prefilter looks
+  for the bare type values (`"assistant"`, `"user"`, `"session-owner"`),
+  not `"type":"…"`: a writer that puts a space after the colon must not be
+  silently uncounted (found by the smoke's own generator).
+- **D61: incremental scan, aggregation split from scanning.** The cache
+  (`<cwm home>/cache/stats.json`, 0600, atomic, versioned) keeps per file
+  the size, mtime, parsed offset, a SHA-256 of the first 4 KiB, the resume
+  state (last session-owner) and the file's events, varint-packed. Same
+  size+mtime: reuse. Grown with the same head: resume at the offset.
+  Anything else: reparse. Gone: dropped. Events sit in 15-minute UTC
+  buckets (every current zone offset is a multiple of 15 minutes), so a
+  range or time zone change is a re-aggregation of the in-memory index,
+  never a rescan. A corrupt or foreign-version cache is a full rescan,
+  never an error. Measured on this box (1000 sessions × ~200 lines, 32 MB):
+  full scan ~0.6-0.7 s, rescan of an unchanged workspace with the cache
+  loaded from disk ~120-160 ms, in memory ~40 ms.
+- **D62: attribution only from what Claude Code recorded.** Each
+  transcript carries `{"type":"session-owner","accountUuid":…}`; an entry
+  belongs to the closest preceding owner line. The uuid maps to a cwm
+  account through `[account.login] account_uuid`, else the account dir's
+  `.claude.json` `oauthAccount.accountUuid` (`accounts.UUIDMap`). The
+  identity reader now also takes Claude Code's camelCase keys
+  (`accountUuid`, `emailAddress`, `organizationName`): before, real files
+  never yielded a uuid. Anything else is `unattributed`: no guessing from
+  the default account or the device. Raw uuids never reach the API, the
+  CLI or the debug bundle.
+- **D63: the cost is an estimate and says so everywhere.** One static
+  table (`internal/stats/prices.go`, `PricesUpdated`) of public list
+  prices per MTok: input, output, 5 min and 1 h cache write, cache read.
+  Model ids match the longest key that equals them or is followed by a
+  `-<date>` suffix. Unknown models cost $0 and are listed as `unpriced`.
+  The label is always "est., list prices — your plan may be flat-rate".
+  Rejected: fetching prices (network, D48) and per-plan modelling
+  (subscriptions are flat-rate; the number is only an API-equivalent).
+- **D64: one engine per agent, never a second loop.** `stats.Engine`
+  keeps the index in memory; a scan runs in the background, single-flight,
+  at most every 60 s. A request aggregates the current index (≈ms) and,
+  when it is older than 60 s, kicks a refresh behind it; only the very
+  first request of a process waits for the first scan. The `/api/events`
+  snapshot gains a `stats` fingerprint (all-time messages/tokens/last
+  activity), read from the cached index, so a change rides the existing
+  5 s diff as `changed: ["stats"]`. `cwm stats --json` prints the API body
+  with the same encoder (only the three scan fields differ). `time/tzdata`
+  is embedded: Windows has no IANA database outside a Go install, and
+  `?tz=` / `--tz` must work there (+~450 KB). The local zone is reported
+  by its IANA name when `$TZ` or `/etc/localtime` tell it.
+- **D65: the Stats tab.** Seventh tab, key `7`. KPI cards, a 53-week
+  heatmap (weeks as columns, Monday first unless `Intl.Locale` week info
+  says Sunday, levels from the quartiles of the non-zero days, every cell
+  a `<button>` with an aria-label, one in the tab order, arrows move by
+  day/week, Home/End to the ends), top projects/models/accounts as bars,
+  the token-kind split as one stacked bar, a 30-day trend in SVG built with
+  `createElementNS`. The browser's `Intl` zone goes in `?tz=`; a zone the
+  agent rejects falls back to the agent's own. Range and metric are
+  remembered in localStorage. Assets 136 KB of the 150 KB budget.
+- **D66: polish carried over from the v0.6/v0.7 reviews.** A hand-tuned
+  16 px favicon (pixel-grid `>` and cursor, no hexagon; the hex mark keeps
+  32 px and up). Tab shortcut digits read as counts, so they became small
+  key caps in the tab's corner, shown on hover, keyboard focus and while
+  the `?` help is open. Surfaces are near-opaque (.96/.97) and a veil dims
+  the canvas under the content column. Installer notes wrap at the
+  terminal width inside the gutter. `cwm account remove --delete-config`
+  (TTY prompt otherwise; only dirs inside the cwm home are ever deleted).
+  `cwm mcp add/remove` round-trip unknown fields and gain `--env`, `--url`,
+  `--type`, `--header`. Doctor no longer warns about a missing repos.tsv
+  in a workspace without projects.
+
 ## 2026-11-19 (v0.6.2 — accounts tab, verified claude, quiet fresh installs, SPEC-V0.6.2)
 
 From a real Windows 11 test of v0.6.1: Claude Code lived in

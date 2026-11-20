@@ -81,7 +81,7 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
   </tr>
   <tr>
     <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click; the repo clones if it's missing.</p></td>
-    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, WIP, Health and Accounts (add, log in, set default, remove). Dark/light themes, live updates, phone layout.</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, WIP, Health, Accounts (add, log in, set default, remove) and Stats. Dark/light themes, live updates, phone layout.</p></td>
     <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
   </tr>
   <tr>
@@ -94,11 +94,23 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
     <td valign="top"><h4>📥 Bring your setup</h4><p>Import an existing Claude config folder, with a dry run and backups first.</p></td>
     <td valign="top"><h4>🛡️ Local only</h4><p>No telemetry, no cloud. The dashboard listens on localhost behind a token.</p></td>
   </tr>
+  <tr>
+    <td valign="top" colspan="3"><h4>📊 Stats</h4><p>Sessions, messages, tokens, streaks and a year-long activity heatmap, counted from your local transcripts (<code>cwm stats</code> and the Stats tab); nothing is sent anywhere.</p></td>
+  </tr>
 </table>
 
 ## Screenshots
 
 <table>
+  <tr>
+    <td colspan="2" valign="top" align="center">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-stats-light.png">
+        <img alt="Stats tab, dark theme: KPI cards, a 53-week activity heatmap with a tooltip, top projects, top models and token kinds (generated demo data)" src="docs/img/gui-stats-dark.png" width="100%">
+      </picture><br>
+      <sub><b>Stats</b>: activity from your local transcripts (demo data)</sub>
+    </td>
+  </tr>
   <tr>
     <td width="68%" valign="top" align="center">
       <img alt="Health tab, dark theme: cwm doctor checks with ok, warn and fail status pills" src="docs/img/gui-health-dark.png" width="100%"><br>
