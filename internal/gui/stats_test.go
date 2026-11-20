@@ -93,6 +93,9 @@ func TestSnapshotChangedStats(t *testing.T) {
 	if got := strings.Join(a.changed(b), ","); got != "stats" {
 		t.Errorf("changed = %q, want stats", got)
 	}
+	if got := (Snapshot{}).changed(b); len(got) != 0 {
+		t.Errorf("first scan finishing reported as %v", got)
+	}
 }
 
 // TestEventsStreamStatsChange: a transcript appearing while a dashboard
@@ -123,6 +126,15 @@ func TestEventsStreamStatsChange(t *testing.T) {
 	ch := make(chan sseEvent, 32)
 	go readEvents(t, bufio.NewScanner(resp.Body), ch)
 	next(t, ch, "hello", 2*time.Second)
+	// Let the first (empty) scan land and be adopted, so the transcript
+	// below is a change and not part of the first fingerprint.
+	for deadline := time.Now().Add(5 * time.Second); srv.statsEngine().Fingerprint() == ""; {
+		if time.Now().After(deadline) {
+			t.Fatal("first stats scan did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond) // > 2 polls: the stream has adopted it
 
 	writeFile(t, filepath.Join(root, "workspace", "projects", "alpha", "s.jsonl"), statsLines("u", "s", time.Now(), 5))
 	deadline := time.After(5 * time.Second)

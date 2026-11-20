@@ -52,7 +52,8 @@ func (a Snapshot) changed(b Snapshot) []string {
 	if a.Sessions != b.Sessions || !a.NewestSession.Equal(b.NewestSession) {
 		out = append(out, "sessions")
 	}
-	if a.Stats != b.Stats {
+	// "" is "no scan finished yet": the first scan landing is not news.
+	if a.Stats != b.Stats && a.Stats != "" {
 		out = append(out, "stats")
 	}
 	return out
@@ -149,6 +150,9 @@ func (s *Server) serveEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			cur := s.snapshot()
+			if prev.Stats == "" {
+				prev.Stats = cur.Stats // adopt the first fingerprint silently
+			}
 			if ch := prev.changed(cur); len(ch) > 0 {
 				if !send("state", map[string]any{"changed": ch, "snapshot": cur}) {
 					return
