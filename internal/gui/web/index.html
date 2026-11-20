@@ -341,7 +341,7 @@
   <div class="row"><button type="button" class="btn" id="keys-close">Close</button><button type="button" class="btn" data-about-open>About cwm</button></div>
 </dialog>
 
-<dialog id="more-sheet" class="sheet" aria-label="More sections and settings">
+<dialog id="more-sheet" class="sheet" tabindex="-1" aria-label="More sections and settings">
   <div class="sheet-grip" aria-hidden="true"></div>
   <p class="menu-label">sections</p>
   <div class="sheet-grid">
@@ -400,7 +400,7 @@
   <h2 id="acct-remove-title">remove account</h2>
   <p class="hint" id="acct-remove-text"></p>
   <div id="acct-remove-form">
-    <label class="check"><input type="checkbox" id="acct-remove-dir"> <span>also delete the folder (its credentials and settings; the backup keeps a copy)</span></label>
+    <label class="chk"><input type="checkbox" id="acct-remove-dir"> <span>also delete the folder (its credentials and settings; the backup keeps a copy)</span></label>
     <label for="acct-remove-name" id="acct-remove-name-label" class="remove-label">type the account name to confirm</label>
     <input type="text" id="acct-remove-name" class="input" autocomplete="off" spellcheck="false">
   </div>

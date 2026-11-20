@@ -76,7 +76,7 @@
     return box;
   }
 
-  // --- HTTP ---------------------------------------------------------------
+  // --- HTTP
 
   async function request(path, init) {
     let res;
@@ -125,7 +125,7 @@
     });
   }
 
-  // --- copy, toasts, inline feedback ---------------------------------------
+  // --- copy, toasts, inline feedback
 
   // announce speaks a short status through the polite live region.
   function announce(text) {
@@ -233,7 +233,7 @@
       ". To run `claude` in your own terminals too, run this once and open a new terminal:", { cmd: d.pathHint, sticky: true });
   }
 
-  // --- debug logs (D52) -----------------------------------------------------------
+  // --- debug logs (D52)
 
   const BUG_URL = document.querySelector("a[href*='/issues/new']") ? document.querySelector("a[href*='/issues/new']").href : "";
 
@@ -357,7 +357,7 @@
     return true;
   }
 
-  // --- table helpers -------------------------------------------------------
+  // --- table helpers
 
   // col describes a column: label (header + mobile card label) and class.
   function col(label, cls) {
@@ -413,7 +413,7 @@
     return el("span", { class: "badge badge-" + cls, text: label || (statusName === "fail" ? "fail" : String(statusName)) });
   }
 
-  // --- tabs ----------------------------------------------------------------
+  // --- tabs
 
   // dayGroup labels a session by its local day: today / yesterday / this
   // week / the date.
@@ -646,7 +646,7 @@
     },
   };
 
-  // --- health: a boot log, problems first (D72) ------------------------------------
+  // --- health: a boot log, problems first (D72)
 
   // Plain copy per doctor check id: [title, why, fix]. The ids and
   // /api/doctor are unchanged; the raw detail stays behind "details".
@@ -671,8 +671,11 @@
     "hook-scripts": "hook scripts", "repos-tsv": "repo list", "session-folders": "session folders", settings: "workspace settings",
     stignore: "sync ignore file", syncthing: "Syncthing reachable", ssh: "GitHub SSH", "wip-log": "handoff log", "path-duplicates": "PATH",
   };
-  const BOOT = { ok: "[  OK  ]", warn: "[ WARN ]", fail: "[FAILED]" };
-  const SR_STATUS = { ok: "passed:", warn: "warning:", fail: "failed:" };
+  const BOOT = { ok: "[  OK  ]", warn: "[ WARN ]", fail: "[FAILED]", skip: "[ SKIP ]" };
+  const SR_STATUS = { ok: "passed:", warn: "warning:", fail: "failed:", skip: "optional, not set up:" };
+  // level: an optional check that is not set up is "skip", never a problem (D75).
+  const level = (c) => c.optional && c.status !== "ok" ? "skip" : BOOT[c.status] ? c.status : "warn";
+  const isProblem = (c) => /^(warn|fail)$/.test(level(c));
 
   // fixCommand prefers the command the check itself names.
   function fixCommand(c, fallback) {
@@ -688,7 +691,7 @@
   }
 
   function checkRow(c, i, animate) {
-    const st = BOOT[c.status] ? c.status : "warn";
+    const st = level(c);
     const plain = st === "ok" ? null : HEALTH[c.name];
     const title = plain ? plain[0] : st === "ok" ? (PASSED[c.name] || c.name) : String(c.detail || c.name).split(" — ")[0];
     const cmd = st === "ok" ? "" : fixCommand(c, plain ? plain[2] : "");
@@ -708,29 +711,28 @@
   }
 
   function healthView(list, animate) {
-    const rank = { fail: 0, warn: 1, ok: 2 };
-    const sorted = list.map((c, i) => [c, i]).sort((a, b) => ((rank[a[0].status] ?? 1) - (rank[b[0].status] ?? 1)) || a[1] - b[1]).map((x) => x[0]);
-    const bad = sorted.filter((c) => c.status !== "ok");
-    const good = sorted.filter((c) => c.status === "ok");
+    const rank = { fail: 0, warn: 1, skip: 2, ok: 3 };
+    const sorted = list.map((c, i) => [c, i]).sort((a, b) => (rank[level(a[0])] - rank[level(b[0])]) || a[1] - b[1]).map((x) => x[0]);
+    const bad = sorted.filter(isProblem);
+    const rows = sorted.filter((c) => level(c) !== "ok");
+    const good = sorted.filter((c) => level(c) === "ok");
+    const counted = list.length - rows.length + bad.length; // skipped optional checks count for nothing
     const summary = bad.length
       ? el("div", { class: "health-sum health-sum-warn", role: "status" }, [el("strong", { text: plural(bad.length, "thing") + " to fix" }),
-        el("span", { class: "health-sum-sub", text: good.length + " of " + list.length + " checks passed" })])
-      : el("div", { class: "health-sum health-sum-ok", role: "status" }, [el("strong", { text: "all " + list.length + " checks passed" })]);
+        el("span", { class: "health-sum-sub", text: good.length + " of " + counted + " checks passed" })])
+      : el("div", { class: "health-sum health-sum-ok", role: "status" }, [el("strong", { text: "all " + counted + " checks passed" })]);
     const box = el("div", { class: "health" }, [summary]);
-    if (bad.length) box.appendChild(el("ul", { class: "checks" }, bad.map((c, i) => checkRow(c, i, animate))));
+    if (rows.length) box.appendChild(el("ul", { class: "checks" }, rows.map((c, i) => checkRow(c, i, animate))));
     if (good.length) {
-      const label = () => good.length + (good.length === 1 ? " check" : " checks") + " passed (" + (det.open ? "hide" : "show") + ")";
-      const sum = el("summary", { class: "passed-sum" });
-      const det = el("details", { class: "passed" }, [sum, el("ul", { class: "checks" }, good.map((c, i) => checkRow(c, i, false)))]);
-      if (!bad.length) det.open = true;
-      sum.textContent = label();
-      det.addEventListener("toggle", () => { sum.textContent = label(); });
+      const det = el("details", { class: "passed" }, [el("summary", { class: "passed-sum", text: plural(good.length, "check") + " passed" }),
+        el("ul", { class: "checks" }, good.map((c, i) => checkRow(c, i, false)))]);
+      det.open = !bad.length;
       box.appendChild(det);
     }
     return box;
   }
 
-  // --- devices: Syncthing not set up yet (D58) ------------------------------------
+  // --- devices: Syncthing not set up yet (D58)
 
   // groupID shows a Syncthing ID the way Syncthing does: 7-char groups.
   function groupID(id) {
@@ -762,7 +764,7 @@
     ]);
   }
 
-  // --- accounts (D55-D57) --------------------------------------------------------------
+  // --- accounts (D55-D57)
 
   const LOGIN_PILL = {
     never: ["warn", "no login yet"],
@@ -804,7 +806,7 @@
   }
 
   function healthBadge(list) {
-    const n = list.filter((c) => c.status === "warn" || c.status === "fail").length;
+    const n = list.filter(isProblem).length;
     setBadge("health", n ? String(n) : "", n ? n + (n === 1 ? " thing" : " things") + " to fix" : "");
   }
 
@@ -1106,7 +1108,7 @@
     });
   }
 
-  // --- setup state + wizard -----------------------------------------------------
+  // --- setup state + wizard
 
   let state = null;
   async function refreshState() {
@@ -1210,12 +1212,11 @@
         return say(initBox, "error", "Initialization failed.", r.error);
       }
       const checks = r.data.checks || [];
-      const fails = checks.filter((c) => c.status === "fail").length;
-      const warns = checks.filter((c) => c.status === "warn").length;
-      checks.forEach((c) => wlog(c.status === "ok" ? "ok" : c.status === "fail" ? "fail" : "out", (c.status === "warn" ? "[ WARN ] " : "") + c.name + ": " + String(c.detail || "").split(" — ")[0]));
+      const n = { ok: 0, warn: 0, fail: 0, skip: 0 };
+      checks.forEach((c) => { const l = level(c); n[l]++; wlog(l === "ok" || l === "fail" ? l : "out", (l === "ok" || l === "fail" ? "" : BOOT[l] + " ") + c.name + ": " + String(c.detail || "").split(" — ")[0]); });
       wlog("ok", "workspace initialized");
       say(initBox, "ok", "Workspace initialized.",
-        "health: " + (checks.length - fails - warns) + " ok, " + warns + " warn, " + fails + " fail (details in the Health tab)");
+        "health: " + n.ok + " ok, " + n.warn + " warn, " + n.fail + " fail" + (n.skip ? ", " + n.skip + " skipped" : "") + " (details in the Health tab)");
       toast("ok", "Workspace initialized");
       await refreshState();
       setTimeout(() => gotoStep(hasAccount() ? "pair" : "account"), 700);
@@ -1363,7 +1364,7 @@
     }
   }
 
-  // --- theme + background toggles ---------------------------------------------------
+  // --- theme + background toggles
 
   const systemLight = window.matchMedia("(prefers-color-scheme: light)");
   const THEMES = ["system", "dark", "light"];
@@ -1418,7 +1419,7 @@
     document.querySelectorAll("[data-motion-toggle]").forEach((b) => b.addEventListener("click", toggleMotion));
   }
 
-  // --- live updates: SSE when the server has /api/events, else polling ----------------
+  // --- live updates: SSE when the server has /api/events, else polling
 
   let pollTimer = 0;
   let liveMode = "init";
@@ -1593,7 +1594,7 @@
     });
   }
 
-  // --- keyboard shortcuts ------------------------------------------------------------
+  // --- keyboard shortcuts
 
   function typing(target) {
     if (!target || !target.tagName) return false;
@@ -1608,7 +1609,7 @@
     if (!dlg.open) dlg.showModal();
   }
 
-  // --- header menu (narrow screens) -------------------------------------------------
+  // --- header menu (narrow screens)
 
   function closeMenu(refocus) {
     const m = $("menu");
@@ -1635,7 +1636,7 @@
     });
   }
 
-  // --- command palette (D67): a shell prompt over sections, actions, sessions --------
+  // --- command palette (D67): a shell prompt over sections, actions, sessions
 
   let palReturn = null;
   let palItems = [];
@@ -1803,7 +1804,7 @@
     });
   }
 
-  // --- stats (v0.7.1, D65) ---------------------------------------------------
+  // --- stats (v0.7.1, D65)
   // Everything below builds DOM / SVG nodes; numbers and names only ever
   // reach the page as textContent or attribute values.
 
@@ -2111,7 +2112,7 @@
     });
   }
 
-  // --- About (D69): neofetch layout + release graph ------------------------------------
+  // --- About (D69): neofetch layout + release graph
 
   const SWATCHES = ["bg", "surface-2", "text", "muted", "accent", "accent-2", "magenta", "warn", "fail"];
   let aboutData = null;
@@ -2155,9 +2156,9 @@
     }));
     $("about-releases").replaceChildren(...(d.releases || []).map((r) => el("li", { class: "graph-node" + (r.state ? " is-" + r.state : "") }, [
       el("span", { class: "graph-v", text: "v" + r.v }),
+      el("span", { class: "graph-note", text: r.note }),
       r.state === "current" ? el("span", { class: "graph-tag graph-head", text: "HEAD → this build" }) : null,
       r.state === "next" ? el("span", { class: "graph-tag graph-next", text: "next" }) : null,
-      el("span", { class: "graph-note", text: r.note }),
     ])));
     renderUpdate(d.update);
   }
@@ -2211,7 +2212,7 @@
     });
   }
 
-  // --- statusline (D67) -------------------------------------------------------------
+  // --- statusline (D67)
 
   // versionLabel never says "dev … dev": a build without release ldflags is
   // "dev build <commit>" (or just "dev build").
@@ -2222,13 +2223,14 @@
     return "v" + ver;
   }
 
+  // uptime: 12s, 3m, 3h12m, 2d4h (statusline and About).
   function uptime(fromISO) {
     const t = new Date(fromISO).getTime();
     if (isNaN(t)) return "";
-    const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+    const s = Math.max(0, Math.floor((Date.now() - t) / 1000)), m = Math.floor(s / 60), h = Math.floor(m / 60);
+    if (s < 60) return s + "s";
     if (m < 60) return m + "m";
-    const h = Math.floor(m / 60);
-    if (h < 48) return h + "h" + String(m % 60).padStart(2, "0") + "m";
+    if (h < 24) return h + "h" + String(m % 60).padStart(2, "0") + "m";
     return Math.floor(h / 24) + "d" + (h % 24) + "h";
   }
 
@@ -2246,13 +2248,16 @@
       const listen = $("sl-listen");
       listen.textContent = (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + a.data.port + (local ? ", localhost only" : ", reachable from the network");
       listen.classList.toggle("sl-warn", !local);
-      const tick = () => { $("sl-agent-text").textContent = "agent up " + uptime(agentInfo.started); };
+      // every second for the first minute (it shows seconds), then every 30 s
+      const tick = () => {
+        $("sl-agent-text").textContent = "agent up " + uptime(agentInfo.started);
+        setTimeout(tick, /s$/.test(uptime(agentInfo.started)) ? 1000 : 30000);
+      };
       tick();
-      setInterval(() => { if (!document.hidden) tick(); }, 30000);
     }
   }
 
-  // --- boot ------------------------------------------------------------------------------
+  // --- boot
 
   document.addEventListener("DOMContentLoaded", async () => {
     wireToggles();
@@ -2282,7 +2287,8 @@
     wireMenu();
     wirePalette();
     const sheet = $("more-sheet");
-    document.querySelectorAll("[data-more-open]").forEach((b) => b.addEventListener("click", () => sheet.showModal()));
+    // opened by a tap, focus the sheet itself: no ring until the keyboard is used
+    document.querySelectorAll("[data-more-open]").forEach((b) => b.addEventListener("click", (ev) => { sheet.showModal(); if (ev.detail) sheet.focus(); }));
     document.querySelectorAll("[data-tab-go]").forEach((b) => b.addEventListener("click", () => {
       if (sheet.open) sheet.close();
       activate(b.dataset.tabGo);

@@ -56,6 +56,17 @@ reference HTML was never delivered, so the written review is all there is.
 - **D74: screenshots come from generated demo data.** A throwaway HOME
   with invented projects, sessions, accounts and 12 months of stats; never
   a real workspace. The same generator feeds the README and wiki images.
+- **D75: doctor levels: optional checks skip, a missing claude fails.**
+  `doctor.Check` gains `optional` (additive in `--json` and `/api/doctor`).
+  An optional check that is not set up (Syncthing, D17) keeps JSON status
+  `warn` for existing scripts, but prints `skip:`, shows `[ SKIP ]` in
+  `--muted` after the warnings, and counts in no total: not in "N things
+  to fix", not in "N of M checks passed", not in the warn count; the text
+  summary appends ", N skipped" when N > 0. The dashboard reads the flag,
+  never the detail text. `claude not found` (no verified Claude Code
+  binary at all) becomes `FAIL`, so `cwm doctor` exits 1: claude is the
+  core dependency. A verified claude that is only off PATH stays a warn.
+  These two checks are the only CLI output / exit-code changes.
 
 ## 2026-11-20 (v0.7.1 — stats & activity, SPEC-V0.7.1)
 

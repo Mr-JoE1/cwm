@@ -78,7 +78,8 @@ non-zero on a failure and runs in CI.
 - **Statusline**: 28 px, solid, fixed to the bottom; main reserves its
   height. Left `[cwm v0.7.2] linux/amd64 │ ● agent up 3h12m │
   127.0.0.1:47800, localhost only`; right `copy debug logs │ ? keys │ by
-  maher`. Low-priority segments hide at 860 px and 520 px. The old "Ctrl-C
+  maher`. Uptime reads `12s` under a minute, then `3m`, `3h12m`, `2d4h`
+  (one formatter, also in About). Low-priority segments hide at 860 px and 520 px. The old "Ctrl-C
   in the terminal stops the server" text is gone.
 - **Ctrl-K palette** (also `Cmd-K`): a dialog with a shell-prompt input
   `cwm ❯`, fuzzy-matching sections, actions (theme, motion, refresh, copy
@@ -134,10 +135,12 @@ link, the `?` dialog and the palette. Layout (neofetch): hex mark left
 mono key/value lines (version + beta tag, commit + build time, runtime,
 agent, workspace, author, github, license), nine live swatches read from
 the theme tokens, and buttons: copy version info (one-line summary plus
-the JSON), release notes, report a bug, check for updates. Below, a
-`git log --graph` release timeline: the next release dashed with a grey
-ring and a `next` tag, this build a filled accent node tagged `HEAD → this
-build`. The key/value lines fade in 70 ms apart (none with reduced
+the JSON), release notes, report a bug, check for updates, in a
+deliberate 2×2 grid. Below, a `git log --graph` release timeline: the
+next release dashed with a grey ring, a dashed connector down to this
+build and a `next` tag, this build a filled accent node tagged `HEAD →
+this build`; tags follow the description, so every description starts at
+the same x. The key/value lines fade in 70 ms apart (none with reduced
 motion).
 
 ## D: copyable commands and Health (P4, D72)
@@ -148,13 +151,28 @@ copied for 1.4 s, announced through a polite live region. Health, Devices,
 Accounts, the first-run wizard and the toasts use it.
 
 Health: a summary bar first ("N things to fix" in `--warn`, or "all N
-checks passed" in `--ok`); fail → warn → ok; passing checks collapsed
-behind "N checks passed (show)". Each row: a boot-log status column
-`[  OK  ]` / `[ WARN ]` / `[FAILED]`, a plain title, a one-line why, the
+checks passed" in `--ok`); fail → warn → skip → ok; passing checks
+collapsed behind "N checks passed" (the disclosure triangle says the
+rest). Each row: a boot-log status column `[  OK  ]` / `[ WARN ]` /
+`[FAILED]` / `[ SKIP ]` (`--muted`), a plain title, a one-line why, the
 copyable fix command, and the raw doctor detail behind a `details`
-toggle. The plain copy lives in the dashboard, keyed by the doctor check
-id; ids and `/api/doctor` are unchanged. The health tab badge is the
-warn + fail count.
+toggle. Every row has the same padding and the zebra band fills it. The
+plain copy lives in the dashboard, keyed by the doctor check id; ids are
+unchanged and `/api/doctor` only gains the additive `optional` field.
+The health tab badge is the warn + fail count.
+
+Doctor levels (polish pass, D75):
+- A check that is optional by design carries `"optional": true` (today
+  only `syncthing`). Not set up, it keeps `"status": "warn"` in `--json`
+  and `/api/doctor` for compatibility, but it is `[ SKIP ]` in the
+  dashboard, `skip:` in `cwm doctor`, and counts toward neither "N things
+  to fix" nor "N of M checks passed" (M excludes it). The text summary
+  gains ", N skipped" only when N > 0.
+- `claude not found` (no verified Claude Code binary at all, with or
+  without rejected candidates) is `FAIL:` / `[FAILED]`, so `cwm doctor`
+  exits 1 without it. A verified claude that is only off PATH
+  (`claude-binary`) and an old version stay warnings.
+- No other check, output line or exit code changes.
 
 ## E: pages (P5, D70)
 
@@ -189,9 +207,15 @@ warn + fail count.
   `--accent-2` bars with a 4 px rounded end. The range control gets its
   own row on mobile.
 - Mobile (< 720 px): a 56 px bottom bar (sessions, projects, health,
-  accounts, more) with safe-area padding; "more" opens a sheet with the
-  other sections, theme and motion. Under 520 px the header is logo,
-  connection dot, refresh and a ⋯ menu. Session cards use one meta line.
+  accounts, more) with safe-area padding; main's bottom padding is the bar
+  height plus the safe area. "more" opens a sheet with the other sections,
+  a full-width theme control (≥ 40 px segments), then full-width ≥ 44 px
+  rows (motion with its switch on the right, about, copy debug logs,
+  close) with a pressed state; one 16 px inset, a darker scrim, safe-area
+  bottom padding, and no focus ring when opened by a tap. Under 520 px the
+  header is logo, connection dot, refresh and a ⋯ menu, all three circles.
+  Session cards use one meta line; the branch ellipsizes first so the time
+  never wraps.
 - Favicon 16 px exactly as review §3; the full mark stays at ≥ 32 px. One
   SVG `<symbol>` sprite for the icons; every icon-only button has an
   aria-label and a title.
