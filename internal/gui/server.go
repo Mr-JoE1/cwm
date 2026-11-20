@@ -105,6 +105,11 @@ type Options struct {
 	// shortest time between two scans (0 = stats.MinInterval, 60 s).
 	StatsAccounts func() map[string]string
 	StatsInterval time.Duration
+
+	// v0.7.2 About (D69). UpdateClient / UpdateURL are seams for the one
+	// manual update check (nil / "" = a 5 s client / the GitHub API).
+	UpdateClient *http.Client
+	UpdateURL    string
 }
 
 // Server is the dashboard http.Handler bound to one port and one token.
@@ -138,6 +143,8 @@ type Server struct {
 	// stats is the lazily created stats engine (D64).
 	statsOnce sync.Once
 	stats     *stats.Engine
+	// update remembers the last manual update check (D69).
+	update updateState
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -426,6 +433,8 @@ func (s *Server) routes() map[string]route {
 		"/api/claude":               {get: s.apiClaude},
 		"/api/debug":                {get: s.apiDebug},
 		"/api/stats":                {get: s.apiStats},
+		"/api/about":                {get: s.apiAbout},
+		"/api/about/check-update":   {post: s.apiCheckUpdate},
 	}
 }
 

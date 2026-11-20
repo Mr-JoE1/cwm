@@ -253,4 +253,10 @@ type Version struct {
 	Commit  string `json:"commit"`
 	OS      string `json:"os"`
 	Arch    string `json:"arch"`
+	// v0.7.2 (D69): a build without a release version is a dev build;
+	// the dashboard then shows "dev build <commit>".
+	Dev       bool   `json:"dev,omitempty"`
+	Dirty     bool   `json:"dirty,omitempty"`
+	BuildDate string `json:"built_at,omitempty"`
+	Go        string `json:"go,omitempty"`
 }

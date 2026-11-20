@@ -348,8 +348,9 @@ func TestStaticDashboard(t *testing.T) {
 		}
 		// One navigation link is allowed (D52): the bug-report form,
 		// opened by the user's click, never loaded by the page.
-		nav := `href="` + bugReportURL + `" target="_blank" rel="noopener noreferrer"`
-		if external.Match([]byte(strings.ReplaceAll(string(data), nav, ""))) || strings.Contains(string(data), "@import") {
+		// v0.7.2: the About view adds the release notes and the profile.
+		nav := regexp.MustCompile(`href="https://github\.com/Mr-JoE1/[^"]*" target="_blank" rel="noopener noreferrer"`)
+		if external.Match(nav.ReplaceAll(data, nil)) || strings.Contains(string(data), "@import") {
 			t.Errorf("%s references an external resource", name)
 		}
 		if strings.HasSuffix(name, ".js") && sinks.Match(data) {

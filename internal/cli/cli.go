@@ -13,17 +13,31 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/Mr-JoE1/cwm/internal/buildinfo"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
+	"github.com/Mr-JoE1/cwm/internal/status"
 )
 
 // holdRequested records term.HoldFlag for HoldOnError.
 var holdRequested atomic.Bool
 
-// Overridden at release time via -X (see .goreleaser.yaml, stage C).
+// Legacy -X targets, still honoured (older build scripts stamp them); the
+// release stamps internal/buildinfo (D69). Read them through buildInfo().
 var (
 	Version = "dev"
 	Commit  = "dev"
 )
+
+// buildInfo resolves the binary's identity: buildinfo's ldflags, these
+// legacy overrides, then the VCS data of the Go build.
+func buildInfo() buildinfo.Info { return buildinfo.Resolve(Version, Commit) }
+
+// versionInfo is buildInfo in the shape the API and the debug bundle use.
+func versionInfo() status.Version {
+	in := buildInfo()
+	return status.Version{Version: in.Version, Commit: in.Commit, OS: in.OS, Arch: in.Arch,
+		Dev: in.Dev, Dirty: in.Dirty, BuildDate: in.BuildDate, Go: in.Go}
+}
 
 // Exit codes: usage errors get their own code so scripts can distinguish
 // "user typo" from "command ran and failed".
@@ -300,7 +314,8 @@ func (e *Env) usageErr(err error) int {
 }
 
 func cmdVersion(e *Env, _ []string) error {
-	fmt.Fprintf(e.Stdout, "cwm %s (%s/%s, %s)\n", Version, runtime.GOOS, runtime.GOARCH, Commit)
+	in := buildInfo()
+	fmt.Fprintf(e.Stdout, "cwm %s (%s/%s, %s)\n", in.Version, runtime.GOOS, runtime.GOARCH, in.CommitLabel())
 	return nil
 }
 

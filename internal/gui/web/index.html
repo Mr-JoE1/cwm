@@ -281,6 +281,33 @@
   <div class="row"><button type="button" class="btn" id="keys-close">Close</button><button type="button" class="btn" data-about-open>About cwm</button></div>
 </dialog>
 
+<dialog id="about" class="about" aria-labelledby="about-title">
+  <div class="about-grid">
+    <svg class="about-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <path class="mark-frame" d="M32 4.5 55.8 18.25v27.5L32 59.5 8.2 45.75v-27.5Z" fill="none" stroke-width="4" stroke-linejoin="round"/>
+      <path class="mark-prompt" d="m20.5 23 9 9-9 9" fill="none" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect class="mark-cursor" x="33" y="37.5" width="12" height="5" rx="1"/>
+    </svg>
+    <div class="about-body">
+      <h2 id="about-title" class="about-who">maher<span class="about-at">@</span><span class="about-host">cwm</span></h2>
+      <div class="about-rule" aria-hidden="true"></div>
+      <dl id="about-kv" class="about-kv"></dl>
+      <div id="about-swatches" class="about-swatches" role="img" aria-label="Theme colours"></div>
+      <div class="about-actions">
+        <button type="button" class="btn btn-primary" id="about-copy" autofocus>copy version info</button>
+        <a class="btn" href="https://github.com/Mr-JoE1/cwm/releases" target="_blank" rel="noopener noreferrer">release notes</a>
+        <a class="btn" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">report a bug</a>
+        <button type="button" class="btn" id="about-update">check for updates</button>
+      </div>
+      <p id="about-update-result" class="about-update" aria-live="polite"></p>
+    </div>
+  </div>
+  <h3 class="about-h">releases</h3>
+  <ol id="about-releases" class="graph" aria-label="Release history"></ol>
+  <div class="about-foot"><button type="button" class="btn" id="about-close">close</button></div>
+  <span id="about-live" class="sr-only" aria-live="polite"></span>
+</dialog>
+
 <dialog id="palette" class="palette" aria-label="Command palette">
   <div class="pal-prompt">
     <label for="pal-input" class="pal-ps">cwm <span aria-hidden="true">❯</span></label>

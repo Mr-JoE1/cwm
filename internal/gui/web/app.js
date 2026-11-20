@@ -1900,6 +1900,114 @@
     });
   }
 
+  // --- About (D69): neofetch layout + release graph ------------------------------------
+
+  const SWATCHES = ["bg", "surface-2", "text", "muted", "accent", "accent-2", "magenta", "warn", "fail"];
+  let aboutData = null;
+
+  function aboutSummary(d) {
+    return "cwm " + d.label + " (" + d.commit + (d.dirty ? "-dirty" : "") + ", " + d.os + "/" + d.arch + ", " + d.go + ")";
+  }
+
+  function shortTime(iso) {
+    const t = new Date(iso);
+    return isNaN(t.getTime()) ? "" : t.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  }
+
+  function renderAbout(d) {
+    aboutData = d;
+    const ws = d.workspace || {};
+    const ag = d.agent || {};
+    const n = (v, w) => v === null || v === undefined ? null : plural(v, w);
+    const kv = [
+      ["version", [d.dev ? d.label : d.version + " ", d.dev ? null : el("span", { class: "tag", text: d.channel })]],
+      ["commit", [d.commit + (d.dirty ? " (modified tree)" : "") + (d.built_at ? " · built " + shortTime(d.built_at) : "")]],
+      ["runtime", [d.go + " " + d.os + "/" + d.arch]],
+      ["agent", ["pid " + ag.pid + " · " + ag.listen + " · up " + uptime(ag.started_at)]],
+      ["workspace", [[ws.path, n(ws.repos, "repo"), ws.devices === null ? "sync not set up" : n(ws.devices, "device"), n(ws.accounts, "account")].filter(Boolean).join(" · ")]],
+      ["author", [d.author.name]],
+      ["github", [el("a", { href: d.author.github, target: "_blank", rel: "noopener noreferrer", text: d.author.github.replace(/^https:\/\//, "") })]],
+      ["license", [d.license]],
+    ];
+    $("about-kv").replaceChildren(...kv.flatMap(([k, v], i) => {
+      const dt = el("dt", { text: k });
+      const dd = el("dd", null, v);
+      dt.style.setProperty("--i", String(i));
+      dd.style.setProperty("--i", String(i));
+      return [dt, dd];
+    }));
+    const cs = getComputedStyle(root);
+    $("about-swatches").replaceChildren(...SWATCHES.map((t) => {
+      const sw = el("span", { class: "about-sw", title: "--" + t + " " + cs.getPropertyValue("--" + t).trim() });
+      sw.style.background = "var(--" + t + ")";
+      return sw;
+    }));
+    $("about-releases").replaceChildren(...(d.releases || []).map((r) => el("li", { class: "graph-node" + (r.state ? " is-" + r.state : "") }, [
+      el("span", { class: "graph-v", text: "v" + r.v }),
+      r.state === "current" ? el("span", { class: "graph-tag graph-head", text: "HEAD → this build" }) : null,
+      r.state === "next" ? el("span", { class: "graph-tag graph-next", text: "next" }) : null,
+      el("span", { class: "graph-note", text: r.note }),
+    ])));
+    renderUpdate(d.update);
+  }
+
+  function renderUpdate(u) {
+    const box = $("about-update-result");
+    if (!u || !u.enabled || !u.latest) return box.replaceChildren();
+    const when = u.checked_at ? " (checked " + relTime(u.checked_at) + ")" : "";
+    box.replaceChildren(u.newer
+      ? el("span", { class: "about-newer" }, ["v" + u.latest + " is available" + when + " · ",
+        el("a", { href: u.url, target: "_blank", rel: "noopener noreferrer", text: "release notes" })])
+      : el("span", { text: "You have the latest release (v" + u.latest + ")" + when + "." }));
+  }
+
+  async function openAbout() {
+    closeMenu(false);
+    const k = $("keys");
+    if (k.open) k.close();
+    const dlg = $("about");
+    const r = await api("/api/about");
+    if (!r.ok) return toast("error", "Could not load the About view", r.error);
+    renderAbout(r.data);
+    dlg.classList.remove("enter");
+    void dlg.offsetWidth;
+    dlg.classList.add("enter");
+    if (!dlg.open) dlg.showModal();
+  }
+  window.cwmAbout = openAbout;
+
+  function flash(btn, text, ms) {
+    const old = btn.dataset.label || btn.textContent;
+    btn.dataset.label = old;
+    btn.textContent = text;
+    $("about-live").textContent = text;
+    clearTimeout(btn._flash);
+    btn._flash = setTimeout(() => { btn.textContent = old; }, ms || 1400);
+  }
+
+  function wireAbout() {
+    const dlg = $("about");
+    document.querySelectorAll("[data-about-open]").forEach((b) => b.addEventListener("click", openAbout));
+    $("about-close").addEventListener("click", () => dlg.close());
+    dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
+    $("about-copy").addEventListener("click", async (ev) => {
+      if (!aboutData) return;
+      const ok = await copyQuiet(aboutSummary(aboutData) + "\n" + JSON.stringify(aboutData, null, 2));
+      flash(ev.currentTarget, ok ? "copied" : "copy failed");
+    });
+    $("about-update").addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      $("about-update-result").replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "asking GitHub…");
+      const r = await post("/api/about/check-update", {});
+      btn.disabled = false;
+      if (!r.ok) {
+        return $("about-update-result").replaceChildren(el("span", { class: "about-err", text: r.error + " — try again later, or open the release notes." }));
+      }
+      renderUpdate(r.data);
+    });
+  }
+
   // --- statusline (D67) -------------------------------------------------------------
 
   // versionLabel never says "dev … dev": a build without release ldflags is
@@ -1971,6 +2079,7 @@
     wireStats();
     wireMenu();
     wirePalette();
+    wireAbout();
     $("live").addEventListener("click", retryNow);
     $("offline-retry").addEventListener("click", retryNow);
 

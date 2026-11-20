@@ -20,6 +20,9 @@ builds:
         -s -w
         -X github.com/Mr-JoE1/cwm/internal/cli.Version={{.Version}}
         -X github.com/Mr-JoE1/cwm/internal/cli.Commit={{.Commit}}
+        -X github.com/Mr-JoE1/cwm/internal/buildinfo.Version={{.Version}}
+        -X github.com/Mr-JoE1/cwm/internal/buildinfo.Commit={{.ShortCommit}}
+        -X github.com/Mr-JoE1/cwm/internal/buildinfo.BuildDate={{.Date}}
     # --- Windows Authenticode signing (DISABLED until a cert is obtained) ---
     # See docs/WINDOWS-SMARTSCREEN.md. Authenticode embeds the signature
     # INSIDE cwm.exe, so it must run as a post-build hook, i.e. before
@@ -84,6 +87,9 @@ builds:
         -s -w -H=windowsgui
         -X github.com/Mr-JoE1/cwm/internal/cli.Version={{.Version}}
         -X github.com/Mr-JoE1/cwm/internal/cli.Commit={{.Commit}}
+        -X github.com/Mr-JoE1/cwm/internal/buildinfo.Version={{.Version}}
+        -X github.com/Mr-JoE1/cwm/internal/buildinfo.Commit={{.ShortCommit}}
+        -X github.com/Mr-JoE1/cwm/internal/buildinfo.BuildDate={{.Date}}
 
 archives:
   - id: cwm
