@@ -7,3 +7,5 @@ scripts/test-install-windows.ps1 -text
 scripts/banner.txt text eol=lf
 # Stats fixtures are byte-exact (offsets, a deliberately unterminated last line).
 internal/stats/testdata/** -text
+# mcp goldens are compared byte for byte.
+internal/mcp/testdata/** -text
