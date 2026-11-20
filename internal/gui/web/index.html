@@ -205,11 +205,11 @@
     <div class="panel-head">
       <h1 class="path"><span class="path-pre">~/cwm/</span>health</h1>
       <div class="head-actions">
-        <a class="link" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug</a>
-        <button type="button" class="btn btn-small" data-debug-copy>Copy debug logs</button>
+        <a class="link" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">report a bug</a>
+        <button type="button" class="btn btn-small" data-debug-copy>copy debug logs</button>
       </div>
     </div>
-    <p class="hint">Workspace health checks (same data as <code>cwm doctor</code>; the SSH probe never runs from the GUI). Something wrong? <strong>Copy debug logs</strong> puts a redacted report (no tokens, e-mails, keys or user names) on the clipboard for a bug report; <code>cwm debug --copy</code> does the same from a terminal.</p>
+    <p class="hint">What is wrong, why it matters and the command that fixes it (same checks as <code>cwm doctor</code>). Stuck? <strong>Copy debug logs</strong> puts a redacted report on the clipboard for a bug report.</p>
     <div class="content" data-content="health"></div>
   </section>
 
@@ -263,6 +263,7 @@
 </div>
 
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<span id="sr-live" class="sr-only" aria-live="polite"></span>
 
 <dialog id="keys" class="keys" aria-labelledby="keys-title">
   <h2 id="keys-title">Keyboard shortcuts</h2>
@@ -305,7 +306,6 @@
   <h3 class="about-h">releases</h3>
   <ol id="about-releases" class="graph" aria-label="Release history"></ol>
   <div class="about-foot"><button type="button" class="btn" id="about-close">close</button></div>
-  <span id="about-live" class="sr-only" aria-live="polite"></span>
 </dialog>
 
 <dialog id="palette" class="palette" aria-label="Command palette">

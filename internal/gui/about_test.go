@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +162,30 @@ func TestNewerVersion(t *testing.T) {
 	}{{"0.8.0", "0.7.2", true}, {"0.7.2", "0.7.2", false}, {"0.7.1", "0.7.2", false}, {"1.0.0-rc1", "0.9.9", true}, {"0.8.0", "dev", false}, {"0.7.10", "0.7.9", true}} {
 		if got := newerVersion(c.latest, c.cur); got != c.want {
 			t.Errorf("newerVersion(%q, %q) = %v", c.latest, c.cur, got)
+		}
+	}
+}
+
+// TestHealthCopyCoversDoctor: every doctor check that can warn or fail has
+// a plain title / why / fix entry in the dashboard (D72), so a new check id
+// cannot ship with only the raw doctor text.
+func TestHealthCopyCoversDoctor(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "doctor", "doctor.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := webFS.ReadFile("web/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := regexp.MustCompile(`\.(?:warn|fail)\("([a-z0-9-]+)"`).FindAllSubmatch(src, -1)
+	if len(ids) < 5 {
+		t.Fatalf("found only %d warn/fail checks in doctor.go", len(ids))
+	}
+	for _, m := range ids {
+		id := string(m[1])
+		if !regexp.MustCompile(`\n    "?` + regexp.QuoteMeta(id) + `"?: \[`).Match(js) {
+			t.Errorf("doctor check %q has no plain copy in app.js HEALTH", id)
 		}
 	}
 }

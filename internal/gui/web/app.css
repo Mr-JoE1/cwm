@@ -361,7 +361,7 @@ th {
 tbody tr { transition: background-color var(--t-fast); }
 tbody tr:hover { background: var(--row-hover); box-shadow: inset 2px 0 0 var(--accent); }
 tr:last-child td { border-bottom: none; }
-tbody tr:nth-child(even), .checks li:nth-child(even) { background: var(--band); }
+tbody tr:nth-child(even), .checks .check:nth-child(even) { background: var(--band); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.num { font-family: var(--font-mono); font-size: var(--fs-md); }
 td.prompt { max-width: 520px; color: var(--text); }
@@ -409,25 +409,33 @@ tr.reveal { animation: row-in 360ms var(--ease) both; animation-delay: calc(var(
 .badge-fail::before { animation: pulse .9s ease-in-out 6; }
 .badge-live::before { animation: pulse 2.4s ease-in-out 3; }
 
-.summary { display: flex; gap: 10px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
-.summary .badge { width: auto; padding: 4px 12px; font-size: var(--fs-sm); }
-
+/* health: a boot log (D72) */
+.health-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; font-family: var(--font-mono); }
+.health-sum strong { font-size: var(--fs-lg); }
+.health-sum-warn { background: var(--warn-soft); color: var(--warn); }
+.health-sum-sub { color: var(--text); margin-left: var(--s3); font-size: var(--fs-md); }
+.health-sum-ok { background: var(--ok-soft); color: var(--ok); }
 .checks { list-style: none; margin: 0; padding: 0; }
-.checks li {
-  display: grid; grid-template-columns: 6.2em minmax(0, 1fr); column-gap: 16px; align-items: start;
-  padding: 11px 16px; border-bottom: 1px solid var(--line);
-}
-.checks li:last-child { border-bottom: none; }
-.checks li:hover { background: var(--row-hover); }
-.checks .badge { margin-top: 1px; }
-.checks .name { display: block; font: 600 var(--fs-sm)/1.3 var(--font-mono); color: var(--muted); letter-spacing: .02em; margin-bottom: 2px; }
-.checks .text { overflow-wrap: anywhere; }
-.checks .text code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
-.checks pre {
-  margin: 6px 0 0; padding: 8px 10px; background: var(--surface-solid);
-  border: 1px solid var(--line); border-radius: var(--radius-sm);
-  font-family: var(--font-mono); font-size: var(--fs-sm); white-space: pre-wrap; color: var(--text);
-}
+.check { display: grid; grid-template-columns: 9ch minmax(0, 1fr); column-gap: var(--s3); align-items: start; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+.checks .check:last-child { border-bottom: none; }
+.boot { font: 700 var(--fs-md)/1.5 var(--font-mono); white-space: pre; }
+.boot-ok { color: var(--ok); }
+.boot-warn { color: var(--warn); }
+.boot-fail { color: var(--fail); }
+.check-body { display: grid; gap: 2px; min-width: 0; }
+.check-title { font: 600 var(--fs-base)/1.5 var(--font-mono); color: var(--text-strong); }
+.check-ok .check-title { font-weight: 500; color: var(--text); }
+.check-why { color: var(--muted); }
+.check-why code { background: var(--accent-soft); padding: 0 4px; border-radius: var(--r-xs); }
+.check-details { margin-top: 2px; }
+.check-details summary { cursor: pointer; width: max-content; color: var(--faint); font: var(--fs-sm)/1.6 var(--font-mono); }
+.check-details summary:hover { color: var(--accent); }
+.check-raw { margin: 4px 0 0; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); font: var(--fs-sm)/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+.check-id { color: var(--accent-2); }
+.passed { border-top: 1px solid var(--line); }
+.passed-sum { cursor: pointer; padding: var(--s3) var(--s4); color: var(--ok); font: 600 var(--fs-md)/1.4 var(--font-mono); }
+.passed-sum:hover { background: var(--row-hover); }
+.check.reveal { animation: row-in 360ms var(--ease) both; animation-delay: calc(var(--i, 0) * 28ms); }
 
 .bar { width: 110px; height: 6px; background: var(--sk-a); border-radius: 999px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 10px; }
 .bar > span { display: block; height: 100%; background: var(--accent-2); border-radius: 0 var(--r-xs) var(--r-xs) 0; transition: width .6s var(--ease); }
@@ -471,13 +479,19 @@ tr.reveal { animation: row-in 360ms var(--ease) both; animation-delay: calc(var(
 #wiz-claude { margin: 0 0 12px; }
 .msg .detail { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: var(--fs-sm); overflow-wrap: anywhere; color: var(--muted); }
 
-.cmd { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.cmd code {
-  flex: 1; min-width: 0; overflow-wrap: anywhere;
-  background: var(--surface-solid); border: 1px solid var(--line); border-radius: var(--radius-sm);
-  padding: 5px 9px; color: var(--text);
+/* the copyable-command component (D72): [$ command | copy] */
+.cmd {
+  display: flex; align-items: stretch; margin-top: var(--s2); width: min(100%, 640px); min-width: 0;
+  background: var(--surface-2); border: 1px solid var(--control-line); border-radius: var(--r-sm); overflow: hidden;
 }
-.cmd code::before { content: "$ "; color: var(--accent); }
+.cmd-text { flex: 1; min-width: 0; overflow-x: auto; white-space: pre; padding: 7px 10px; color: var(--text-strong); background: none; font-size: var(--fs-md); scrollbar-width: thin; }
+.cmd-ps { color: var(--accent); user-select: none; }
+.cmd-copy {
+  flex-shrink: 0; min-width: 72px; padding: 0 var(--s3); cursor: pointer;
+  background: var(--surface-solid); color: var(--text); border: 0; border-left: 1px solid var(--control-line);
+  font: 600 var(--fs-sm)/1 var(--font-mono);
+}
+.cmd-copy:hover { color: var(--accent); background: var(--accent-soft); }
 
 .spinner {
   display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px;
@@ -823,7 +837,7 @@ button.heat-cell:focus-visible { outline: 2px solid var(--accent-2); outline-off
   td.lead { font-size: var(--fs-lg); }
   td.actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 4px; }
   td.actions .btn { width: 100%; justify-content: center; }
-  .checks li { grid-template-columns: 1fr; row-gap: 6px; }
+  .check { grid-template-columns: 1fr; row-gap: 2px; padding: var(--s3); }
   .acct-grid { grid-template-columns: 1fr; }
   .acct-actions .btn { flex: 1 1 auto; justify-content: center; }
   .first-banner { grid-template-columns: 1fr; padding: 16px; }

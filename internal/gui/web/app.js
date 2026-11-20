@@ -127,37 +127,36 @@
 
   // --- copy, toasts, inline feedback ---------------------------------------
 
-  function copyText(text, btn) {
-    const done = (ok) => {
-      if (btn) {
-        const old = btn.textContent;
-        btn.textContent = ok ? "Copied" : "Select and copy manually";
-        setTimeout(() => { btn.textContent = old; }, 1600);
-      }
-      toast(ok ? "ok" : "error", ok ? "Copied to clipboard" : "Copy failed — select the text and copy it manually");
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
-      return;
-    }
-    const area = el("textarea", { readonly: "", class: "offscreen" });
-    area.value = text;
-    document.body.appendChild(area);
-    area.select();
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
-    area.remove();
-    done(ok);
+  // announce speaks a short status through the polite live region.
+  function announce(text) {
+    const r = $("sr-live");
+    r.textContent = "";
+    setTimeout(() => { r.textContent = text; }, 30);
   }
 
-  function copyButton(getText) {
-    const btn = el("button", { type: "button", class: "btn btn-small", text: "Copy" });
-    btn.addEventListener("click", () => copyText(getText(), btn));
-    return btn;
+  // flash renames a button for 1.4 s: the action keeps its name ("copy" →
+  // "copied") and the change is announced.
+  function flash(btn, text, ms) {
+    const old = btn.dataset.label || btn.textContent;
+    btn.dataset.label = old;
+    btn.textContent = text;
+    announce(text);
+    clearTimeout(btn._flash);
+    btn._flash = setTimeout(() => { btn.textContent = old; }, ms || 1400);
   }
 
+  async function copyText(text, btn) {
+    const ok = await copyQuiet(text);
+    if (btn) flash(btn, ok ? "copied" : "copy failed");
+    if (!ok) toast("error", "Copy failed", "Select the text and copy it with Ctrl/Cmd-C.");
+  }
+
+  // commandBox is the one copyable-command component (D72):
+  // [$ command | copy], mono, scrolls sideways, copy → copied.
   function commandBox(cmd) {
-    return el("div", { class: "cmd" }, [el("code", { text: cmd }), copyButton(() => cmd)]);
+    const btn = el("button", { type: "button", class: "cmd-copy", text: "copy", "aria-label": "copy command: " + cmd });
+    btn.addEventListener("click", () => copyText(cmd, btn));
+    return el("div", { class: "cmd" }, [el("code", { class: "cmd-text", tabindex: "0" }, [el("span", { class: "cmd-ps", "aria-hidden": "true", text: "$ " }), cmd]), btn]);
   }
 
   // toast shows a transient notification. kind: ok | error | info.
@@ -588,28 +587,9 @@
       const r = await api("/api/doctor");
       if (!r.ok) return loadError("health", r, silent, "Could not run health checks.");
       const list = r.data || [];
-      if (!changed("health", list)) return;
-      const counts = { ok: 0, warn: 0, fail: 0 };
-      list.forEach((c) => { counts[c.status] = (counts[c.status] || 0) + 1; });
       healthBadge(list);
-      const summary = el("div", { class: "summary" }, [
-        badge("ok", counts.ok + " ok"),
-        badge("warn", counts.warn + " warn"),
-        badge("fail", counts.fail + " fail"),
-      ]);
-      const items = list.map((c, i) => {
-        const li = el("li", silent ? null : { class: "reveal" }, [
-          badge(c.status),
-          el("div", { class: "text" }, [
-            c.name ? el("span", { class: "name", text: c.name }) : null,
-            richText(c.detail),
-            c.lines && c.lines.length ? el("pre", { text: c.lines.join("\n") }) : null,
-          ]),
-        ]);
-        if (!silent) li.style.setProperty("--i", String(Math.min(i, 18)));
-        return li;
-      });
-      show("health", el("div", null, [summary, el("ul", { class: "checks" }, items)]));
+      if (!changed("health", list)) return;
+      show("health", healthView(list, !silent));
     },
 
     async accounts(silent) {
@@ -622,6 +602,90 @@
       renderAccounts(list, !silent);
     },
   };
+
+  // --- health: a boot log, problems first (D72) ------------------------------------
+
+  // Plain copy per doctor check id: [title, why, fix]. The ids and
+  // /api/doctor are unchanged; the raw detail stays behind "details".
+  const HEALTH = {
+    home: ["cwm home cannot be found", "cwm cannot read or create its home folder.", "cwm init"],
+    workspace: ["the workspace folder is missing", "Sessions and memory live there; nothing can be resumed without it.", "cwm init"],
+    "hook-wired": ["a session hook is broken", "Claude Code runs it when a session starts or ends; it fails until it is fixed.", "cwm init"],
+    claude: ["claude not found", "Claude Code is not on PATH or in the usual install folders.", ""],
+    "claude-binary": ["claude is not on your PATH", "cwm finds it, but your own terminals and IDEs will not.", ""],
+    "config-dir": ["your shell does not point claude at the workspace", "CLAUDE_CONFIG_DIR is not exported, so a plain `claude` uses its own folder instead of the synced one.", "cwm init"],
+    settings: ["session hooks are not wired", "The workspace settings.json has no SessionStart hook, so the repo list and handoff are not recorded.", "cwm init"],
+    "hook-scripts": ["bash-kit hooks are wired but missing", "settings.json calls hook scripts that are not there.", "cwm init"],
+    "repos-tsv": ["the repo list needs attention", "cwm clones repos on other devices from repos.tsv.", ""],
+    "session-folders": ["some sessions were started outside cwm", "Plain `claude` created these folders; they do not follow you to your other devices.", "cwm sessions"],
+    stignore: ["the sync ignore file is missing", "Without .stignore, Syncthing would copy caches and machine-only files.", "cwm init"],
+    syncthing: ["sync is not set up", "Optional. Syncthing keeps the workspace the same on all your devices.", "cwm pair --start"],
+    ssh: ["GitHub SSH login failed", "Private repos cannot be cloned until your SSH key works.", "ssh -T git@github.com"],
+  };
+  const PASSED = {
+    home: "cwm home", workspace: "workspace folder", "hook-wired": "session hooks", "hooks-executable": "hooks are executable",
+    claude: "Claude Code installed", "claude-binary": "claude on PATH", "claude-cleared": "claude path re-checked", "config-dir": "CLAUDE_CONFIG_DIR exported",
+    "hook-scripts": "hook scripts", "repos-tsv": "repo list", "session-folders": "session folders", settings: "workspace settings",
+    stignore: "sync ignore file", syncthing: "Syncthing reachable", ssh: "GitHub SSH", "wip-log": "handoff log", "path-duplicates": "PATH",
+  };
+  const BOOT = { ok: "[  OK  ]", warn: "[ WARN ]", fail: "[FAILED]" };
+  const SR_STATUS = { ok: "passed:", warn: "warning:", fail: "failed:" };
+
+  // fixCommand prefers the command the check itself names.
+  function fixCommand(c, fallback) {
+    const d = String(c.detail || "");
+    let m = /install Claude Code: (.+)$/.exec(d);
+    if (m) return m[1].trim();
+    m = /fix: `([^`]+)`/.exec(d);
+    if (m) return m[1];
+    m = /hook not executable: (\S+)/.exec(d);
+    if (m) return "chmod +x " + m[1];
+    if (c.name === "repos-tsv") return /not readable/.test(d) ? "cwm open <name>" : "";
+    return fallback || "";
+  }
+
+  function checkRow(c, i, animate) {
+    const st = BOOT[c.status] ? c.status : "warn";
+    const plain = st === "ok" ? null : HEALTH[c.name];
+    const title = plain ? plain[0] : st === "ok" ? (PASSED[c.name] || c.name) : String(c.detail || c.name).split(" — ")[0];
+    const cmd = st === "ok" ? "" : fixCommand(c, plain ? plain[2] : "");
+    const raw = [c.detail, ...(c.lines || [])].filter(Boolean).join("\n");
+    const li = el("li", { class: "check check-" + st + (animate ? " reveal" : "") }, [
+      el("span", { class: "boot boot-" + st, "aria-hidden": "true", text: BOOT[st] }),
+      el("div", { class: "check-body" }, [
+        el("span", { class: "check-title" }, [el("span", { class: "sr-only", text: SR_STATUS[st] + " " }), title]),
+        plain ? el("span", { class: "check-why" }, [richText(plain[1])]) : null,
+        cmd ? commandBox(cmd) : null,
+        el("details", { class: "check-details" }, [el("summary", { text: "details" }),
+          el("pre", { class: "check-raw" }, [el("span", { class: "check-id", text: c.name + ": " }), raw])]),
+      ]),
+    ]);
+    if (animate) li.style.setProperty("--i", String(Math.min(i, 18)));
+    return li;
+  }
+
+  function healthView(list, animate) {
+    const rank = { fail: 0, warn: 1, ok: 2 };
+    const sorted = list.map((c, i) => [c, i]).sort((a, b) => ((rank[a[0].status] ?? 1) - (rank[b[0].status] ?? 1)) || a[1] - b[1]).map((x) => x[0]);
+    const bad = sorted.filter((c) => c.status !== "ok");
+    const good = sorted.filter((c) => c.status === "ok");
+    const summary = bad.length
+      ? el("div", { class: "health-sum health-sum-warn", role: "status" }, [el("strong", { text: plural(bad.length, "thing") + " to fix" }),
+        el("span", { class: "health-sum-sub", text: good.length + " of " + list.length + " checks passed" })])
+      : el("div", { class: "health-sum health-sum-ok", role: "status" }, [el("strong", { text: "all " + list.length + " checks passed" })]);
+    const box = el("div", { class: "health" }, [summary]);
+    if (bad.length) box.appendChild(el("ul", { class: "checks" }, bad.map((c, i) => checkRow(c, i, animate))));
+    if (good.length) {
+      const label = () => good.length + (good.length === 1 ? " check" : " checks") + " passed (" + (det.open ? "hide" : "show") + ")";
+      const sum = el("summary", { class: "passed-sum" });
+      const det = el("details", { class: "passed" }, [sum, el("ul", { class: "checks" }, good.map((c, i) => checkRow(c, i, false)))]);
+      if (!bad.length) det.open = true;
+      sum.textContent = label();
+      det.addEventListener("toggle", () => { sum.textContent = label(); });
+      box.appendChild(det);
+    }
+    return box;
+  }
 
   // --- devices: Syncthing not set up yet (D58) ------------------------------------
 
@@ -1975,15 +2039,6 @@
     if (!dlg.open) dlg.showModal();
   }
   window.cwmAbout = openAbout;
-
-  function flash(btn, text, ms) {
-    const old = btn.dataset.label || btn.textContent;
-    btn.dataset.label = old;
-    btn.textContent = text;
-    $("about-live").textContent = text;
-    clearTimeout(btn._flash);
-    btn._flash = setTimeout(() => { btn.textContent = old; }, ms || 1400);
-  }
 
   function wireAbout() {
     const dlg = $("about");
