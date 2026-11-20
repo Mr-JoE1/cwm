@@ -1065,6 +1065,10 @@
       const panel = $("panel-" + t);
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
+      if (selected) { // keep the active tab visible in a scrolled (mobile) tab bar
+        const bar = tab.parentNode;
+        if (tab.offsetLeft < bar.scrollLeft || tab.offsetLeft + tab.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = tab.offsetLeft - 16;
+      }
       if (selected && panel.hidden) {
         panel.classList.remove("enter");
         void panel.offsetWidth; // restart the enter animation
@@ -1464,7 +1468,10 @@
         b.addEventListener("click", () => {
           statsMetric = m;
           store("cwm-stats-metric", m);
-          card.replaceWith(heatmap(statsData));
+          const next = heatmap(statsData);
+          card.replaceWith(next);
+          const sc = next.querySelector(".heat-scroll");
+          if (sc) sc.scrollLeft = sc.scrollWidth;
         });
         return b;
       }));
@@ -1484,7 +1491,7 @@
     let prevMonth = -1;
     let lastLabelCol = -9;
     for (let r = 0; r < 7; r++) {
-      if (r % 2 === 1) {
+      if ((ws + r) % 7 % 2 === 1 && (ws + r) % 7 < 6) { // Mon, Wed, Fri
         const wl = el("span", { class: "heat-wd", text: WD[(ws + r) % 7], "aria-hidden": "true" });
         wl.style.gridRow = String(r + 2);
         grid.appendChild(wl);
@@ -1632,6 +1639,8 @@
         (d.accounts || []).length > 1 ? barList("Accounts", d.accounts) : null,
       ]),
     ]));
+    // Newest weeks first in view when the heatmap scrolls (narrow screens).
+    content("stats").querySelectorAll(".heat-scroll").forEach((sc) => { sc.scrollLeft = sc.scrollWidth; });
     if (focused) {
       const b = content("stats").querySelector('.heat-cell[data-date="' + focused + '"]');
       if (b) { b.tabIndex = 0; b.focus({ preventScroll: true }); }
