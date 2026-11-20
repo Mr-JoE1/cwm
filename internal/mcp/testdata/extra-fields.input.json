@@ -1,0 +1,22 @@
+{
+    "zeta": {"b": 1, "a": [1, 2.50, null, true]},
+    "mcpServers": {
+        "remote": {
+            "url": "https://mcp.example.com/sse?x=1&y=<2>",
+            "type": "sse",
+            "headers": {"X-Api-Key": "${API_KEY}", "Authorization": "Bearer t"},
+            "oauth": {"clientId": "abc", "scopes": ["read", "write"]}
+        },
+        "local": {
+            "type": "stdio",
+            "command": "node",
+            "args": ["server.js", "--flag=<v>"],
+            "env": {"TOKEN": "s3crét", "DEBUG": "1"},
+            "cwd": "/srv/mcp",
+            "timeout": 12345678901234567890,
+            "alwaysAllow": []
+        }
+    },
+    "$schema": "https://example.com/mcp.schema.json",
+    "alpha": null
+}

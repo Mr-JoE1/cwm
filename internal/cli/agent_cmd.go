@@ -200,6 +200,7 @@ func runAgent(e *Env, o agentOpts) error {
 		Bind:             bind,
 		AllowHosts:       o.allowHosts,
 		PersistentCookie: true,
+		StatsAccounts:    func() map[string]string { return statsAccountMap(layout) },
 	}, port, cfg.Token)
 	if err != nil {
 		_ = ln.Close()
@@ -226,14 +227,23 @@ func runAgent(e *Env, o agentOpts) error {
 	}
 	ctx, stop := guiSignalContext()
 	defer stop()
-	go agent.Watch(ctx, root, agentWatchEvery, func(c agent.Config) {
-		if c.Token != srv.Token() {
-			if err := srv.SetToken(c.Token); err == nil {
-				fmt.Fprintf(e.Stdout, "%s: dashboard token rotated — old links and cookies are now invalid\n", name)
+	// The watcher writes to stdout too: it must be gone before the final
+	// line (and before an error return), or the two writes race.
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		agent.Watch(ctx, root, agentWatchEvery, func(c agent.Config) {
+			if c.Token != srv.Token() {
+				if err := srv.SetToken(c.Token); err == nil {
+					fmt.Fprintf(e.Stdout, "%s: dashboard token rotated — old links and cookies are now invalid\n", name)
+				}
 			}
-		}
-	})
-	if err := gui.Serve(ctx, ln, srv); err != nil {
+		})
+	}()
+	err = gui.Serve(ctx, ln, srv)
+	stop()
+	<-watchDone
+	if err != nil {
 		return err
 	}
 	fmt.Fprintf(e.Stdout, "%s: stopped\n", name)

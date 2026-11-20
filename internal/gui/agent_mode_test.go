@@ -153,6 +153,7 @@ func startLive(t *testing.T, opts Options, token string) (*Server, string, conte
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitStats(t, srv)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, ln, srv) }()

@@ -10,7 +10,7 @@
 "use strict";
 
 (function () {
-  const TABS = ["sessions", "projects", "devices", "wip", "health", "accounts"];
+  const TABS = ["sessions", "projects", "devices", "wip", "health", "accounts", "stats"];
   const POLL_MS = 15000;
   const root = document.documentElement;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -484,6 +484,16 @@
   }
 
   const loaders = {
+    async stats(silent) {
+      const url = (tz) => "/api/stats?range=" + encodeURIComponent(statsRange) + (tz ? "&tz=" + encodeURIComponent(statsTZ) : "");
+      let r = await api(url(!!statsTZ));
+      // A zone the agent's tz database lacks: fall back to the agent's own.
+      if (!r.ok && r.status === 400 && statsTZ) r = await api(url(false));
+      if (!r.ok) return loadError("stats", r, silent, "Could not load stats.");
+      if (!changed("stats", r.data)) return;
+      renderStats(r.data);
+    },
+
     async sessions(silent) {
       const r = await api("/api/sessions");
       if (!r.ok) return loadError("sessions", r, silent, "Could not load sessions.");
@@ -1055,6 +1065,10 @@
       const panel = $("panel-" + t);
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
+      if (selected) { // keep the active tab visible in a scrolled (mobile) tab bar
+        const bar = tab.parentNode;
+        if (tab.offsetLeft < bar.scrollLeft || tab.offsetLeft + tab.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = tab.offsetLeft - 16;
+      }
       if (selected && panel.hidden) {
         panel.classList.remove("enter");
         void panel.offsetWidth; // restart the enter animation
@@ -1215,7 +1229,7 @@
     }
   }
 
-  const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "wip", accounts: "accounts" };
+  const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "wip", accounts: "accounts", stats: "stats" };
   const QUIET = new Set(["ping", "heartbeat", "hello", "keepalive", "open", "connected"]);
   let pendingTopics = new Set();
   let eventTimer = 0;
@@ -1311,6 +1325,8 @@
   function wireKeys() {
     const dlg = $("keys");
     $("keys-close").addEventListener("click", () => dlg.close());
+    // While the shortcut help is open the tab key hints show (D66).
+    dlg.addEventListener("close", () => root.removeAttribute("data-keys"));
     document.addEventListener("keydown", (ev) => {
       if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey) return;
       if (ev.key === "Escape" && ev.target === $("sessions-filter")) {
@@ -1319,7 +1335,7 @@
       }
       if (typing(ev.target) || dlg.open || $("debug-dialog").open || $("acct-remove-dialog").open) return;
       const k = ev.key;
-      if (k >= "1" && k <= "6" && dashboardVisible()) {
+      if (k >= "1" && k <= "7" && dashboardVisible()) {
         const name = TABS[Number(k) - 1];
         activate(name);
         $("tab-" + name).focus({ preventScroll: true });
@@ -1336,11 +1352,316 @@
       } else if (k === "d") {
         copyDebugLogs();
       } else if (k === "?") {
+        root.setAttribute("data-keys", "open");
         dlg.showModal();
       } else {
         return;
       }
       ev.preventDefault();
+    });
+  }
+
+  // --- stats (v0.7.1, D65) ---------------------------------------------------
+  // Everything below builds DOM / SVG nodes; numbers and names only ever
+  // reach the page as textContent or attribute values.
+
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const RANGES = ["7d", "30d", "90d", "365d", "all"];
+  const METRICS = { sessions: "sessions", messages: "messages", tokens: "tokens" };
+  const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const KINDS = [["input", "input"], ["output", "output"], ["cache_write", "cache write"], ["cache_read", "cache read"]];
+  let statsData = null;
+  let statsTZ = "";
+  try { statsTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (err) { statsTZ = ""; }
+
+  function pref(key, allowed, def) {
+    let v = null;
+    try { v = localStorage.getItem(key); } catch (err) { v = null; }
+    return allowed.includes(v) ? v : def;
+  }
+  let statsRange = pref("cwm-stats-range", RANGES, "30d");
+  let statsMetric = pref("cwm-stats-metric", Object.keys(METRICS), "tokens");
+
+  const nf = new Intl.NumberFormat();
+  function compact(n) {
+    const a = Math.abs(n);
+    for (const [v, s] of [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]]) {
+      if (a >= v) {
+        const x = n / v;
+        return (x >= 100 ? x.toFixed(0) : x.toFixed(1).replace(/\.0$/, "")) + s;
+      }
+    }
+    return String(n);
+  }
+  function plural(n, word) {
+    return nf.format(n) + " " + word + (n === 1 ? "" : "s");
+  }
+  // Dates arrive as local YYYY-MM-DD strings; UTC arithmetic keeps them
+  // exact across DST changes.
+  function dayDate(s) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+  function longDate(dt) {
+    return WD[dt.getUTCDay()] + ", " + dt.getUTCDate() + " " + MON[dt.getUTCMonth()] + " " + dt.getUTCFullYear();
+  }
+  function weekStart() {
+    try {
+      const loc = new Intl.Locale(navigator.language || "en");
+      const info = loc.getWeekInfo ? loc.getWeekInfo() : loc.weekInfo;
+      if (info && info.firstDay === 7) return 0;
+    } catch (err) { /* no Intl.Locale week data: Monday */ }
+    return 1;
+  }
+
+  function svg(tag, attrs) {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+    return n;
+  }
+
+  function kpi(label, value, sub, title) {
+    return el("div", { class: "kpi" }, [
+      el("div", { class: "kpi-label", text: label }),
+      el("div", { class: "kpi-value", text: value, title: title || null }),
+      sub ? el("div", { class: "kpi-sub", text: sub }) : null,
+    ]);
+  }
+
+  function statsKPIs(d) {
+    const t = d.totals;
+    const cost = d.cost_estimate || {};
+    const unpriced = (d.unpriced || []).length ? "unpriced (counted $0): " + d.unpriced.join(", ") : "";
+    const days = (d.daily || []).length;
+    const st = d.streaks || {};
+    return el("div", { class: "kpis" }, [
+      kpi("Sessions", nf.format(t.sessions), null),
+      kpi("Messages", compact(t.messages), nf.format(t.user_messages) + " prompts · " + nf.format(t.assistant_messages) + " replies", nf.format(t.messages)),
+      kpi("Tokens", compact(t.tokens.total), "in, out and cache", nf.format(t.tokens.total) + " tokens"),
+      kpi("Active days", nf.format(t.active_days), "of " + plural(days, "day")),
+      kpi("Streak", plural(st.current || 0, "day"), "longest " + plural(st.longest || 0, "day"),
+        st.longest ? "longest: " + st.longest_start + " to " + st.longest_end : null),
+      kpi("Est. cost", "$" + (cost.usd || 0).toFixed(2), cost.note || "est., list prices — your plan may be flat-rate",
+        "API-equivalent at list prices as of " + (cost.prices_updated || "?") + (unpriced ? " · " + unpriced : "")),
+    ]);
+  }
+
+  function cellValue(c) {
+    return statsMetric === "tokens" ? c.tokens : statsMetric === "messages" ? c.messages : c.sessions;
+  }
+
+  // levels: 0 = none, 1-4 from the quartiles of the non-zero days.
+  function levels(values) {
+    const nz = values.filter((v) => v > 0).sort((a, b) => a - b);
+    const q = (p) => nz.length ? nz[Math.min(nz.length - 1, Math.floor(p * (nz.length - 1)))] : 0;
+    const cut = [q(0.25), q(0.5), q(0.75)];
+    return (v) => v <= 0 ? 0 : v <= cut[0] ? 1 : v <= cut[1] ? 2 : v <= cut[2] ? 3 : 4;
+  }
+
+  function heatmap(d) {
+    const cal = d.calendar || [];
+    const card = el("div", { class: "card stats-card heat-card" });
+    const toggle = el("div", { class: "seg seg-text", role: "group", "aria-label": "Heatmap metric" },
+      Object.keys(METRICS).map((m) => {
+        const b = el("button", { type: "button", class: "seg-btn", "aria-pressed": String(m === statsMetric), text: m });
+        b.addEventListener("click", () => {
+          statsMetric = m;
+          store("cwm-stats-metric", m);
+          const next = heatmap(statsData);
+          card.replaceWith(next);
+          const sc = next.querySelector(".heat-scroll");
+          if (sc) sc.scrollLeft = sc.scrollWidth;
+        });
+        return b;
+      }));
+    card.appendChild(el("div", { class: "card-head" }, [el("h3", { text: "Activity" }), toggle]));
+    if (!cal.length) return card;
+
+    const ws = weekStart();
+    const last = cal.length - 1;
+    const todayDow = dayDate(cal[last].date).getUTCDay();
+    const startIdx = last - ((todayDow - ws + 7) % 7) - 52 * 7;
+    const cells = cal.slice(Math.max(0, startIdx));
+    const lv = levels(cells.map(cellValue));
+    const grid = el("div", { class: "heat", role: "grid", "aria-label": "Daily " + statsMetric + ", last 53 weeks" });
+    const tip = el("div", { class: "heat-tip", role: "tooltip", hidden: "" });
+    const unit = statsMetric === "sessions" ? "session" : statsMetric === "messages" ? "message" : "token";
+    const buttons = [];
+    let prevMonth = -1;
+    let lastLabelCol = -9;
+    for (let r = 0; r < 7; r++) {
+      if ((ws + r) % 7 % 2 === 1 && (ws + r) % 7 < 6) { // Mon, Wed, Fri
+        const wl = el("span", { class: "heat-wd", text: WD[(ws + r) % 7], "aria-hidden": "true" });
+        wl.style.gridRow = String(r + 2);
+        grid.appendChild(wl);
+      }
+    }
+    cells.forEach((c, i) => {
+      const dt = dayDate(c.date);
+      const col = Math.floor(i / 7);
+      const row = i % 7;
+      if (row === 0 || i === 0) {
+        const mo = dt.getUTCMonth();
+        if (mo !== prevMonth && dt.getUTCDate() <= 7 && col - lastLabelCol >= 3) {
+          const ml = el("span", { class: "heat-mo", text: MON[mo], "aria-hidden": "true" });
+          ml.style.gridColumn = String(col + 2) + " / span 3";
+          grid.appendChild(ml);
+          lastLabelCol = col;
+        }
+        prevMonth = mo;
+      }
+      const v = cellValue(c);
+      const label = (v === 0 ? "No " + unit + "s" : plural(v, unit)) + " on " + longDate(dt);
+      const b = el("button", { type: "button", class: "heat-cell", "data-l": String(lv(v)), "aria-label": label, tabindex: "-1", "data-date": c.date });
+      b.style.gridRow = String(row + 2);
+      b.style.gridColumn = String(col + 2);
+      buttons.push(b);
+      grid.appendChild(b);
+    });
+    const showTip = (b) => {
+      tip.textContent = b.getAttribute("aria-label");
+      tip.hidden = false;
+      const box = tip.parentNode;
+      const g = box.getBoundingClientRect();
+      const r = b.getBoundingClientRect();
+      tip.style.left = Math.round(r.left - g.left + box.scrollLeft + r.width / 2) + "px";
+      tip.style.top = Math.round(r.top - g.top) + "px";
+    };
+    const focusAt = (i) => {
+      i = Math.max(0, Math.min(buttons.length - 1, i));
+      buttons.forEach((b, k) => { b.tabIndex = k === i ? 0 : -1; });
+      buttons[i].focus();
+    };
+    if (buttons.length) buttons[buttons.length - 1].tabIndex = 0;
+    grid.addEventListener("mouseover", (ev) => { if (ev.target.classList.contains("heat-cell")) showTip(ev.target); });
+    grid.addEventListener("mouseleave", () => { tip.hidden = true; });
+    grid.addEventListener("focusin", (ev) => { if (ev.target.classList.contains("heat-cell")) showTip(ev.target); });
+    grid.addEventListener("focusout", () => { tip.hidden = true; });
+    grid.addEventListener("keydown", (ev) => {
+      const i = buttons.indexOf(ev.target);
+      if (i < 0) return;
+      const step = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 }[ev.key];
+      if (step !== undefined) focusAt(i + step);
+      else if (ev.key === "Home") focusAt(0);
+      else if (ev.key === "End") focusAt(buttons.length - 1);
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
+    const legend = el("div", { class: "heat-legend", "aria-hidden": "true" }, ["Less",
+      ...[0, 1, 2, 3, 4].map((l) => el("span", { class: "heat-cell", "data-l": String(l) })), "More"]);
+    card.appendChild(el("div", { class: "heat-scroll" }, [grid, tip]));
+    card.appendChild(legend);
+    return card;
+  }
+
+  function barList(title, groups, sub) {
+    const card = el("div", { class: "card stats-card" }, [el("h3", { text: title })]);
+    if (!groups.length) {
+      card.appendChild(el("p", { class: "hint", text: "Nothing in this range." }));
+      return card;
+    }
+    const most = Math.max(1, ...groups.map((g) => g.tokens.total));
+    card.appendChild(el("ol", { class: "hbars" }, groups.map((g) => {
+      const fill = el("span");
+      fill.style.width = Math.max(1, Math.round((g.tokens.total / most) * 100)) + "%";
+      return el("li", null, [
+        el("span", { class: "hb-name", text: g.name, title: g.name }),
+        el("span", { class: "bar", "aria-hidden": "true" }, [fill]),
+        el("span", { class: "hb-val", text: compact(g.tokens.total), title: nf.format(g.tokens.total) + " tokens · " + plural(g.messages, "message") + " · " + plural(g.sessions, "session") }),
+        sub ? el("span", { class: "hb-sub", text: sub(g) }) : null,
+      ]);
+    })));
+    return card;
+  }
+
+  function tokenSplit(tok) {
+    const card = el("div", { class: "card stats-card" }, [el("h3", { text: "Token kinds" })]);
+    const total = Math.max(1, tok.total);
+    const bar = el("div", { class: "stack", role: "img", "aria-label": KINDS.map(([k, n]) => n + " " + nf.format(tok[k])).join(", ") });
+    const legend = el("ul", { class: "stack-legend" });
+    KINDS.forEach(([k, name], i) => {
+      const seg = el("span", { class: "stack-" + i, title: name + ": " + nf.format(tok[k]) });
+      seg.style.width = (tok[k] / total) * 100 + "%";
+      bar.appendChild(seg);
+      legend.appendChild(el("li", null, [el("span", { class: "sw stack-" + i, "aria-hidden": "true" }),
+        name + " ", el("strong", { text: compact(tok[k]), title: nf.format(tok[k]) }),
+        el("span", { class: "muted", text: " " + Math.round((tok[k] / total) * 100) + "%" })]));
+    });
+    card.appendChild(bar);
+    card.appendChild(legend);
+    return card;
+  }
+
+  function trend(d) {
+    const days = (d.calendar || []).slice(-30);
+    const card = el("div", { class: "card stats-card" }, [el("h3", { text: "Tokens, last 30 days" })]);
+    if (!days.length) return card;
+    const W = 300, H = 80, P = 4;
+    const peak = Math.max(1, ...days.map((x) => x.tokens));
+    const pts = days.map((x, i) => [
+      (P + (i * (W - 2 * P)) / Math.max(1, days.length - 1)).toFixed(1),
+      (H - P - (x.tokens / peak) * (H - 2 * P)).toFixed(1),
+    ]);
+    const line = "M" + pts.map((p) => p.join(" ")).join(" L");
+    const s = svg("svg", { class: "trend", viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", role: "img",
+      "aria-label": "Daily tokens over the last 30 days, peak " + nf.format(peak) });
+    s.appendChild(svg("path", { class: "trend-area", d: line + " L" + pts[pts.length - 1][0] + " " + (H - P) + " L" + pts[0][0] + " " + (H - P) + " Z" }));
+    s.appendChild(svg("path", { class: "trend-line", d: line, "vector-effect": "non-scaling-stroke" }));
+    card.appendChild(s);
+    card.appendChild(el("div", { class: "trend-axis" }, [
+      el("span", { text: longDate(dayDate(days[0].date)).slice(5) }),
+      el("span", { text: "peak " + compact(peak), title: nf.format(peak) + " tokens" }),
+      el("span", { text: "today" }),
+    ]));
+    return card;
+  }
+
+  function renderStats(d) {
+    statsData = d;
+    if (!d.totals || !d.totals.messages) {
+      const all = (d.calendar || []).some((c) => c.messages > 0);
+      return show("stats", el("div", { class: "card stats-empty" }, [
+        el("p", { class: "empty", text: all ? "No activity in this range — try a longer one." : "No sessions yet — start one and your activity appears here." }),
+        all ? heatmap(d) : null,
+      ]));
+    }
+    const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.date : "";
+    show("stats", el("div", { class: "stats-grid" }, [
+      statsKPIs(d),
+      heatmap(d),
+      el("div", { class: "stats-cols" }, [
+        barList("Top projects", d.top_projects || []),
+        barList("Top models", d.top_models || [], (g) => g.cost_usd ? "$" + g.cost_usd.toFixed(2) + " est." : ""),
+        tokenSplit(d.totals.tokens),
+        trend(d),
+        (d.accounts || []).length > 1 ? barList("Accounts", d.accounts) : null,
+      ]),
+    ]));
+    // Newest weeks first in view when the heatmap scrolls (narrow screens).
+    content("stats").querySelectorAll(".heat-scroll").forEach((sc) => { sc.scrollLeft = sc.scrollWidth; });
+    if (focused) {
+      const b = content("stats").querySelector('.heat-cell[data-date="' + focused + '"]');
+      if (b) { b.tabIndex = 0; b.focus({ preventScroll: true }); }
+    }
+  }
+
+  function syncRangeButtons() {
+    document.querySelectorAll("#stats-range [data-range]").forEach((b) => {
+      b.setAttribute("aria-pressed", String(b.dataset.range === statsRange));
+    });
+  }
+
+  function wireStats() {
+    syncRangeButtons();
+    document.querySelectorAll("#stats-range [data-range]").forEach((b) => {
+      b.addEventListener("click", () => {
+        statsRange = b.dataset.range;
+        store("cwm-stats-range", statsRange);
+        syncRangeButtons();
+        load("stats");
+      });
     });
   }
 
@@ -1371,6 +1692,7 @@
     wireAccounts();
     wireKeys();
     wireDebug();
+    wireStats();
 
     const v = await api("/api/version");
     if (v.ok && v.data) {

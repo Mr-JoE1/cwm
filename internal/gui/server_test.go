@@ -95,10 +95,19 @@ func newFixture(t *testing.T, sync func() (syncengine.Client, error)) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitStats(t, srv)
 	return &fixture{srv: srv, token: token, root: root}
 }
 
 func okSync() (syncengine.Client, error) { return fakeSync{}, nil }
+
+// waitStats makes the test's cleanup wait for a background stats scan:
+// it writes <cwm home>/cache/stats.json, and the temp dir's removal must
+// not race it (on Windows an open file even blocks the delete). Cleanups
+// run last-in first-out, so this runs before the TempDir removal.
+func waitStats(t *testing.T, srv *Server) {
+	t.Cleanup(func() { srv.statsEngine().Wait() })
+}
 
 // do sends one request through the handler with a valid Host unless the
 // caller overrides it.
@@ -270,12 +279,12 @@ func TestStaticDashboard(t *testing.T) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, tab := range []string{"Sessions", "Projects", "Devices", "WIP", "Health", "Accounts"} {
+	for _, tab := range []string{"Sessions", "Projects", "Devices", "WIP", "Health", "Accounts", "Stats"} {
 		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, ">"+tab+"</button>") {
 			t.Errorf("dashboard missing tab %q", tab)
 		}
 	}
-	for _, asset := range []string{"/app.js", "/app.css", "/theme.js", "/bg.js", "/favicon.svg"} {
+	for _, asset := range []string{"/app.js", "/app.css", "/theme.js", "/bg.js", "/favicon.svg", "/favicon-16.svg"} {
 		if rec := f.do(t, "GET", asset, nil); rec.Code != http.StatusOK || rec.Body.Len() == 0 {
 			t.Errorf("GET %s = %d (%d bytes)", asset, rec.Code, rec.Body.Len())
 		}
@@ -283,9 +292,13 @@ func TestStaticDashboard(t *testing.T) {
 			t.Errorf("index.html does not reference %s", asset)
 		}
 	}
-	// v0.6.2: six tabs, shortcuts 1-6 (D57).
-	if n := strings.Count(body, `role="tab"`); n != 6 || !strings.Contains(body, `data-key="6"`) || !strings.Contains(body, "<kbd>1</kbd>–<kbd>6</kbd>") {
-		t.Errorf("dashboard has %d tabs (want 6 with keys 1-6 in the help)", n)
+	// v0.7.1: seven tabs, shortcuts 1-7 (D57, D65).
+	if n := strings.Count(body, `role="tab"`); n != 7 || !strings.Contains(body, `data-key="7"`) || !strings.Contains(body, "<kbd>1</kbd>–<kbd>7</kbd>") {
+		t.Errorf("dashboard has %d tabs (want 7 with keys 1-7 in the help)", n)
+	}
+	// The 16 px favicon is its own hand-tuned file (D66).
+	if !strings.Contains(body, `href="/favicon-16.svg" type="image/svg+xml" sizes="16x16"`) || !strings.Contains(body, `href="/favicon.svg" type="image/svg+xml" sizes="any"`) {
+		t.Error("index.html must link favicon-16.svg (16x16) and favicon.svg (any)")
 	}
 	if rec := f.do(t, "GET", "/favicon.svg", nil); !strings.HasPrefix(rec.Header().Get("Content-Type"), "image/svg+xml") {
 		t.Errorf("favicon.svg Content-Type = %q", rec.Header().Get("Content-Type"))
@@ -502,6 +515,7 @@ func TestServeGracefulShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitStats(t, srv)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, ln, srv) }()

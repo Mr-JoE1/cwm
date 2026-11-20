@@ -267,7 +267,13 @@ func Checks(root string, netProbe bool) []Check {
 
 	// 8. repos.tsv: readable, every non-empty line is name<TAB>url
 	if data, err := os.ReadFile(filepath.Join(ws, "repos.tsv")); err != nil {
-		r.warn("repos-tsv", "repos.tsv not readable — no repos recorded yet (open a repo via cwm to create it)")
+		// A fresh workspace has neither: the first launch writes both,
+		// so only a missing manifest next to existing sessions is odd.
+		if os.IsNotExist(err) && !hasProjectDirs(filepath.Join(ws, "projects")) {
+			r.ok("repos-tsv", "no repos.tsv yet (created on first launch)")
+		} else {
+			r.warn("repos-tsv", "repos.tsv not readable — no repos recorded yet (open a repo via cwm to create it)")
+		}
 	} else {
 		total, bad := 0, 0
 		for line := range strings.SplitSeq(string(data), "\n") {
@@ -401,6 +407,21 @@ func persistedConfigDir() bool {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// hasProjectDirs reports whether dir holds at least one subdirectory (a
+// session folder); a missing or unreadable dir has none.
+func hasProjectDirs(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func countFiles(dir string) int {

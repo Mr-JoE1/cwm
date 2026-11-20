@@ -178,6 +178,9 @@ type RemoveResult struct {
 	// Backup is the backup dir ("" when the account dir did not exist).
 	Backup     string
 	DeletedDir bool
+	// KeptDir is the account dir DeleteDir left in place because it lies
+	// outside the cwm home ("" = nothing was kept).
+	KeptDir string
 	// NewDefault is the account that became the default because the
 	// removed one was it ("" = the default did not change).
 	NewDefault string
@@ -229,11 +232,13 @@ func RemoveWith(l *storage.Layout, cfg *config.Config, name string, opts RemoveO
 	if opts.DeleteDir {
 		// Only cwm's own dirs: an account imported from elsewhere keeps
 		// its original folder (the backup has a copy either way).
-		if within(l.AccountsDir(), dir) {
+		if Deletable(l, dir) {
 			if err := os.RemoveAll(dir); err != nil {
 				return out, fmt.Errorf("accounts: delete %s: %w", dir, err)
 			}
 			out.DeletedDir = true
+		} else {
+			out.KeptDir = dir
 		}
 		if err := os.RemoveAll(filepath.Join(l.LaunchDir(), name)); err != nil {
 			return out, fmt.Errorf("accounts: delete launch dir: %w", err)
@@ -241,6 +246,13 @@ func RemoveWith(l *storage.Layout, cfg *config.Config, name string, opts RemoveO
 	}
 	ClearLoginState(l, name)
 	return out, nil
+}
+
+// Deletable reports whether RemoveOptions.DeleteDir may delete the
+// account dir dir: only cwm's own folders (accounts/<name>,
+// launch/<name>) qualify, never a folder imported from elsewhere.
+func Deletable(l *storage.Layout, dir string) bool {
+	return within(l.AccountsDir(), dir) || within(l.LaunchDir(), dir)
 }
 
 // within reports whether p is strictly inside dir.

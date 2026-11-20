@@ -6,7 +6,8 @@
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="dark light">
 <title>cwm dashboard</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-16.svg" type="image/svg+xml" sizes="16x16">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/app.css">
 <script src="/bg.js" defer></script>
@@ -137,6 +138,7 @@
   <button type="button" role="tab" class="tab" id="tab-wip" data-tab="wip" data-key="4" aria-controls="panel-wip">WIP</button>
   <button type="button" role="tab" class="tab" id="tab-health" data-tab="health" data-key="5" aria-controls="panel-health">Health</button>
   <button type="button" role="tab" class="tab" id="tab-accounts" data-tab="accounts" data-key="6" aria-controls="panel-accounts"><span class="tab-dot" id="accounts-dot" title="The default account has no login yet" hidden></span>Accounts</button>
+  <button type="button" role="tab" class="tab" id="tab-stats" data-tab="stats" data-key="7" aria-controls="panel-stats">Stats</button>
 </nav>
 
 <main>
@@ -216,6 +218,21 @@
       <div class="result" id="acct-add-result" aria-live="polite"></div>
     </div>
   </section>
+
+  <section class="panel" role="tabpanel" id="panel-stats" aria-labelledby="tab-stats" hidden>
+    <div class="panel-head">
+      <h2>Stats</h2>
+      <div class="seg seg-text" role="group" aria-label="Range" id="stats-range">
+        <button type="button" class="seg-btn" data-range="7d" aria-pressed="false">7d</button>
+        <button type="button" class="seg-btn" data-range="30d" aria-pressed="false">30d</button>
+        <button type="button" class="seg-btn" data-range="90d" aria-pressed="false">90d</button>
+        <button type="button" class="seg-btn" data-range="365d" aria-pressed="false">1y</button>
+        <button type="button" class="seg-btn" data-range="all" aria-pressed="false">all</button>
+      </div>
+    </div>
+    <p class="hint">Activity derived from the session transcripts on this machine (same data as <code>cwm stats</code>). Computed locally — never sent anywhere.</p>
+    <div class="stats-body" data-content="stats"></div>
+  </section>
 </main>
 </div>
 
@@ -234,7 +251,8 @@
 <dialog id="keys" class="keys" aria-labelledby="keys-title">
   <h2 id="keys-title">Keyboard shortcuts</h2>
   <dl>
-    <dt><kbd>1</kbd>–<kbd>6</kbd></dt><dd>Switch tab (Sessions, Projects, Devices, WIP, Health, Accounts)</dd>
+    <dt><kbd>1</kbd>–<kbd>7</kbd></dt><dd>Switch tab (Sessions, Projects, Devices, WIP, Health, Accounts, Stats)</dd>
+    <dt><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between days in the Stats heatmap</dd>
     <dt><kbd>/</kbd></dt><dd>Filter sessions</dd>
     <dt><kbd>t</kbd></dt><dd>Cycle theme (system → dark → light)</dd>
     <dt><kbd>b</kbd></dt><dd>Animated background on/off</dd>

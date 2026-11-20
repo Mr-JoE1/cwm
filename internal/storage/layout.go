@@ -82,6 +82,11 @@ func (l *Layout) LaunchDir() string    { return filepath.Join(l.Root, "launch") 
 func (l *Layout) BackupsDir() string   { return filepath.Join(l.Root, "backups") }
 func (l *Layout) StateDir() string     { return filepath.Join(l.Root, "state") }
 func (l *Layout) LogsDir() string      { return filepath.Join(l.Root, "logs") }
+func (l *Layout) CacheDir() string     { return filepath.Join(l.Root, "cache") }
+
+// StatsCachePath is the incremental stats cache (D61); derived data, never
+// synced, safe to delete.
+func (l *Layout) StatsCachePath() string { return filepath.Join(l.CacheDir(), "stats.json") }
 
 // ManifestPath is the workspace repos manifest (repos.tsv, bash-kit format).
 func (l *Layout) ManifestPath() string {

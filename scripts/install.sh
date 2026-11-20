@@ -63,6 +63,25 @@ ui_init() {
     STEP=0
     STEPS=8
     OPEN_LINE=0 # a step header is waiting for its result on the same line
+    term_width
+}
+
+# term_width — set WIDTH, the columns notes and child output wrap at:
+# $COLUMNS when numeric, else the terminal's size when stdout is one, else
+# 80; clamped to 40..1000.
+term_width() {
+    WIDTH=""
+    case "${COLUMNS:-}" in
+        '' | *[!0-9]*) ;;
+        *) WIDTH=$COLUMNS ;;
+    esac
+    if [ -z "$WIDTH" ] && [ -t 1 ]; then
+        WIDTH=$( (stty size </dev/tty) 2>/dev/null | awk '{ print $2 }') || WIDTH=""
+        case "$WIDTH" in
+            '' | *[!0-9]* | 0) WIDTH=$(tput cols 2>/dev/null) || WIDTH="" ;;
+        esac
+    fi
+    WIDTH=$(printf '%s\n' "$WIDTH" | awk '{ n = ($0 ~ /^[0-9]+$/ && $0 + 0 > 0) ? $0 + 0 : 80; if (n < 40) n = 40; if (n > 1000) n = 1000; print n }')
 }
 
 # banner SUBTITLE — the art is scripts/banner.txt verbatim; the harness
@@ -107,10 +126,67 @@ ok() { result "$G_OK" "$C_GREEN" "$1" "${2:-}"; }
 warn() { result "$G_WARN" "$C_YELLOW" "$1" "${2:-}"; }
 skip() { result '-' "$C_DIM" "$1" "${2:-}"; }
 
+# wrapped LEAD LEADCOLS TEXT — print TEXT dimmed after a 6-space indent
+# and LEAD (LEADCOLS columns wide), word-wrapped at $WIDTH: every
+# continuation line repeats the indent, LEAD and TEXT's own leading spaces
+# (hanging indent), and the colour starts and resets on each line. A word
+# longer than the room is split. Widths are
+# counted in characters (UTF-8 continuation bytes are not counted, so
+# wide glyphs may wrap a little late; nothing is split mid-character).
+wrapped() {
+    room=$((WIDTH - 6 - $2))
+    if [ "${#3}" -le "$room" ]; then
+        printf '      %s%s%s%s\n' "$C_DIM" "$1" "$3" "$C_RESET"
+        return 0
+    fi
+    printf '%s\n' "$3" | CW_A="      $C_DIM$1" CW_Z="$C_RESET" CW_W="$room" LC_ALL=C awk '
+        BEGIN {
+            a = ENVIRON["CW_A"]; z = ENVIRON["CW_Z"]; w = ENVIRON["CW_W"] + 0
+            if (w < 10) w = 10
+            for (i = 128; i < 192; i++) cont[sprintf("%c", i)] = 1
+        }
+        # vlen S — characters in S (bytes that do not continue a UTF-8 sequence)
+        function vlen(s,    i, n) {
+            n = 0
+            for (i = 1; i <= length(s); i++) if (!(substr(s, i, 1) in cont)) n++
+            return n
+        }
+        # cutat S N — byte length of the first N characters of S
+        function cutat(s, n,    i, k) {
+            k = 0
+            for (i = 1; i <= length(s); i++) {
+                if (!(substr(s, i, 1) in cont)) { if (k == n) return i - 1; k++ }
+            }
+            return length(s)
+        }
+        {
+            s = $0
+            ind = ""
+            if (match(s, /^ +/) && RLENGTH <= w / 2) ind = substr(s, 1, RLENGTH)
+            while (vlen(s) > w) {
+                c = cutat(s, w)
+                p = 0
+                if (substr(s, c + 1, 1) == " ") p = c + 1
+                else for (i = c; i > 1; i--) if (substr(s, i, 1) == " ") { p = i; break }
+                head = (p > 1) ? substr(s, 1, p - 1) : ""
+                if (head ~ /[^ ]/) {
+                    rest = substr(s, p + 1)
+                } else {
+                    head = substr(s, 1, c); rest = substr(s, c + 1)
+                }
+                sub(/ +$/, "", head); sub(/^ +/, "", rest)
+                printf "%s%s%s\n", a, head, z
+                s = (rest == "") ? "" : ind rest
+            }
+            sub(/ +$/, "", s)
+            if (s != "") printf "%s%s%s\n", a, s, z
+        }'
+}
+
 # note TEXT — a dim detail line under the current step.
 note() {
     close_line
-    printf '      %s%s%s\n' "$C_DIM" "$1" "$C_RESET"
+    wrapped '' 0 "$1"
 }
 
 die() {
@@ -131,7 +207,7 @@ run_child() {
         "$@" 2>&1 && echo 0 >"$log.rc" || echo $? >"$log.rc"
     } | while IFS= read -r line || [ -n "$line" ]; do
         printf '%s\n' "$line" >>"$log"
-        printf '      %s%s %s%s\n' "$C_DIM" "$G_BAR" "$line" "$C_RESET"
+        wrapped "$G_BAR " 2 "$line"
     done
     rc=$(cat "$log.rc" 2>/dev/null || echo 1)
     return "$rc"

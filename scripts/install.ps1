@@ -73,6 +73,27 @@ function Initialize-Ui {
     $script:StepN = 0
     $script:Steps = 8
     $script:OpenLine = $false
+    $script:Width = Get-TermWidth $redirected $onWindows
+}
+
+# Get-TermWidth: the columns notes and child output wrap at - $env:COLUMNS
+# when numeric, else the console width (one less on Windows, where a
+# full-width line makes the console wrap by itself), else 80 (redirected,
+# or no console); clamped to 40..1000.
+function Get-TermWidth([bool]$redirected, [bool]$onWindows) {
+    $w = 0
+    if ($env:COLUMNS -match '^[0-9]{1,4}$') { $w = [int]$env:COLUMNS }
+    if ($w -le 0 -and -not $redirected) {
+        try { $w = [Console]::WindowWidth } catch { $w = 0 }
+        if ($w -le 0) {
+            try { $w = $Host.UI.RawUI.WindowSize.Width } catch { $w = 0 }
+        }
+        if ($w -gt 0 -and $onWindows) { $w-- }
+    }
+    if ($w -le 0) { $w = 80 }
+    if ($w -lt 40) { $w = 40 }
+    if ($w -gt 1000) { $w = 1000 }
+    return $w
 }
 
 # Use-Utf8Console: cwm.exe writes UTF-8 and PowerShell decodes native
@@ -150,10 +171,45 @@ function Step-Ok([string]$text, [string]$detail) { Write-Result $script:G.Ok 'Gr
 function Step-Warn([string]$text, [string]$detail) { Write-Result $script:G.Warn 'Yellow' $text $detail }
 function Step-Skip([string]$text, [string]$detail) { Write-Result '-' 'DarkGray' $text $detail }
 
+# Write-Wrapped prints $text dimmed after a 6-space indent and $lead,
+# word-wrapped at $script:Width: every continuation line repeats the indent,
+# $lead and the text's own leading spaces (hanging indent), colour per
+# line. A word longer than the room is split.
+function Write-Wrapped([string]$lead, [string]$text) {
+    $room = $script:Width - 6 - $lead.Length
+    if ($room -lt 10) { $room = 10 }
+    $s = $text
+    if ($s.Length -gt $room) {
+        $ind = ''
+        $n = $s.Length - $s.TrimStart(' ').Length
+        if ($n -le ($room / 2)) { $ind = $s.Substring(0, $n) }
+        while ($s.Length -gt $room) {
+            $cut = $room
+            if ([char]::IsHighSurrogate($s[$cut - 1])) { $cut-- }
+            if ($s[$cut] -eq ' ') { $p = $cut } else { $p = $s.LastIndexOf(' ', $cut - 1) }
+            $head = ''
+            if ($p -gt 0) { $head = $s.Substring(0, $p) }
+            if ($head.Trim(' ').Length -gt 0) {
+                $s = $s.Substring($p + 1)
+            } else {
+                $head = $s.Substring(0, $cut)
+                $s = $s.Substring($cut)
+            }
+            Write-Part ('      ' + $lead + $head.TrimEnd(' ')) 'DarkGray'
+            Write-Host ''
+            $s = $s.TrimStart(' ')
+            if ($s.Length -gt 0) { $s = $ind + $s }
+        }
+        $s = $s.TrimEnd(' ')
+        if ($s.Length -eq 0) { return }
+    }
+    Write-Part ('      ' + $lead + $s) 'DarkGray'
+    Write-Host ''
+}
+
 function Write-Note([string]$text) {
     Close-Line
-    Write-Part "      $text" 'DarkGray'
-    Write-Host ''
+    Write-Wrapped '' $text
 }
 
 # Fail aborts the install; the top level prints it (see the bottom).
@@ -281,8 +337,7 @@ function Invoke-CwmStep([string]$exe, [string[]]$cwmArgs) {
         & $exe @cwmArgs 2>&1 | ForEach-Object {
             $line = [string]$_
             $script:ChildLog.Add($line)
-            Write-Part ('      ' + $script:G.Bar + ' ' + $line) 'DarkGray'
-            Write-Host ''
+            Write-Wrapped ($script:G.Bar + ' ') $line
         }
         $code = $LASTEXITCODE
     } finally {

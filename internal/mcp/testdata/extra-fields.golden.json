@@ -1,0 +1,45 @@
+{
+  "$schema": "https://example.com/mcp.schema.json",
+  "alpha": null,
+  "mcpServers": {
+    "local": {
+      "alwaysAllow": [],
+      "args": [
+        "server.js",
+        "--flag=<v>"
+      ],
+      "command": "node",
+      "cwd": "/srv/mcp",
+      "env": {
+        "DEBUG": "1",
+        "TOKEN": "s3crét"
+      },
+      "timeout": 12345678901234567890,
+      "type": "stdio"
+    },
+    "remote": {
+      "headers": {
+        "Authorization": "Bearer t",
+        "X-Api-Key": "${API_KEY}"
+      },
+      "oauth": {
+        "clientId": "abc",
+        "scopes": [
+          "read",
+          "write"
+        ]
+      },
+      "type": "sse",
+      "url": "https://mcp.example.com/sse?x=1&y=<2>"
+    }
+  },
+  "zeta": {
+    "a": [
+      1,
+      2.50,
+      null,
+      true
+    ],
+    "b": 1
+  }
+}

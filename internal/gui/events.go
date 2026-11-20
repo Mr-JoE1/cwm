@@ -31,6 +31,9 @@ type Snapshot struct {
 	Projects      int       `json:"projects"`
 	Sessions      int       `json:"sessions"`
 	NewestSession time.Time `json:"newestSession,omitzero"`
+	// Stats is the stats engine's fingerprint of the all-time totals
+	// (D64); reading it never scans, it only nudges the 60 s refresh.
+	Stats string `json:"stats,omitempty"`
 }
 
 // changed lists the snapshot sections that differ, in a fixed order; the
@@ -48,6 +51,10 @@ func (a Snapshot) changed(b Snapshot) []string {
 	}
 	if a.Sessions != b.Sessions || !a.NewestSession.Equal(b.NewestSession) {
 		out = append(out, "sessions")
+	}
+	// "" is "no scan finished yet": the first scan landing is not news.
+	if a.Stats != b.Stats && a.Stats != "" {
+		out = append(out, "stats")
 	}
 	return out
 }
@@ -83,6 +90,7 @@ func (s *Server) snapshot() Snapshot {
 			}
 		}
 	}
+	snap.Stats = s.statsEngine().Fingerprint()
 	s.snap, s.snapAt = snap, time.Now()
 	return snap
 }
@@ -142,6 +150,9 @@ func (s *Server) serveEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			cur := s.snapshot()
+			if prev.Stats == "" {
+				prev.Stats = cur.Stats // adopt the first fingerprint silently
+			}
 			if ch := prev.changed(cur); len(ch) > 0 {
 				if !send("state", map[string]any{"changed": ch, "snapshot": cur}) {
 					return
