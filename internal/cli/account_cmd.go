@@ -3,8 +3,8 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +30,7 @@ func cmdAccount(e *Env, args []string) error {
 			yes = true
 		case "--dry-run":
 			dryRun = true
-		case "--delete-dir":
+		case "--delete-config", "--delete-dir":
 			deleteDir = true
 		default:
 			if strings.HasPrefix(a, "-") {
@@ -123,14 +123,22 @@ func cmdAccount(e *Env, args []string) error {
 
 	case "remove", "rm":
 		if len(pos) != 1 {
-			return fmt.Errorf("usage: cwm account remove <name> [--delete-dir] [--yes]")
+			return fmt.Errorf("usage: cwm account remove <name> [--delete-config] [--yes]")
 		}
 		name := pos[0]
+		acctDir := filepath.Join(layout.AccountsDir(), name)
+		if a, ok := cfg.Account(name); ok {
+			acctDir = a.ExpandedDir()
+		}
 		if dryRun {
-			fmt.Fprintf(e.Stdout, "would back up %s to %s\n", filepath.Join(layout.AccountsDir(), name), layout.BackupsDir())
+			fmt.Fprintf(e.Stdout, "would back up %s to %s\n", acctDir, layout.BackupsDir())
 			fmt.Fprintf(e.Stdout, "would remove account %q from %s\n", name, layout.ConfigPath())
 			if deleteDir {
-				fmt.Fprintf(e.Stdout, "would delete %s and %s after the backup\n", filepath.Join(layout.AccountsDir(), name), filepath.Join(layout.LaunchDir(), name))
+				if accounts.Deletable(layout, acctDir) {
+					fmt.Fprintf(e.Stdout, "would delete %s and %s after the backup\n", acctDir, filepath.Join(layout.LaunchDir(), name))
+				} else {
+					fmt.Fprintf(e.Stdout, "would delete %s after the backup and keep %s (outside the cwm home)\n", filepath.Join(layout.LaunchDir(), name), acctDir)
+				}
 			}
 			return nil
 		}
@@ -139,13 +147,23 @@ func cmdAccount(e *Env, args []string) error {
 			return accounts.ErrLastAccount
 		}
 		if !yes {
-			confirmed, err := confirmRemove(e, stdinIsTTY)
+			confirmed, err := confirmRemove(e, accountStdinIsTTY)
 			if err != nil {
 				return err
 			}
 			if !confirmed {
 				fmt.Fprintln(e.Stdout, "aborted")
 				return nil
+			}
+			// Both questions come before any work. Only an interactive
+			// run gets here (confirmRemove refuses a non-TTY), and a dir
+			// outside the cwm home is never deletable, so no question.
+			if _, ok := cfg.Account(name); ok && !deleteDir && accounts.Deletable(layout, acctDir) {
+				del, err := askConfirm(e, "also delete its config folder "+acctDir)
+				if err != nil {
+					return err
+				}
+				deleteDir = del
 			}
 		}
 		res, err := accounts.RemoveWith(layout, cfg, name, accounts.RemoveOptions{DeleteDir: deleteDir})
@@ -163,6 +181,9 @@ func cmdAccount(e *Env, args []string) error {
 		if res.DeletedDir {
 			fmt.Fprintf(e.Stdout, "✓ deleted its account dir and launch dir\n")
 		}
+		if res.KeptDir != "" {
+			fmt.Fprintf(e.Stdout, "kept its config folder %s (outside the cwm home; delete it yourself if you no longer need it)\n", res.KeptDir)
+		}
 		if res.NewDefault != "" {
 			fmt.Fprintf(e.Stdout, "✓ default account is now %s\n", res.NewDefault)
 		}
@@ -172,6 +193,10 @@ func cmdAccount(e *Env, args []string) error {
 		return fmt.Errorf("unknown account action %q (want add, login, list, use or remove)", action)
 	}
 }
+
+// accountStdinIsTTY decides whether `account remove` may prompt; a seam
+// so tests can drive the interactive path.
+var accountStdinIsTTY = stdinIsTTY
 
 func stdinIsTTY() bool {
 	fi, err := os.Stdin.Stat()
@@ -201,7 +226,7 @@ func confirmRemove(e *Env, isTTY func() bool) (bool, error) {
 // askConfirm prompts on a TTY and accepts y/yes (any case).
 func askConfirm(e *Env, prompt string) (bool, error) {
 	fmt.Fprintf(e.Stdout, "cwm: %s? [y/N]: ", prompt)
-	line, err := bufio.NewReader(e.Stdin).ReadString('\n')
+	line, err := readLine(e.Stdin)
 	if err != nil && line == "" {
 		return false, fmt.Errorf("could not read confirmation (pass --yes to skip the prompt): %w", err)
 	}
@@ -210,5 +235,24 @@ func askConfirm(e *Env, prompt string) (bool, error) {
 		return true, nil
 	default:
 		return false, nil
+	}
+}
+
+// readLine reads one line byte by byte. A bufio.Reader would swallow the
+// answers to later prompts (remove asks twice) along with the first one.
+func readLine(r io.Reader) (string, error) {
+	var b strings.Builder
+	buf := make([]byte, 1)
+	for {
+		n, err := r.Read(buf)
+		if n == 1 {
+			if buf[0] == '\n' {
+				return b.String(), nil
+			}
+			b.WriteByte(buf[0])
+		}
+		if err != nil {
+			return b.String(), err
+		}
 	}
 }

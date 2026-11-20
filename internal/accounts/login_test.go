@@ -220,10 +220,30 @@ func TestRemoveDeleteDir(t *testing.T) {
 	// An account dir outside accounts/ (imported) is never deleted.
 	outside := t.TempDir()
 	_ = cfg.AddAccount("imported", outside)
-	if res, err := RemoveWith(l, cfg, "imported", RemoveOptions{DeleteDir: true}); err != nil || res.DeletedDir {
+	if res, err := RemoveWith(l, cfg, "imported", RemoveOptions{DeleteDir: true}); err != nil || res.DeletedDir || res.KeptDir != outside {
 		t.Errorf("imported: %+v %v", res, err)
 	}
 	if _, err := os.Stat(outside); err != nil {
 		t.Errorf("imported dir deleted: %v", err)
+	}
+}
+
+func TestDeletable(t *testing.T) {
+	l := storage.NewLayoutAt(t.TempDir())
+	for _, tt := range []struct {
+		dir  string
+		want bool
+	}{
+		{filepath.Join(l.AccountsDir(), "a"), true},
+		{filepath.Join(l.LaunchDir(), "a"), true},
+		{l.AccountsDir(), false},
+		{l.Root, false},
+		{filepath.Join(l.WorkspaceDir(), "a"), false},
+		{filepath.Join(t.TempDir(), "elsewhere"), false},
+		{filepath.Join(l.AccountsDir(), "..", "x"), false},
+	} {
+		if got := Deletable(l, tt.dir); got != tt.want {
+			t.Errorf("Deletable(%s) = %v, want %v", tt.dir, got, tt.want)
+		}
 	}
 }
