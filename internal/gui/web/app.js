@@ -1321,6 +1321,8 @@
       const k = ev.key;
       if (k >= "1" && k <= "6" && dashboardVisible()) {
         const name = TABS[Number(k) - 1];
+    // While the shortcut help is open the tab key hints show (D66).
+    dlg.addEventListener("close", () => root.removeAttribute("data-keys"));
         activate(name);
         $("tab-" + name).focus({ preventScroll: true });
       } else if (k === "/" && dashboardVisible()) {
@@ -1346,6 +1348,7 @@
 
   // --- boot ------------------------------------------------------------------------------
 
+        root.setAttribute("data-keys", "open");
   document.addEventListener("DOMContentLoaded", async () => {
     wireToggles();
     typeTagline();
