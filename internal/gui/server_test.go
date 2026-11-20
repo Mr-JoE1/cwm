@@ -95,10 +95,19 @@ func newFixture(t *testing.T, sync func() (syncengine.Client, error)) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitStats(t, srv)
 	return &fixture{srv: srv, token: token, root: root}
 }
 
 func okSync() (syncengine.Client, error) { return fakeSync{}, nil }
+
+// waitStats makes the test's cleanup wait for a background stats scan:
+// it writes <cwm home>/cache/stats.json, and the temp dir's removal must
+// not race it (on Windows an open file even blocks the delete). Cleanups
+// run last-in first-out, so this runs before the TempDir removal.
+func waitStats(t *testing.T, srv *Server) {
+	t.Cleanup(func() { srv.statsEngine().Wait() })
+}
 
 // do sends one request through the handler with a valid Host unless the
 // caller overrides it.
@@ -506,6 +515,7 @@ func TestServeGracefulShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitStats(t, srv)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, ln, srv) }()
