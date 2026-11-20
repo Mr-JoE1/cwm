@@ -555,7 +555,7 @@
         return show("projects", message("empty", "No projects yet — open a repo via cwm open <name> new to create one."));
       }
       const most = Math.max(1, ...list.map((p) => p.sessions || 0));
-      show("projects", table([col("Project", "lead"), col("Sessions", "num"), col("Activity"), col("Last session", "when")],
+      show("projects", table([col("project", "lead"), col("sessions", "num"), col("activity"), col("last session", "when")],
         list.map((p) => {
           const fill = el("span");
           fill.style.width = Math.round(((p.sessions || 0) / most) * 100) + "%";
@@ -619,7 +619,7 @@
       if (list.length === 0) {
         return show("handoff", message("empty", "Nothing to hand off: every local clone is committed."));
       }
-      show("handoff", table([col("Repo", "lead"), col("Changed", "status"), col("Last commit", "muted wide")], list.map((d) => [
+      show("handoff", table([col("repo", "lead"), col("changed", "status"), col("last commit", "muted wide")], list.map((d) => [
         el("td", null, [el("span", { class: "proj", text: d.name })]),
         el("td", null, [badge("warn", d.changed + " file" + (d.changed === 1 ? "" : "s"))]),
         d.lastCommit,
@@ -2193,9 +2193,10 @@
     $("about-close").addEventListener("click", () => dlg.close());
     dlg.addEventListener("click", (ev) => { if (ev.target === dlg) dlg.close(); });
     $("about-copy").addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget; // null once the await below yields
       if (!aboutData) return;
       const ok = await copyQuiet(aboutSummary(aboutData) + "\n" + JSON.stringify(aboutData, null, 2));
-      flash(ev.currentTarget, ok ? "copied" : "copy failed");
+      flash(btn, ok ? "copied" : "copy failed");
     });
     $("about-update").addEventListener("click", async (ev) => {
       const btn = ev.currentTarget;

@@ -81,7 +81,7 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
   </tr>
   <tr>
     <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click; the repo clones if it's missing.</p></td>
-    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, WIP, Health, Accounts (add, log in, set default, remove) and Stats. Dark/light themes, live updates, phone layout.</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, set default, remove) and Stats, in a tmux-style frame with a Ctrl-K command palette. Dark/light themes, live updates, phone layout with a bottom bar.</p></td>
     <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
   </tr>
   <tr>
@@ -106,24 +106,24 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
     <td colspan="2" valign="top" align="center">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-stats-light.png">
-        <img alt="Stats tab, dark theme: KPI cards, a 53-week activity heatmap with a tooltip, top projects, top models and token kinds (generated demo data)" src="docs/img/gui-stats-dark.png" width="100%">
+        <img alt="Stats tab, dark theme: KPI cards, the 12-month activity heatmap, top projects, top models and the billed/cache token bars (generated demo data)" src="docs/img/gui-stats-dark.png" width="100%">
       </picture><br>
       <sub><b>Stats</b>: activity from your local transcripts (demo data)</sub>
     </td>
   </tr>
   <tr>
     <td width="68%" valign="top" align="center">
-      <img alt="Health tab, dark theme: cwm doctor checks with ok, warn and fail status pills" src="docs/img/gui-health-dark.png" width="100%"><br>
-      <sub><b>Health</b>: the <code>cwm doctor</code> checks at a glance</sub>
+      <img alt="Health tab, dark theme: a boot log with the problems first, each with a plain why and a copyable fix command" src="docs/img/gui-health-dark.png" width="100%"><br>
+      <sub><b>Health</b>: what to fix first, and the command that fixes it</sub>
     </td>
     <td width="32%" valign="top" align="center" rowspan="2">
-      <img alt="Sessions tab on a phone: each session as a card with a full-width Resume button" src="docs/img/gui-sessions-mobile-dark.png" width="100%"><br>
-      <sub><b>Mobile</b>: tables turn into cards</sub>
+      <img alt="Sessions tab on a phone: sessions grouped by day as cards with a full-width resume button, and the bottom bar" src="docs/img/gui-sessions-mobile-dark.png" width="100%"><br>
+      <sub><b>Mobile</b>: session cards and a bottom bar</sub>
     </td>
   </tr>
   <tr>
     <td width="68%" valign="top" align="center">
-      <img alt="Setup wizard, light theme: step 1, initialize the workspace" src="docs/img/gui-wizard-light.png" width="100%"><br>
+      <img alt="Setup wizard, light theme: the step rail, step 1 (initialize the workspace) and the live setup log" src="docs/img/gui-wizard-light.png" width="100%"><br>
       <sub><b>Setup wizard</b>: init, account login and pairing</sub>
     </td>
   </tr>

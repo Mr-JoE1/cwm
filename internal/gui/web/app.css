@@ -133,7 +133,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html { background: var(--bg); }
+html { background: var(--bg); scroll-padding: 84px 0 calc(var(--statusline-h) + 16px); }
 body {
   margin: 0;
   min-height: 100vh;
@@ -370,6 +370,11 @@ tr.reveal { animation: row-in 360ms var(--ease) both; animation-delay: calc(var(
 .sessions .s-prompt { color: var(--text-strong); max-width: 560px; }
 .sessions .s-proj { font: var(--fs-md)/1.4 var(--font-mono); color: var(--muted); white-space: nowrap; }
 .sessions .s-branch { max-width: 220px; }
+@media (min-width: 721px) and (max-width: 1100px) {
+  .sessions .s-prompt { min-width: 11em; }
+  .sessions .s-branch { max-width: 120px; }
+  .sessions th:nth-child(5), .sessions .s-id { display: none; }
+}
 .sessions .branch { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--magenta); }
 .sessions .branch::before { content: ""; }
 .sessions .s-msgs, .sessions .s-when { color: var(--muted); white-space: nowrap; }
@@ -542,7 +547,7 @@ tbody tr.day-row:hover { background: none; box-shadow: none; }
 
 /* the copyable-command component (D72): [$ command | copy] */
 .cmd {
-  display: flex; align-items: stretch; margin-top: var(--s2); width: min(100%, 640px); min-width: 0;
+  display: flex; align-items: stretch; margin-top: var(--s2); width: fit-content; max-width: min(100%, 640px); min-width: 0;
   background: var(--surface-2); border: 1px solid var(--control-line); border-radius: var(--r-sm); overflow: hidden;
 }
 .cmd-text { flex: 1; min-width: 0; display: flex; align-items: center; overflow-x: auto; white-space: pre; padding: 7px 10px; color: var(--text-strong); background: none; font-size: var(--fs-md); scrollbar-width: thin; }
@@ -905,6 +910,7 @@ button.heat-cell:focus-visible { outline: 2px solid var(--accent-2); outline-off
 
 @media (max-width: 720px) {
   .tabbar, .statusline { display: none; }
+  html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
   .bottombar {
     display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
     height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
@@ -921,6 +927,8 @@ button.heat-cell:focus-visible { outline: 2px solid var(--accent-2); outline-off
   main, .wizard { padding-bottom: calc(56px + env(safe-area-inset-bottom) + var(--s5)); }
   .toasts { bottom: calc(56px + env(safe-area-inset-bottom) + 12px) !important; }
   .btn, .cmd-copy, .seg-btn, .menu-item { min-height: 40px; }
+  .check-details summary, .link { display: inline-flex; align-items: center; min-height: 40px; }
+  .icon-btn, .acct-more { width: 40px; height: 40px; }
   .seg-text .seg-btn { min-width: 44px; }
   .top { padding: 10px var(--gap); gap: 10px; }
   .mark { width: 30px; height: 30px; }

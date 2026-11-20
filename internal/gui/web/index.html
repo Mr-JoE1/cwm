@@ -224,20 +224,20 @@
     <div class="panel-head"><h1 class="path"><span class="path-pre">~/cwm/</span>devices</h1></div>
     <p class="hint">Paired Syncthing peers and their workspace sync progress (same data as <code>cwm devices</code>).</p>
     <div class="card pair-card" id="pair-form">
-      <h3>Pair device</h3>
+      <h3>pair a device</h3>
       <div class="row">
-        <span class="label">This device</span>
+        <span class="label">this device</span>
         <code id="pair-own-id" class="device-id">…</code>
         <button type="button" class="btn btn-small" id="pair-own-id-copy">copy</button>
       </div>
       <div class="row">
-        <label for="pair-device-id">Other device ID</label>
+        <label for="pair-device-id">other device ID</label>
         <input type="text" id="pair-device-id" class="input input-wide" autocomplete="off" spellcheck="false" placeholder="ABCDEFG-HIJKLMN-…">
       </div>
       <div class="row">
-        <label for="pair-name">Name (optional)</label>
+        <label for="pair-name">name (optional)</label>
         <input type="text" id="pair-name" class="input" maxlength="64" autocomplete="off" placeholder="laptop">
-        <button type="button" class="btn btn-primary" id="pair-submit">Pair device</button>
+        <button type="button" class="btn btn-primary" id="pair-submit">pair device</button>
       </div>
       <div class="result" id="pair-result" aria-live="polite"></div>
     </div>
