@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"github.com/Mr-JoE1/cwm/internal/config"
 )
 
 // ClaudeConfigDirEnv is the env var claude reads for its config dir; cwm
@@ -22,6 +25,31 @@ type Identity struct {
 	AccountUUID      string `json:"account_uuid"`
 	OrganizationName string `json:"organization_name"`
 	Plan             string `json:"plan"`
+}
+
+// wireIdentity accepts both spellings of the oauthAccount keys: Claude
+// Code itself writes camelCase (accountUuid, emailAddress,
+// organizationName); the snake_case names are what cwm read first and
+// what older fixtures use. snake_case wins when both are set.
+type wireIdentity struct {
+	Identity
+	EmailAddress          string `json:"emailAddress"`
+	AccountUUIDCamel      string `json:"accountUuid"`
+	OrganizationNameCamel string `json:"organizationName"`
+}
+
+func (w wireIdentity) merged() Identity {
+	id := w.Identity
+	if id.Email == "" {
+		id.Email = w.EmailAddress
+	}
+	if id.AccountUUID == "" {
+		id.AccountUUID = w.AccountUUIDCamel
+	}
+	if id.OrganizationName == "" {
+		id.OrganizationName = w.OrganizationNameCamel
+	}
+	return id
 }
 
 // ReadIdentity extracts the top-level oauthAccount (plus a top-level plan
@@ -60,9 +88,11 @@ func ReadIdentity(path string) (Identity, error) {
 		}
 		switch key {
 		case "oauthAccount":
-			if err := dec.Decode(&id); err != nil {
+			var w wireIdentity
+			if err := dec.Decode(&w); err != nil {
 				return Identity{}, fmt.Errorf("accounts: %s: decode oauthAccount: %w", path, err)
 			}
+			id = w.merged()
 		case "plan":
 			var raw json.RawMessage
 			if err := dec.Decode(&raw); err != nil {
@@ -80,4 +110,36 @@ func ReadIdentity(path string) (Identity, error) {
 		id.Plan = topPlan
 	}
 	return id, nil
+}
+
+// UUIDMap maps Claude account uuids to cwm account names, for attributing
+// transcripts by their session-owner entries (D62). An account's uuid is
+// the one recorded in config.toml ([account.login] account_uuid); an
+// account with none recorded falls back to the oauthAccount.accountUuid
+// of <account dir>/.claude.json. Missing or broken files, and accounts
+// without a uuid, are skipped, never an error. When two accounts share a
+// uuid the first in config order keeps it. A nil cfg yields an empty map.
+func UUIDMap(cfg *config.Config) map[string]string {
+	out := map[string]string{}
+	if cfg == nil {
+		return out
+	}
+	for _, a := range cfg.Accounts {
+		uuid := ""
+		if a.Login != nil {
+			uuid = a.Login.AccountUUID
+		}
+		if uuid == "" {
+			if id, err := ReadIdentity(filepath.Join(a.ExpandedDir(), ".claude.json")); err == nil {
+				uuid = id.AccountUUID
+			}
+		}
+		if uuid == "" {
+			continue
+		}
+		if _, taken := out[uuid]; !taken {
+			out[uuid] = a.Name
+		}
+	}
+	return out
 }
