@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// Windows has no IANA database outside a Go install: without the
+	// embedded copy every ?tz= / --tz there would be "unknown" (D64).
+	_ "time/tzdata"
 )
 
 // Unattributed is the account of activity no cwm account can be matched
