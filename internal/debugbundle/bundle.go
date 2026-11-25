@@ -77,6 +77,11 @@ type Sources struct {
 	// Extra sections appended verbatim (still redacted), e.g. the agent's
 	// own claude lookup as seen by `cwm debug`.
 	Extra []Section
+	// ShowProjects prints session folder names as they are (`cwm debug
+	// --show-projects`, for local use). Off, every folder name is shown
+	// as <project-N> wherever it appears (D99): a dash-encoded folder
+	// name is a path, with the user name and repo names in it.
+	ShowProjects bool
 
 	GOOS    string
 	OSInfo  func() string
@@ -101,7 +106,13 @@ func Build(src Sources) string {
 	var b strings.Builder
 	now := src.Now().UTC()
 	fmt.Fprintf(&b, "cwm debug bundle — %s, built by %s\n", now.Format(time.RFC3339), src.From)
-	b.WriteString("Redacted: tokens, secrets, e-mail addresses, private keys, your home folder and user name. Review before posting.\n")
+	b.WriteString("Redacted: tokens, secrets, e-mail addresses, private keys, your home folder and user name.")
+	if src.ShowProjects {
+		b.WriteString(" Project folder names are SHOWN (--show-projects): keep this report local.")
+	} else {
+		b.WriteString(" Project folders are numbered (<project-N>).")
+	}
+	b.WriteString(" Review before posting.\n")
 	for _, s := range src.sections(now) {
 		b.WriteString("\n" + header(s.Title) + "\n")
 		body := strings.TrimRight(s.Body, "\n")
@@ -132,10 +143,30 @@ func (src *Sources) defaults() {
 	if src.From == "" {
 		src.From = "cwm"
 	}
-	if src.Redact == (Redactor{}) {
-		src.Redact = DefaultRedactor()
+	if src.Redact.Home == "" && src.Redact.User == "" {
+		src.Redact.Home, src.Redact.User = DefaultRedactor().Home, DefaultRedactor().User
+	}
+	if !src.ShowProjects && src.Layout != nil && src.Redact.Projects == nil {
+		src.Redact.Projects = ProjectAliases(src.Layout)
 	}
 }
+
+// ProjectAliases numbers the workspace's session folders in name order
+// (status.Projects sorts them), the order the workspace section lists
+// them in. nil when there are none.
+func ProjectAliases(l *storage.Layout) []Alias {
+	list, err := status.Projects(l)
+	if err != nil || len(list) == 0 {
+		return nil
+	}
+	out := make([]Alias, 0, len(list))
+	for i, p := range list {
+		out = append(out, Alias{Name: p.Name, Label: projectLabel(i)})
+	}
+	return out
+}
+
+func projectLabel(i int) string { return fmt.Sprintf("<project-%d>", i+1) }
 
 // DefaultRedactor redacts this process's home dir and login name.
 func DefaultRedactor() Redactor {
@@ -232,11 +263,17 @@ func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv fu
 			src += " (" + l + ")"
 		}
 		fmt.Fprintf(&b, "found:   yes\npath:    %s\nsource:  %s\non PATH: %t\n", res.Path, src, res.OnPath)
+		if res.Bundle != "" {
+			fmt.Fprintf(&b, "bundle:  %s (looked up afresh each time, never pinned)\n", res.Bundle)
+		}
 		fmt.Fprintf(&b, "verified: yes, version %s\n", res.Version)
 		if res.ProbeOutput != "" {
 			fmt.Fprintf(&b, "probe:   %s\n", strings.ReplaceAll(res.ProbeOutput, "\n", " | "))
 		}
-		if !res.OnPath {
+		switch {
+		case res.Source.Bundled():
+			fmt.Fprintf(&b, "fix:     only a bundled copy; standalone CLI: %s\n", claudebin.InstallCommand(goos))
+		case !res.OnPath:
 			fmt.Fprintf(&b, "fix:     %s\n", claudebin.PathHint(goos, res.Dir()))
 		}
 		cands = res.Candidates
@@ -345,9 +382,13 @@ func (src Sources) workspaceSection() string {
 	} else {
 		total := 0
 		names := make([]string, 0, len(list))
-		for _, p := range list {
+		for i, p := range list {
 			total += p.Sessions
-			names = append(names, fmt.Sprintf("%s (%d)", p.Name, p.Sessions))
+			name := p.Name
+			if !src.ShowProjects {
+				name = projectLabel(i)
+			}
+			names = append(names, fmt.Sprintf("%s (%d)", name, p.Sessions))
 		}
 		fmt.Fprintf(&b, "projects:    %d, sessions: %d\n", len(list), total)
 		if len(names) > 0 {

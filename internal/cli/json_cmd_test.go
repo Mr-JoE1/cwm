@@ -54,8 +54,10 @@ func TestDoctorJSONExitCode(t *testing.T) {
 	if err := json.Unmarshal([]byte(got.out), &checks); err != nil {
 		t.Fatalf("doctor --json is not a JSON array: %v\n%s", err, got.out)
 	}
-	if len(checks) == 0 || checks[0]["name"] != "workspace" || checks[0]["status"] != "fail" {
-		t.Errorf("checks[0] = %v", checks[0])
+	// v0.8.1: the claude check comes first, then the workspace.
+	if len(checks) < 2 || checks[0]["name"] != "claude" || checks[0]["status"] != "fail" ||
+		checks[1]["name"] != "workspace" || checks[1]["status"] != "fail" {
+		t.Errorf("checks[0:2] = %v", checks[:min(2, len(checks))])
 	}
 	if strings.Contains(got.out, "doctor: ") {
 		t.Error("--json output must not include the text summary line")

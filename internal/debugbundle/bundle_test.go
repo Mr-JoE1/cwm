@@ -85,7 +85,7 @@ dir = "~/.cwm/accounts/home"
 			return []service.Item{{Name: "systemd unit", State: "installed", Detail: filepath.Join(home, ".config", "systemd", "user", "cwm-agent.service")}}
 		},
 		Claude: func() (claudebin.Result, error) {
-			return claudebin.Result{Path: filepath.Join(home, ".local", "bin", "claude"), Source: claudebin.SourceDiscovered}, nil
+			return claudebin.Result{Path: filepath.Join(home, ".local", "bin", "claude"), Source: claudebin.SourceStandalone}, nil
 		},
 		Doctor: func() []doctor.Check {
 			return []doctor.Check{{Name: "workspace", Status: doctor.StatusOK, Detail: "workspace dir exists (" + home + ")"}}
@@ -115,11 +115,11 @@ func TestBuildSectionsAndRedaction(t *testing.T) {
 		"== version ==", "cwm:     v0.6.1 (commit abc1234)", "system:  Test OS 1.0", "go:      go",
 		"== agent ==", "pid:     4242", "port:    47800", "bind:    127.0.0.1", "uptime:  1h30m0s",
 		"== service ==", "systemd unit", tilde(".config/systemd/user/cwm-agent.service"),
-		"== claude ==", "path:    " + tilde(".local/bin/claude"), "source:  discovered", "on PATH: false", "fix:     ",
+		"== claude ==", "path:    " + tilde(".local/bin/claude"), "source:  standalone", "on PATH: false", "fix:     ",
 		"PATH of this process:", "  " + tilde("bin"),
 		"== config.toml ==", `default_account = work`, "link_mode = auto", "api_token = <set, not shown>",
 		"account[0].login.email = <set, not shown>", "account[0].login.plan = max", "account[1].name = home",
-		"== workspace ==", "projects:    2, sessions: 3", "alpha (2), beta (1)", "accounts:    2 (1 with a recorded login)", "work (default, login: done), home (login: never)",
+		"== workspace ==", "projects:    2, sessions: 3", "<project-1> (2), <project-2> (1)", "accounts:    2 (1 with a recorded login)", "work (default, login: done), home (login: never)",
 		"== syncthing ==", "not reachable: connection refused",
 		"== doctor ==", "ok:   workspace dir exists (~)", "doctor: 1 ok, 0 warn, 0 fail",
 		"== logs ==", "--- agent.log", "agent line 499", "--- terminal.log",
@@ -219,5 +219,76 @@ func TestBundleNeverReadsVaultOrLiveCredentials(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("bundle lacks %q:\n%s", want, Extract(got, "workspace"))
 		}
+	}
+}
+
+// D98: the claude section names the bundle and gives the standalone
+// install command instead of a PATH line.
+func TestClaudeSectionBundled(t *testing.T) {
+	p := filepath.Join("h", "AppData", "Roaming", "Claude", "claude-code", "2.1.319", "claude.exe")
+	got := ClaudeSection(func() (claudebin.Result, error) {
+		return claudebin.Result{Path: p, Source: claudebin.SourceDesktop, Bundle: "the Claude desktop app", Version: "2.1.319"}, nil
+	}, "windows", nil, "")
+	for _, want := range []string{
+		"source:  desktop-app (bundled with the Claude desktop app)",
+		"bundle:  the Claude desktop app (looked up afresh each time, never pinned)",
+		"fix:     only a bundled copy; standalone CLI: irm https://claude.ai/install.ps1 | iex",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("section missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "SetEnvironmentVariable") {
+		t.Errorf("no PATH advice for a bundled copy:\n%s", got)
+	}
+}
+
+// D99: session folder names are Claude Code's dash-encoded paths, so
+// they carry the user name and repo names. By default every one is a
+// numbered alias wherever it appears (workspace section, doctor, logs,
+// API errors); --show-projects prints them, with the user still
+// redacted inside.
+func TestBuildProjectsAreAliased(t *testing.T) {
+	home := isolate(t)
+	root := filepath.Join(home, ".cwm")
+	t.Setenv("CWM_HOME", root)
+	write(t, filepath.Join(root, "config.toml"), "version = 1\n")
+	secret := "F--Home-Jdoe-Projects-secretrepo"
+	other := "-home-jdoe-work-acme-billing"
+	write(t, filepath.Join(root, "workspace", "projects", secret, "a.jsonl"), "{}\n")
+	write(t, filepath.Join(root, "workspace", "projects", secret, "b.jsonl"), "{}\n")
+	write(t, filepath.Join(root, "workspace", "projects", other, "c.jsonl"), "{}\n")
+	write(t, filepath.Join(root, "logs", "agent.log"), "mirrored "+secret+"/a.jsonl into "+other+"\nopened F:\\Home\\Jdoe\\x and "+`F:\Home\Jdoe\x`+"\n")
+	src := Sources{
+		From:   "test",
+		Layout: storage.NewLayoutAt(root),
+		Doctor: func() []doctor.Check {
+			return []doctor.Check{{Name: "session-folders", Status: doctor.StatusWarn, Detail: "unpinned session folders: " + other + " " + secret}}
+		},
+		APIErrors: []APIError{{Method: "GET", Endpoint: "/api/projects/" + secret, Code: 404, Message: "no " + secret}},
+		Redact:    Redactor{Home: home, User: "Jdoe"},
+	}
+	got := Build(src)
+	for _, leak := range []string{"Jdoe", "jdoe", "secretrepo", "acme", "billing"} {
+		if strings.Contains(strings.ToLower(got), strings.ToLower(leak)) {
+			t.Errorf("bundle leaks %q:\n%s", leak, got)
+		}
+	}
+	for _, want := range []string{"<project-1> (1), <project-2> (2)", "Project folders are numbered", "mirrored <project-2>/a.jsonl into <project-1>",
+		"unpinned session folders: <project-1> <project-2>", "/api/projects/<project-2> 404 no <project-2>", `F:\Home\<user>\x`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bundle lacks %q:\n%s", want, got)
+		}
+	}
+	src.ShowProjects = true
+	src.Redact.Projects = nil
+	got = Build(src)
+	for _, want := range []string{"F--Home-<user>-Projects-secretrepo (2)", "-home-<user>-work-acme-billing (1)", "--show-projects"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("--show-projects bundle lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(strings.ToLower(got), "jdoe") {
+		t.Errorf("--show-projects still must not show the user name:\n%s", got)
 	}
 }

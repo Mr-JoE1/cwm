@@ -285,7 +285,7 @@ func TestStaticDashboard(t *testing.T) {
 	// v0.7.2 (D67, D70): a tmux window list, "<k>:<name>"; WIP is "handoff".
 	for i, tab := range []string{"sessions", "projects", "devices", "handoff", "health", "accounts", "stats"} {
 		k := strconv.Itoa(i + 1)
-		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, `<span class="tk" aria-hidden="true">`+k+`:</span>`+tab+`<span`) {
+		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, `<span class="tk" aria-hidden="true">`+k+`:</span>`+tab+`<`) {
 			t.Errorf("dashboard missing tab %s:%s", k, tab)
 		}
 	}

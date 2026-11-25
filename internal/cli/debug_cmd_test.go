@@ -81,6 +81,36 @@ func TestDebugPrintsRedactedBundle(t *testing.T) {
 	}
 }
 
+// D99: project folders are numbered by default; --show-projects prints
+// them; --help documents both.
+func TestDebugShowProjects(t *testing.T) {
+	stubDebug(t, "linux", nil, nil)
+	runCLI(t, "init")
+	r := runCLI(t, "debug", "--help")
+	if r.code != ExitOK || !strings.Contains(r.out, "--show-projects") || !strings.Contains(r.out, "report a bug") {
+		t.Fatalf("help: %+v", r)
+	}
+	home, err := os.UserHomeDir() // USERPROFILE on Windows
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(home, ".claude") // capture mode: the workspace root
+	if err := os.MkdirAll(filepath.Join(ws, "projects", "-srv-code-topsecretrepo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "projects", "-srv-code-topsecretrepo", "a.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := runCLI(t, "debug")
+	if strings.Contains(got.out, "topsecretrepo") || !strings.Contains(got.out, "<project-1> (1)") {
+		t.Errorf("default bundle must alias project folders:\n%s", got.out)
+	}
+	got = runCLI(t, "debug", "--show-projects")
+	if !strings.Contains(got.out, "-srv-code-topsecretrepo (1)") {
+		t.Errorf("--show-projects must print the folder name:\n%s", got.out)
+	}
+}
+
 func TestDebugCopyLinuxOrder(t *testing.T) {
 	// wl-copy (Wayland) fails, xclip is missing, xsel takes it.
 	calls := stubDebug(t, "linux", map[string]bool{"wl-copy": true, "xsel": true}, map[string]bool{"wl-copy": true})

@@ -164,6 +164,15 @@ func Checks(root string, netProbe bool) []Check {
 	ws := resolved.WorkspaceDir()
 	cfg := loadConfig(root)
 
+	// 0. claude presence + version (pinning needs >= 2.1.234), verified by
+	// behaviour (D54): the probe's own version line, no second spawn. No
+	// verified Claude Code at all is a FAIL: it is the core dependency (D75).
+	// Found off PATH (D49) still works for cwm, but the user's own shells
+	// and IDEs will not see it — a warning with the exact PATH command.
+	// It is the first row (v0.8.1): without claude nothing else matters,
+	// and a FAIL here is the one fix to make first.
+	checkClaude(&r, root)
+
 	// 1. workspace dir
 	if info, err := os.Stat(ws); err == nil && info.IsDir() {
 		r.ok("workspace", "workspace dir exists (%s)", ws)
@@ -239,61 +248,6 @@ func Checks(root string, netProbe bool) []Check {
 
 	// 5. sync ignore policy: the allow-list generated from [sync] (D81).
 	checkStIgnore(&r, resolved, cfg)
-
-	// 6. claude presence + version (pinning needs >= 2.1.234), verified by
-	// behaviour (D54): the probe's own version line, no second spawn. No
-	// verified Claude Code at all is a FAIL: it is the core dependency (D75).
-	// Found off PATH (D49) still works for cwm, but the user's own shells
-	// and IDEs will not see it — a warning with the exact PATH command.
-	layout := storage.NewLayoutAt(root)
-	if res, err := claudebin.LookupSurvey(layout); err != nil {
-		var nf *claudebin.NotFoundError
-		switch {
-		case errors.As(err, &nf) && len(nf.Rejected) > 0:
-			parts := make([]string, 0, len(nf.Rejected))
-			for _, c := range nf.Rejected {
-				parts = append(parts, c.Path+": "+c.Result)
-			}
-			r.fail("claude", "claude not found (%d candidate(s) found but not Claude Code: %s) — install Claude Code: %s",
-				len(nf.Rejected), strings.Join(parts, "; "), claudebin.InstallCommand(runtime.GOOS))
-		case errors.Is(err, claudebin.ErrNotFound):
-			r.fail("claude", "claude not found (PATH and the usual install folders) — install Claude Code: %s", claudebin.InstallCommand(runtime.GOOS))
-		default:
-			r.warn("claude", "%v", err)
-		}
-	} else {
-		ver := res.Version
-		where := "on PATH"
-		if !res.OnPath {
-			where = "at " + res.Path
-		}
-		switch {
-		case ver == "":
-			r.ok("claude", "claude %s (version not parseable)", where)
-		case storage.VersionAtLeast(ver):
-			r.ok("claude", "claude %s %s (>= %s: project-name pinning supported)", ver, where, storage.MinVersion)
-		default:
-			r.warn("claude", "claude %s < %s — project-name pinning unsupported; upgrade to >= %s", ver, storage.MinVersion, storage.MinVersion)
-		}
-		// The binary check names the exact file, which lookup step found
-		// it and what it said when probed, so a report shows at a glance
-		// whether cwm and the user's shell can disagree about claude.
-		line := ""
-		for _, c := range res.Candidates {
-			if c.Path == res.Path {
-				line = strings.TrimPrefix(c.Result, "verified: ")
-			}
-		}
-		if res.OnPath {
-			r.ok("claude-binary", "claude binary: %s (source: %s, verified: %s)", res.Path, res.Source.Label(), line)
-		} else {
-			r.warn("claude-binary", "claude binary: %s (source: %s, verified: %s) — its folder is not on PATH, so your own terminals and IDEs will not find `claude` (cwm still does); fix: `%s`",
-				res.Path, res.Source.Label(), line, claudebin.PathHint(runtime.GOOS, res.Dir()))
-		}
-	}
-	if note := claudebin.ClearedNote(layout); note != "" {
-		r.ok("claude-cleared", "%s (it no longer verified as Claude Code; cwm looks it up afresh)", note)
-	}
 
 	// 7b. duplicate PATH entries: informational only (never a warning,
 	// cwm never rewrites PATH). Installers that append to the user Path
@@ -548,4 +502,63 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// checkClaude is check 0: the claude lookup (D49, D54, D98).
+func checkClaude(r *checkList, root string) {
+	layout := storage.NewLayoutAt(root)
+	if res, err := claudebin.LookupSurvey(layout); err != nil {
+		var nf *claudebin.NotFoundError
+		switch {
+		case errors.As(err, &nf):
+			// D98: say why the apps the user has do not count, where cwm
+			// looked, and the one install command for this OS (last, so
+			// the dashboard can lift it out as the fix).
+			r.fail("claude", "claude not found. %s — install Claude Code: %s", nf.Explain(), claudebin.InstallCommand(runtime.GOOS))
+		default:
+			r.warn("claude", "%v", err)
+		}
+	} else {
+		ver := res.Version
+		where := "on PATH"
+		if res.Source.Bundled() {
+			home, _ := os.UserHomeDir()
+			where = "found — bundled with " + res.Bundle + ", " + claudebin.ShortPath(home, res.Path)
+		} else if !res.OnPath {
+			where = "at " + res.Path
+		}
+		switch {
+		case ver == "":
+			r.ok("claude", "claude %s (version not parseable)", where)
+		case storage.VersionAtLeast(ver):
+			r.ok("claude", "claude %s %s (>= %s: project-name pinning supported)", ver, where, storage.MinVersion)
+		default:
+			r.warn("claude", "claude %s < %s — project-name pinning unsupported; upgrade to >= %s", ver, storage.MinVersion, storage.MinVersion)
+		}
+		// The binary check names the exact file, which lookup step found
+		// it and what it said when probed, so a report shows at a glance
+		// whether cwm and the user's shell can disagree about claude.
+		line := ""
+		for _, c := range res.Candidates {
+			if c.Path == res.Path {
+				line = strings.TrimPrefix(c.Result, "verified: ")
+			}
+		}
+		switch {
+		case res.Source.Bundled():
+			// D98: works, but only while the app is installed, and it
+			// changes with every app update. No PATH advice: the folder
+			// carries a version, so it would break on the next update.
+			r.warn("claude-bundled", "only the claude bundled with %s was found (%s): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: %s",
+				res.Bundle, res.Source, claudebin.InstallCommand(runtime.GOOS))
+		case res.OnPath:
+			r.ok("claude-binary", "claude binary: %s (source: %s, verified: %s)", res.Path, res.Source.Label(), line)
+		default:
+			r.warn("claude-binary", "claude binary: %s (source: %s, verified: %s) — its folder is not on PATH, so your own terminals and IDEs will not find `claude` (cwm still does); fix: `%s`",
+				res.Path, res.Source.Label(), line, claudebin.PathHint(runtime.GOOS, res.Dir()))
+		}
+	}
+	if note := claudebin.ClearedNote(layout); note != "" {
+		r.ok("claude-cleared", "%s (it no longer verified as Claude Code; cwm looks it up afresh)", note)
+	}
 }

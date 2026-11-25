@@ -1,3 +1,4 @@
+FAIL: claude not found. The Claude desktop app and the VS Code extension do not put `claude` on PATH. cwm looked on PATH — install Claude Code: curl -fsSL https://claude.ai/install.sh | bash
 FAIL: workspace dir missing (<ROOT>/workspace) — run `cwm init` or pair Syncthing so the folder is restored
 ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_CONFIG_DIR; plain claude keeps ~/.claude
       workspace root: <ROOT>/workspace
@@ -6,7 +7,6 @@ ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_
 ok:   no workspace settings.json yet (cwm adds its hooks to it on the next agent tick; now: cwm doctor --fix)
 ok:   no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)
 warn: .stignore missing at <ROOT>/workspace/.stignore — sync would share everything; fix: cwm doctor --fix
-FAIL: claude not found (PATH and the usual install folders) — install Claude Code: curl -fsSL https://claude.ai/install.sh | bash
 ok:   no repos.tsv yet (created on first launch)
 ok:   no session folders yet (<ROOT>/workspace/projects absent — created on first launch)
 ok:   no sync conflict copies

@@ -3,6 +3,75 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-25 (v0.8.1 — patch release, GitHub issue #1)
+
+- **D100: a one-field bug form, and "report a bug" fills it.** The owner
+  found the old form asked too much. `bug_report.yml` now has one
+  required field ("What went wrong?"), an optional "Debug logs" and an
+  optional `cwm version` input (id `version`, prefilled by URL). The OS,
+  arch, install method and Claude Code version are gone because the
+  debug bundle carries them. The feature form has one required field and
+  one optional. The dashboard's "report a bug" (statusline, Health,
+  About) copies the bundle first, while the page still has focus for the
+  clipboard, then opens
+  `…/issues/new?template=bug_report.yml&version=<cwm version>&title=bug:%20`
+  in a new tab. It is the only external URL the page opens, and the CSP
+  is unchanged. A blocked clipboard leaves a toast with "copy debug logs";
+  a blocked pop-up leaves a link. The statusline's "copy debug logs" became
+  "report a bug"; copy stays on Health, the palette, the menus and `d`.
+- **D99: project folders are numbered in debug reports; the redactor
+  knows the dash-encoded form.** A v0.8.0 bundle listed session folders
+  such as `F--Home-<User>-Projects-…`. That is Claude Code's encoding of
+  a path (every character outside `[A-Za-z0-9]` becomes `-`), and the
+  user name was in it, because the redactor only matched path forms.
+  The redactor now also replaces (a) the home dir and the login name in
+  that encoded form (case-insensitive, the name bounded by dashes or the
+  end of the word, so `annual` keeps its `ann`); (b) any
+  `-home-<x>`, `-Users-<x>`, `<drive>--Users-<x>` or `<drive>--Home-<x>`
+  segment; (c) Windows homes on any drive under `Users` or `Home`
+  (`F:\Home\<u>\…`), not only `C:\Users`. By default every session
+  folder name is shown as `<project-N>` (name order) with its session
+  count, and the same alias replaces the name anywhere in the report
+  (doctor, logs, API errors), longest name first, whole words only,
+  names under 4 characters only in the list. So a public issue carries
+  neither the user name nor repo names. `cwm debug --show-projects`
+  prints the names for local use; the user name inside them stays
+  redacted. The dashboard's bundle always numbers them.
+- **D98: Claude Code bundled with the desktop app or the editor
+  extension counts as claude.** Neither the Claude desktop app nor the
+  Claude Code extension for VS Code (and its forks) puts `claude` on
+  PATH; each ships its own copy. A machine with only those reported
+  "claude not found" (issue #1). The resolver now looks there after
+  the standalone folders and the npm prefix. Order: `$CWM_CLAUDE`,
+  `claude_path`, PATH, standalone folders, desktop app, editor
+  extension. Families: the desktop app (Windows MSIX
+  `%APPDATA%\Claude\claude-code\<ver>\claude.exe`, also under the
+  package's virtualised `LocalCache\Roaming`; legacy Squirrel
+  `%LOCALAPPDATA%\AnthropicClaude\app-<ver>\…\claude.exe` one to three
+  levels down, never `app-<ver>\claude.exe` itself, which is the
+  desktop app and would open its window; macOS `~/Library/Application
+  Support/Claude/claude-code/<ver>/claude`, same shape as Windows, not
+  confirmed on hardware) and the extension
+  (`<editor>/extensions/anthropic.claude-code-<ver>[-<platform>]/resources/native-binary/claude`
+  for `.vscode`, `.vscode-insiders`, `.cursor`, `.windsurf`,
+  `.vscode-oss`, `.vscode-server`, `.vscode-server-insiders`). Each
+  family is globbed and sorted by a numeric version compare (a
+  platform suffix is not a pre-release), and at most two per family
+  are probed with the D54 `--version` check. Bundled hits are never
+  pinned into `claude_path`: their folder changes on every app update.
+  They get no PATH advice for the same reason. Doctor gives a WARN
+  (`claude-bundled`, exit 0) with the standalone install command. The
+  source is reported as `desktop-app` / `vscode-extension`, the old
+  `discovered` is renamed `standalone`, and `/api/claude` gains
+  `bundled` and `bundle`. The not-found message says that the desktop
+  app and the extension do not put claude on PATH, lists where cwm
+  looked (grouped, `~` for home) and ends with the install command.
+  The claude check is now doctor's first row (`--json` order changes:
+  `claude` before `workspace`), so a missing claude is the first thing
+  Health shows. A bundled copy's Health row offers "use this", which
+  saves nothing: it says which copy cwm uses (from `/api/claude`) and
+  repeats the standalone install command.
+
 ## 2026-11-24 (v0.8 — one workspace, SPEC-V0.8)
 
 The owner-approved spec `SPEC-V0.8.md` is the input; its OWNER DECISIONS

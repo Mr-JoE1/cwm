@@ -818,7 +818,14 @@ func TestDoctorJSON(t *testing.T) {
 	if res.code != 1 {
 		t.Fatalf("doctor --json without workspace: exit %d, want 1", res.code)
 	}
-	if err := json.Unmarshal([]byte(res.stdout), &checks); err != nil || checks[0].Status != "fail" {
+	// v0.8.1: the claude check is first; the workspace check follows it.
+	checks = nil
+	err := json.Unmarshal([]byte(res.stdout), &checks)
+	failed := false
+	for _, c := range checks {
+		failed = failed || (c.Name == "workspace" && c.Status == "fail")
+	}
+	if err != nil || len(checks) < 3 || checks[0].Name != "claude" || !failed {
 		t.Errorf("failing doctor --json: %v %+v", err, checks)
 	}
 }

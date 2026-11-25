@@ -51,8 +51,10 @@ type Claude struct {
 	Path     string `json:"path,omitempty"`
 	OnPath   bool   `json:"onPath"`
 	PathHint string `json:"pathHint,omitempty"`
-	Install  string `json:"install"`
-	Error    string `json:"error,omitempty"`
+	// Bundle names the app whose bundled copy cwm uses (D98).
+	Bundle  string `json:"bundle,omitempty"`
+	Install string `json:"install"`
+	Error   string `json:"error,omitempty"`
 }
 
 // Initialized reports whether `cwm init` has run on this device: the

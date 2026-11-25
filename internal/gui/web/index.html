@@ -183,14 +183,14 @@
 <div class="tabbar">
 <span class="tmux-prefix" aria-hidden="true">[cwm]</span>
 <nav class="tabs" role="tablist" aria-label="Dashboard sections">
-	<button type="button" role="tab" class="tab" id="tab-sessions" data-tab="sessions" aria-controls="panel-sessions" aria-keyshortcuts="1"><span class="tk" aria-hidden="true">1:</span>sessions<span class="tab-badge" id="badge-sessions" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-projects" data-tab="projects" aria-controls="panel-projects" aria-keyshortcuts="2"><span class="tk" aria-hidden="true">2:</span>projects<span class="tab-badge" id="badge-projects" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-devices" data-tab="devices" aria-controls="panel-devices" aria-keyshortcuts="3"><span class="tk" aria-hidden="true">3:</span>devices<span class="tab-badge" id="badge-devices" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-handoff" data-tab="handoff" aria-controls="panel-handoff" aria-keyshortcuts="4"><span class="tk" aria-hidden="true">4:</span>handoff<span class="tab-badge" id="badge-handoff" hidden></span></button>
+	<button type="button" role="tab" class="tab" id="tab-sessions" data-tab="sessions" aria-controls="panel-sessions" aria-keyshortcuts="1"><span class="tk" aria-hidden="true">1:</span>sessions</button>
+	<button type="button" role="tab" class="tab" id="tab-projects" data-tab="projects" aria-controls="panel-projects" aria-keyshortcuts="2"><span class="tk" aria-hidden="true">2:</span>projects</button>
+	<button type="button" role="tab" class="tab" id="tab-devices" data-tab="devices" aria-controls="panel-devices" aria-keyshortcuts="3"><span class="tk" aria-hidden="true">3:</span>devices</button>
+	<button type="button" role="tab" class="tab" id="tab-handoff" data-tab="handoff" aria-controls="panel-handoff" aria-keyshortcuts="4"><span class="tk" aria-hidden="true">4:</span>handoff</button>
 	<button type="button" role="tab" class="tab" id="tab-health" data-tab="health" aria-controls="panel-health" aria-keyshortcuts="5"><span class="tk" aria-hidden="true">5:</span>health<span class="tab-badge" id="badge-health" hidden></span></button>
 	<button type="button" role="tab" class="tab" id="tab-accounts" data-tab="accounts" aria-controls="panel-accounts" aria-keyshortcuts="6"><span class="tk" aria-hidden="true">6:</span>accounts<span class="tab-badge" id="badge-accounts" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-stats" data-tab="stats" aria-controls="panel-stats" aria-keyshortcuts="7"><span class="tk" aria-hidden="true">7:</span>stats<span class="tab-badge" id="badge-stats" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" aria-keyshortcuts="8"><span class="tk" aria-hidden="true">8:</span>settings<span class="tab-badge" id="badge-settings" hidden></span></button>
+	<button type="button" role="tab" class="tab" id="tab-stats" data-tab="stats" aria-controls="panel-stats" aria-keyshortcuts="7"><span class="tk" aria-hidden="true">7:</span>stats</button>
+	<button type="button" role="tab" class="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" aria-keyshortcuts="8"><span class="tk" aria-hidden="true">8:</span>settings</button>
 </nav>
 <button type="button" class="tab-pal" data-palette-open title="Command palette (Ctrl-K)"><span aria-hidden="true">❯</span> <kbd>ctrl k</kbd><span class="sr-only">Open the command palette</span></button>
 </div>
@@ -240,7 +240,7 @@
 
 	<section class="panel" role="tabpanel" id="panel-handoff" aria-labelledby="tab-handoff" hidden>
 		<div class="panel-head"><h1 class="path"><span class="path-pre">~/cwm/</span>handoff</h1></div>
-		<p class="hint">Work you left on another machine that is not pushed yet. Open it here to continue. These local clones have uncommitted changes (same data as <code>cwm wip dirty</code>).</p>
+		<p class="hint">Work you left on another machine that is not pushed yet: local clones with uncommitted changes (same data as <code>cwm wip dirty</code>).</p>
 		<div class="content" data-content="handoff"></div>
 	</section>
 
@@ -248,17 +248,17 @@
 		<div class="panel-head">
 			<h1 class="path"><span class="path-pre">~/cwm/</span>health</h1>
 			<div class="head-actions">
-				<a class="link" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">report a bug</a>
+				<button type="button" class="link" data-bug-report>report a bug</button>
 				<button type="button" class="btn btn-small" data-debug-copy>copy debug logs</button>
 			</div>
 		</div>
-		<p class="hint">What is wrong, why it matters and the command that fixes it (same checks as <code>cwm doctor</code>). Stuck? <strong>Copy debug logs</strong> puts a redacted report on the clipboard for a bug report.</p>
+		<p class="hint">What is wrong, why it matters and the fix (same checks as <code>cwm doctor</code>). Stuck? <strong>report a bug</strong> copies a redacted report and opens the form.</p>
 		<div class="content" data-content="health"></div>
 	</section>
 
 	<section class="panel" role="tabpanel" id="panel-accounts" aria-labelledby="tab-accounts" hidden>
 		<div class="panel-head"><h1 class="path"><span class="path-pre">~/cwm/</span>accounts</h1></div>
-		<p class="hint">Accounts are Claude logins only (same data as <code>cwm account list</code>): every account shares one workspace. The <strong>default</strong> is what plain <code>claude</code>, <code>cwm open</code> and Resume use; any other runs beside it with <code>cwm run --account &lt;name&gt;</code>. Logins happen in a terminal window — this page follows them.</p>
+		<p class="hint">Accounts are Claude logins only (same data as <code>cwm account list</code>): every account shares one workspace. The <strong>default</strong> is what plain <code>claude</code>, <code>cwm open</code> and Resume use; any other runs beside it with <code>cwm run --account &lt;name&gt;</code>.</p>
 		<div id="acct-banner" class="first-banner" role="region" aria-label="First account" hidden></div>
 		<div class="acct-list" data-content="accounts"></div>
 		<div class="acct-card add-card" id="acct-add-card" hidden>
@@ -314,7 +314,7 @@
 		<span class="sl-seg sl-lo" id="sl-listen"></span>
 	</div>
 	<div class="sl-right">
-		<button type="button" class="sl-seg sl-lo2" data-debug-copy>copy debug logs</button>
+		<button type="button" class="sl-seg sl-lo2" data-bug-report>report a bug</button>
 		<button type="button" class="sl-seg sl-lo" data-keys-open>? keys</button>
 		<button type="button" class="sl-seg" data-about-open title="About cwm">by maher</button>
 	</div>
@@ -373,7 +373,7 @@
 			<div class="about-actions">
 				<button type="button" class="btn btn-primary" id="about-copy" autofocus>copy version info</button>
 				<a class="btn" href="https://github.com/Mr-JoE1/cwm/releases" target="_blank" rel="noopener noreferrer">release notes</a>
-				<a class="btn" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">report a bug</a>
+				<button type="button" class="btn" data-bug-report>report a bug</button>
 				<button type="button" class="btn" id="about-update">check for updates</button>
 			</div>
 			<p id="about-update-result" class="about-update" aria-live="polite"></p>
@@ -428,11 +428,11 @@
 
 <dialog id="debug-dialog" class="keys debug-dialog" aria-labelledby="debug-title">
 	<h2 id="debug-title">Debug logs</h2>
-	<p class="hint">The browser did not allow copying. Select the report below, copy it (Ctrl/Cmd-C) and paste it into a GitHub issue. It is redacted: tokens, e-mail addresses, keys and your user name are removed — still give it a quick read before posting.</p>
+	<p class="hint">The browser did not allow copying. Select the report, copy it (Ctrl/Cmd-C) and paste it into the bug form.</p>
 	<pre id="debug-text" class="debug-text" tabindex="0"></pre>
 	<div class="row">
 		<button type="button" class="btn btn-primary" id="debug-select">Select all</button>
-		<a class="btn" href="https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug</a>
+		<a class="btn" id="debug-bug" target="_blank" rel="noopener noreferrer">Report a bug</a>
 		<button type="button" class="btn" id="debug-close">Close</button>
 	</div>
 </dialog>

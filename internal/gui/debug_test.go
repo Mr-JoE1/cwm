@@ -23,11 +23,11 @@ func TestAPIClaudeOffPath(t *testing.T) {
 	f, _ := actionFixture(t, okSync)
 	bin := "/home/u/.local/bin/claude"
 	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
-		return claudebin.Result{Path: bin, Source: claudebin.SourceDiscovered}, nil
+		return claudebin.Result{Path: bin, Source: claudebin.SourceStandalone}, nil
 	}
 	var got claudeInfo
 	getJSON(t, f, "/api/claude", 200, &got)
-	if !got.Found || got.Path != bin || got.Source != "discovered" || got.OnPath ||
+	if !got.Found || got.Path != bin || got.Source != "standalone" || got.OnPath ||
 		got.PathCommand != claudebin.PathHint("linux", filepath.Dir(bin)) || !strings.Contains(got.Hint, "not on PATH") || got.OS != "linux" {
 		t.Errorf("claude info = %+v", got)
 	}
@@ -37,6 +37,29 @@ func TestAPIClaudeOffPath(t *testing.T) {
 	// Raw shape: snake_case on_path is always present.
 	rec := f.do(t, "GET", "/api/claude", authed(f))
 	if !strings.Contains(rec.Body.String(), `"on_path":false`) || !strings.Contains(rec.Body.String(), `"path_command":`) {
+		t.Errorf("raw body = %s", rec.Body.String())
+	}
+}
+
+// D98: a copy bundled with the editor extension is used, reported as
+// such, and gets no PATH command (its folder changes with every update).
+func TestAPIClaudeBundled(t *testing.T) {
+	f, _ := actionFixture(t, okSync)
+	bin := "/home/u/.vscode/extensions/anthropic.claude-code-2.1.319-linux-x64/resources/native-binary/claude"
+	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
+		return claudebin.Result{Path: bin, Source: claudebin.SourceExtension, Bundle: "the VS Code extension", Version: "2.1.319"}, nil
+	}
+	var got claudeInfo
+	getJSON(t, f, "/api/claude", 200, &got)
+	if !got.Found || got.Source != "vscode-extension" || !got.Bundled || got.Bundle != "the VS Code extension" ||
+		got.PathCommand != "" || !strings.Contains(got.Hint, "never saved") {
+		t.Errorf("claude info = %+v", got)
+	}
+	if st := f.srv.claudeState(); st.PathHint != "" || st.Bundle != "the VS Code extension" {
+		t.Errorf("wizard state = %+v", st)
+	}
+	rec := f.do(t, "GET", "/api/claude", authed(f))
+	if !strings.Contains(rec.Body.String(), `"bundled":true`) || !strings.Contains(rec.Body.String(), `"source":"vscode-extension"`) {
 		t.Errorf("raw body = %s", rec.Body.String())
 	}
 }
@@ -91,7 +114,7 @@ func TestAPIClaudeAndDebugGates(t *testing.T) {
 func TestAPIDebugBundle(t *testing.T) {
 	f, _ := actionFixture(t, okSync)
 	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
-		return claudebin.Result{Path: filepath.Join(f.root, "bin", "claude"), Source: claudebin.SourceDiscovered}, nil
+		return claudebin.Result{Path: filepath.Join(f.root, "bin", "claude"), Source: claudebin.SourceStandalone}, nil
 	}
 	f.srv.opts.DebugSources = func() debugbundle.Sources {
 		return debugbundle.Sources{
@@ -118,7 +141,7 @@ func TestAPIDebugBundle(t *testing.T) {
 	body := rec.Body.String()
 	for _, w := range []string{"built by dashboard agent", "cwm:     v0.5.0-test (commit abc123)",
 		"== agent ==\npid:", "port:    47805", "bind:    127.0.0.1",
-		"== service ==\nsystemd unit", "source:  discovered", "== config.toml ==", "default_account = work",
+		"== service ==\nsystemd unit", "source:  standalone", "== config.toml ==", "default_account = work",
 		"== syncthing ==\nreachable: yes\ndevices:   1 paired, 1 connected", "== doctor ==", "--- agent.log",
 		"GET /api/nope 404 no such endpoint /api/nope", "POST /api/accounts 400 invalid account name"} {
 		if !strings.Contains(body, w) {
@@ -163,7 +186,7 @@ func TestResumePrecheckAndPathHint(t *testing.T) {
 		t.Fatalf("resume without claude = %d %+v, launches %q", rec.Code, e, l.calls)
 	}
 	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
-		return claudebin.Result{Path: "/home/u/.local/bin/claude", Source: claudebin.SourceDiscovered}, nil
+		return claudebin.Result{Path: "/home/u/.local/bin/claude", Source: claudebin.SourceStandalone}, nil
 	}
 	for _, target := range []string{"/api/sessions/resume", "/api/accounts"} {
 		b := body

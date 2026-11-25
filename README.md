@@ -153,7 +153,7 @@ cwm doctor                    # health checks
 cwm config list               # every setting (the dashboard's Settings tab edits the same keys)
 ```
 
-cwm finds Claude Code even when its folder isn't on `PATH` yet (right after its installer, for example), remembers it as `claude_path` in `config.toml`, and prints the command that puts it on `PATH`. To use a specific binary, set `CWM_CLAUDE=/path/to/claude`.
+cwm finds Claude Code even when its folder isn't on `PATH` yet (right after its installer, for example), remembers it as `claude_path` in `config.toml`, and prints the command that puts it on `PATH`. With only the Claude desktop app or the VS Code extension installed, neither of which puts `claude` on `PATH`, cwm uses the copy bundled with them (desktop app first), looks it up again each time because its folder changes with every app update, and recommends the standalone CLI. To use a specific binary, set `CWM_CLAUDE=/path/to/claude`.
 
 Every command takes `--help`, and every view takes `--json`. Full list: **[CLI Reference](https://github.com/Mr-JoE1/cwm/wiki/CLI-Reference)**.
 
@@ -206,7 +206,7 @@ Details: [Privacy & Data](https://github.com/Mr-JoE1/cwm/wiki/Privacy-and-Data) 
 
 ## Contributing
 
-Bug reports, ideas, docs fixes and pull requests are welcome. For a bug, attach the redacted debug report: **Copy debug logs** in the dashboard (Health tab) or `cwm debug --copy`. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Bug reports, ideas, docs fixes and pull requests are welcome. For a bug, click **report a bug** in the dashboard: it copies the redacted debug report and opens the form (or run `cwm debug --copy`). Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
