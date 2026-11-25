@@ -119,7 +119,7 @@ func TestBuildSectionsAndRedaction(t *testing.T) {
 		"PATH of this process:", "  " + tilde("bin"),
 		"== config.toml ==", `default_account = work`, "link_mode = auto", "api_token = <set, not shown>",
 		"account[0].login.email = <set, not shown>", "account[0].login.plan = max", "account[1].name = home",
-		"== workspace ==", "projects:    2, sessions: 3", "alpha (2), beta (1)", "accounts:    2 (1 with a recorded login)", "work (default, login: done), home (login: never)",
+		"== workspace ==", "projects:    2, sessions: 3", "<project-1> (2), <project-2> (1)", "accounts:    2 (1 with a recorded login)", "work (default, login: done), home (login: never)",
 		"== syncthing ==", "not reachable: connection refused",
 		"== doctor ==", "ok:   workspace dir exists (~)", "doctor: 1 ok, 0 warn, 0 fail",
 		"== logs ==", "--- agent.log", "agent line 499", "--- terminal.log",
@@ -240,5 +240,55 @@ func TestClaudeSectionBundled(t *testing.T) {
 	}
 	if strings.Contains(got, "SetEnvironmentVariable") {
 		t.Errorf("no PATH advice for a bundled copy:\n%s", got)
+	}
+}
+
+// D99: session folder names are Claude Code's dash-encoded paths, so
+// they carry the user name and repo names. By default every one is a
+// numbered alias wherever it appears (workspace section, doctor, logs,
+// API errors); --show-projects prints them, with the user still
+// redacted inside.
+func TestBuildProjectsAreAliased(t *testing.T) {
+	home := isolate(t)
+	root := filepath.Join(home, ".cwm")
+	t.Setenv("CWM_HOME", root)
+	write(t, filepath.Join(root, "config.toml"), "version = 1\n")
+	secret := "F--Home-Jdoe-Projects-secretrepo"
+	other := "-home-jdoe-work-acme-billing"
+	write(t, filepath.Join(root, "workspace", "projects", secret, "a.jsonl"), "{}\n")
+	write(t, filepath.Join(root, "workspace", "projects", secret, "b.jsonl"), "{}\n")
+	write(t, filepath.Join(root, "workspace", "projects", other, "c.jsonl"), "{}\n")
+	write(t, filepath.Join(root, "logs", "agent.log"), "mirrored "+secret+"/a.jsonl into "+other+"\nopened F:\\Home\\Jdoe\\x and "+`F:\Home\Jdoe\x`+"\n")
+	src := Sources{
+		From:   "test",
+		Layout: storage.NewLayoutAt(root),
+		Doctor: func() []doctor.Check {
+			return []doctor.Check{{Name: "session-folders", Status: doctor.StatusWarn, Detail: "unpinned session folders: " + other + " " + secret}}
+		},
+		APIErrors: []APIError{{Method: "GET", Endpoint: "/api/projects/" + secret, Code: 404, Message: "no " + secret}},
+		Redact:    Redactor{Home: home, User: "Jdoe"},
+	}
+	got := Build(src)
+	for _, leak := range []string{"Jdoe", "jdoe", "secretrepo", "acme", "billing"} {
+		if strings.Contains(strings.ToLower(got), strings.ToLower(leak)) {
+			t.Errorf("bundle leaks %q:\n%s", leak, got)
+		}
+	}
+	for _, want := range []string{"<project-1> (1), <project-2> (2)", "Project folders are numbered", "mirrored <project-2>/a.jsonl into <project-1>",
+		"unpinned session folders: <project-1> <project-2>", "/api/projects/<project-2> 404 no <project-2>", `F:\Home\<user>\x`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bundle lacks %q:\n%s", want, got)
+		}
+	}
+	src.ShowProjects = true
+	src.Redact.Projects = nil
+	got = Build(src)
+	for _, want := range []string{"F--Home-<user>-Projects-secretrepo (2)", "-home-<user>-work-acme-billing (1)", "--show-projects"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("--show-projects bundle lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(strings.ToLower(got), "jdoe") {
+		t.Errorf("--show-projects still must not show the user name:\n%s", got)
 	}
 }

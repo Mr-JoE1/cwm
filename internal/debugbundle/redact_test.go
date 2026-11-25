@@ -165,3 +165,50 @@ func TestRedactEmptyHome(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// D99: the user name and home in Claude Code's dash-encoded folder
+// names, and Windows homes on any drive, planted names only.
+func TestRedactEncodedAndAnyDrive(t *testing.T) {
+	cases := []struct {
+		r      Redactor
+		in     string
+		want   []string
+		absent []string
+	}{
+		{Redactor{Home: `C:\Users\Jdoe`, User: "Jdoe"}, `projects\F--Home-Jdoe-Projects-x and C--Users-Jdoe-repo, F:\Home\Jdoe\x, "F:\\Home\\Jdoe\\y"`,
+			[]string{`F--Home-<user>-Projects-x`, `C--Users-<user>-repo`, `F:\Home\<user>\x`, `"F:\\Home\\<user>\\y"`}, []string{"Jdoe"}},
+		// Case-insensitive, and a user name with a dot is dashes encoded.
+		{Redactor{Home: "/home/j.doe", User: "j.doe"}, "-home-J-DOE-src-app and /srv/x-j-doe-y",
+			[]string{"-home-<user>-src-app", "/srv/x-<user>-y"}, []string{"J-DOE", "j-doe"}},
+		// Another person's home in encoded form, without knowing the name.
+		{Redactor{Home: "/home/me", User: "me"}, "-Users-alice-dev and G--Home-Bob-x and -home-public-x",
+			[]string{"-Users-<user>-dev", "G--Home-<user>-x", "-home-public-x"}, []string{"alice", "Bob"}},
+		// Whole words only: the name inside a longer word stays.
+		{Redactor{Home: "/home/ann", User: "ann"}, "-home-ann-x annual channel -joanna-",
+			[]string{"-home-<user>-x", "annual channel -joanna-"}, nil},
+	}
+	for i, c := range cases {
+		got := c.r.Redact(c.in)
+		for _, w := range c.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("case %d: %q lacks %q", i, got, w)
+			}
+		}
+		for _, a := range c.absent {
+			if strings.Contains(got, a) {
+				t.Errorf("case %d: %q still has %q", i, got, a)
+			}
+		}
+		if again := c.r.Redact(got); again != got {
+			t.Errorf("case %d: not idempotent: %q -> %q", i, got, again)
+		}
+	}
+}
+
+func TestRedactProjectAliases(t *testing.T) {
+	r := Redactor{Projects: []Alias{{"-home-u-cwm", "<project-1>"}, {"-home-u-cwm-v081", "<project-2>"}, {"x", "<project-3>"}}}
+	got := r.Redact("a -home-u-cwm-v081/s.jsonl b -HOME-U-CWM c -home-u-cwmx x")
+	if want := "a <project-2>/s.jsonl b <project-1> c -home-<user>-cwmx x"; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}

@@ -5,6 +5,24 @@ details. Decisions are binding until superseded by a newer entry.
 
 ## 2026-11-25 (v0.8.1 — patch release, GitHub issue #1)
 
+- **D99: project folders are numbered in debug reports; the redactor
+  knows the dash-encoded form.** A v0.8.0 bundle listed session folders
+  such as `F--Home-<User>-Projects-…`. That is Claude Code's encoding of
+  a path (every character outside `[A-Za-z0-9]` becomes `-`), and the
+  user name was in it, because the redactor only matched path forms.
+  The redactor now also replaces (a) the home dir and the login name in
+  that encoded form (case-insensitive, the name bounded by dashes or the
+  end of the word, so `annual` keeps its `ann`); (b) any
+  `-home-<x>`, `-Users-<x>`, `<drive>--Users-<x>` or `<drive>--Home-<x>`
+  segment; (c) Windows homes on any drive under `Users` or `Home`
+  (`F:\Home\<u>\…`), not only `C:\Users`. By default every session
+  folder name is shown as `<project-N>` (name order) with its session
+  count, and the same alias replaces the name anywhere in the report
+  (doctor, logs, API errors), longest name first, whole words only,
+  names under 4 characters only in the list. So a public issue carries
+  neither the user name nor repo names. `cwm debug --show-projects`
+  prints the names for local use; the user name inside them stays
+  redacted. The dashboard's bundle always numbers them.
 - **D98: Claude Code bundled with the desktop app or the editor
   extension counts as claude.** Neither the Claude desktop app nor the
   Claude Code extension for VS Code (and its forks) puts `claude` on

@@ -1,5 +1,6 @@
-// v0.6.1 (D52): `cwm debug [--copy]` — the same redacted bundle as the
-// dashboard's Copy debug logs button, built by internal/debugbundle.
+// v0.6.1 (D52): `cwm debug [--copy] [--show-projects]` — the same
+// redacted bundle as the dashboard's copy debug logs / report a bug,
+// built by internal/debugbundle.
 package cli
 
 import (
@@ -27,7 +28,29 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
 )
 
-const debugUsage = "usage: cwm debug [--copy]"
+const debugUsage = "usage: cwm debug [--copy] [--show-projects]"
+
+// BugFormURL is the bug report form (the template's one required field
+// is "What went wrong?").
+const BugFormURL = "https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml"
+
+const debugHelp = debugUsage + `
+
+  Print a redacted report for bug reports: versions, agent and service
+  state, where cwm found claude, config keys, doctor results, a log tail
+  and recent dashboard API errors.
+
+  --copy           put the report on the clipboard, then paste it into the
+                   "Debug logs" field of the bug form:
+                   ` + BugFormURL + `
+  --show-projects  print session folder names as they are, for local use.
+                   By default each is shown as <project-N>: the names are
+                   paths, with your user name and repo names in them.
+
+  Redacted automatically: tokens, secrets, e-mail addresses, private keys,
+  your home folder and user name. Glance over it before posting.
+  In the dashboard, "report a bug" copies the same report and opens the form.
+`
 
 // Seams: tests replace these so no clipboard tool, agent or syncthing is
 // ever reached.
@@ -57,16 +80,21 @@ var (
 )
 
 func cmdDebug(e *Env, args []string) error {
-	copyIt := false
+	copyIt, showProjects := false, false
 	for _, a := range args {
 		switch a {
 		case "--copy":
 			copyIt = true
+		case "--show-projects":
+			showProjects = true
+		case "--help", "-h":
+			_, err := io.WriteString(e.Stdout, debugHelp)
+			return err
 		default:
 			return fmt.Errorf("unexpected argument %q (%s)", a, debugUsage)
 		}
 	}
-	text, err := buildDebug(e)
+	text, err := buildDebug(e, showProjects)
 	if err != nil {
 		return err
 	}
@@ -81,8 +109,8 @@ func cmdDebug(e *Env, args []string) error {
 		fmt.Fprintf(e.Stderr, "cwm debug: could not copy to the clipboard (%v) — the report is printed above; copy it from there\n", err)
 		return nil
 	}
-	fmt.Fprintf(e.Stdout, "cwm debug: copied %d lines to the clipboard (via %s) — paste them into a GitHub issue: https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml\n",
-		debugbundle.Lines(text), tool)
+	fmt.Fprintf(e.Stdout, "cwm debug: copied %d lines to the clipboard (via %s) — paste them into the bug form's \"Debug logs\" field: %s\n",
+		debugbundle.Lines(text), tool, BugFormURL)
 	return nil
 }
 
@@ -98,13 +126,14 @@ func debugBase() debugbundle.Sources {
 	return src
 }
 
-func buildDebug(e *Env) (string, error) {
+func buildDebug(e *Env, showProjects bool) (string, error) {
 	layout, err := claudepaths.NewLayoutLenient()
 	if err != nil {
 		return "", err
 	}
 	src := debugBase()
 	src.From = "cwm debug"
+	src.ShowProjects = showProjects
 	src.Version = versionInfo()
 	src.Layout = layout
 	src.Claude = func() (claudebin.Result, error) { return claudebin.Lookup(layout) }

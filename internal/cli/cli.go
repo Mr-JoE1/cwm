@@ -115,7 +115,7 @@ var commands = []*command{
 	{name: "mode", args: "show [--json] | set capture|isolated [--dry-run] [--yes]", short: "show or change the workspace mode (capture: ~/.claude; isolated: ~/.cwm/workspace)"},
 	{name: "migrate", args: "[--dry-run] [--to capture|isolated] [--yes] | rollback [<id>] | list", short: "move a v0.7 layout, ~/.claude or the other mode's root into the workspace (backup first; rollback restores it)"},
 	{name: "conflicts", args: "[--json] | resolve <file> current|merge|<copy>", short: "list Syncthing conflict copies in the workspace and pick a version"},
-	{name: "debug", args: "[--copy]", short: "print a redacted debug report for bug reports (--copy puts it on the clipboard)"},
+	{name: "debug", args: "[--copy] [--show-projects]", short: "print a redacted debug report for bug reports (--copy puts it on the clipboard)"},
 }
 
 // Command implementations are wired in init to avoid an initialization cycle
@@ -236,7 +236,7 @@ func (e *Env) Run(args []string) int {
 // --help (or hand their arguments to another program).
 var selfHelp = map[string]bool{
 	"config": true, "mode": true, "migrate": true, "run": true, "import": true,
-	"mcp": true,
+	"mcp": true, "debug": true,
 }
 
 // exitCode maps a command error to the process exit code.
