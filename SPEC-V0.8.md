@@ -143,6 +143,7 @@ Each item has an on/off switch, `sync.<key>`. Everything NOT on this list stays 
   4. **Verify.** Session count before and after (every session from both sources is present), and a Syncthing folder path check.
   5. **Record.** Write `~/.cwm/state/migrations.json`.
 - **Rollback** restores from the backup manifest exactly, and is tested.
+- **v0.8.3 (D101):** runtime files (`*.lock`, `state/agent.lock`, `server.toml`, `cache/`, claude's `session-env` / `shell-snapshots`) are neither backed up nor rolled back; a file another process keeps locked is `skipped: locked` unless the plan needs it; a running agent pauses its maintenance through `POST /api/agent/pause` for the run; incomplete backups are never rollback targets and are cleaned up (`cwm migrate clean`).
 - **The agent shows a dashboard banner** when an un-migrated v0.7.x layout is detected: "cwm now captures all Claude Code activity — review migration". It never migrates silently.
 - **Fresh install with an existing `~/.claude`:** capture mode adopts it in place. Nothing is moved, the `.stignore` is written, and the default account is imported from the live credentials as `default` (or as a name the user gives).
 
@@ -330,3 +331,33 @@ hardware); non-ASCII and non-BMP characters become one `-` per UTF-16 unit.
 `internal/pathmirror.FolderName` reproduces it; its tests use vectors
 produced by running the bundle's own two functions in node.
 
+
+### Desktop app copy of Claude Code (researched 2026-11-25 for v0.8.3, D103)
+
+Public anthropics/claude-code issues (#53478, #62690, #86999, #92647,
+#98009) quote the Windows layout verbatim as
+`%APPDATA%\Claude\claude-code\<ver>\claude.exe`: the exe sits directly in
+the version folder. Under MSIX the app runs with a virtualised file
+system (`msix_fs_virtualized: true` in #98009): the app names the
+`%APPDATA%` path, but the file really lives in
+`%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\claude-code\<ver>\claude.exe`,
+and #92647 / #98009 are ENOENT failures from that mismatch. Old version
+folders are not always removed (#62690), and one report (#53478) had a
+`claude.exe` that ran as a bare Bun runtime. On macOS (#83841, #90412,
+#93508, #95738) the folder holds an app bundle:
+`~/Library/Application Support/Claude/claude-code/<ver>/claude.app/Contents/MacOS/claude`,
+next to a `.verified` sentinel (#92696). The D98 macOS pattern
+(`<ver>/claude`) therefore never matched. Linux builds use
+`~/.config/Claude/claude-code/<ver>/claude.app/Contents/MacOS/claude`
+(#107936). No source mentions a `bin\`, `cli.js` or download-staging
+layout. Download staging was not specifically searched, so a partial
+folder during an update is not ruled out.
+
+On the owner's machine B, `%APPDATA%\Claude\claude-code\2.1.328` existed
+and nothing in it was probed. The documented layout would have matched
+the glob, so that folder most likely held no exe: an MSIX install whose
+real copy is in the package's `LocalCache`, or an update that did not
+finish. This is inferred, not confirmed. v0.8.3 therefore looks
+one and two levels below `<ver>` as well, adds the app-bundle path,
+and writes `desktop app dir found (…) but no claude.exe inside; entries: …`
+to the debug bundle, so the next report shows the layout.

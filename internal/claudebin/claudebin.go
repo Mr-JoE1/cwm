@@ -81,6 +81,11 @@ type Result struct {
 	// Bundle names the app a bundled copy ships with ("the VS Code
 	// extension"; "" unless Source.Bundled()).
 	Bundle string `json:"bundle,omitempty"`
+	// Why says which bundled copy won over the others that verified, and
+	// why (D103; "" when there was no choice).
+	Why string `json:"why,omitempty"`
+	// Notes explain bundled folders without an executable (BundleNotes).
+	Notes []string `json:"notes,omitempty"`
 }
 
 // Candidate is one probed file: what the resolver tried and why it did
@@ -119,6 +124,8 @@ type NotFoundError struct {
 	Rejected []Candidate
 	// Cleared: as Result.Cleared (a failed claude_path was dropped).
 	Cleared *Cleared
+	// Notes: as Result.Notes.
+	Notes []string
 }
 
 // ErrNotFound is matched by errors.Is for any NotFoundError.
@@ -262,25 +269,72 @@ type resolver struct {
 // try probes p when it is an executable file not seen before. It reports
 // whether the walk should stop.
 func (r *resolver) try(p string, src Source) bool {
-	key := filepath.Clean(p)
-	if r.env.GOOS == "windows" {
-		key = strings.ToLower(key)
-	}
-	if r.seen[key] || !r.env.isExecutable(p) {
+	pr, ok := r.probeOne(p, src)
+	if !ok {
 		return false
 	}
-	r.seen[key] = true
-	onPath := src == SourcePath || r.env.dirOnPath(filepath.Dir(p))
-	pr := r.env.probe(p)
-	r.probed = append(r.probed, Candidate{Path: p, Source: src, OnPath: onPath, Verified: pr.Verified, Result: pr.Short()})
 	if pr.Verified && r.win == nil {
-		r.win = &Result{Path: p, Source: src, OnPath: onPath, Version: pr.Version, ProbeOutput: shorten(pr.Output, ProbeOutputShown),
-			Bundle: BundleName(src, p)}
+		r.setWin(p, src, pr)
 	}
 	if r.win == nil {
 		return false
 	}
 	return !r.survey || len(r.probed) >= SurveyLimit
+}
+
+// probeOne probes p when it is an executable file not seen before, and
+// records it; ok = it was probed.
+func (r *resolver) probeOne(p string, src Source) (ProbeResult, bool) {
+	key := filepath.Clean(p)
+	if r.env.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	if r.seen[key] || !r.env.isExecutable(p) {
+		return ProbeResult{}, false
+	}
+	r.seen[key] = true
+	onPath := src == SourcePath || r.env.dirOnPath(filepath.Dir(p))
+	pr := r.env.probe(p)
+	r.probed = append(r.probed, Candidate{Path: p, Source: src, OnPath: onPath, Verified: pr.Verified, Result: pr.Short()})
+	return pr, true
+}
+
+func (r *resolver) setWin(p string, src Source, pr ProbeResult) {
+	onPath := src == SourcePath || r.env.dirOnPath(filepath.Dir(p))
+	r.win = &Result{Path: p, Source: src, OnPath: onPath, Version: pr.Version, ProbeOutput: shorten(pr.Output, ProbeOutputShown),
+		Bundle: BundleName(src, p)}
+}
+
+// bundled probes the bundled copies tier by tier (D103): the newest of
+// every family first, so a cap never drops a family, and among the copies
+// of one tier that verify, the newest Claude Code wins (the desktop app's
+// on a tie). Survey always probes the first tier, past SurveyLimit; later
+// tiers respect it. It reports whether the walk is done.
+func (r *resolver) bundled() bool {
+	cands := bundledCandidates(r.env)
+	for tier := range bundlePerFamily {
+		var hits []bundledHit
+		for _, c := range cands {
+			if c.tier != tier {
+				continue
+			}
+			if tier > 0 && r.win != nil && len(r.probed) >= SurveyLimit {
+				return true
+			}
+			if pr, ok := r.probeOne(c.path, c.src); ok && pr.Verified {
+				hits = append(hits, bundledHit{c: c, pr: pr})
+			}
+		}
+		if r.win == nil && len(hits) > 0 {
+			best, why := chooseBundled(hits)
+			r.setWin(best.c.path, best.c.src, best.pr)
+			r.win.Why = why
+			if !r.survey {
+				return true
+			}
+		}
+	}
+	return r.win != nil
 }
 
 func resolve(env Env, configured string, survey bool) (Result, error) {
@@ -312,25 +366,25 @@ func resolve(env Env, configured string, survey bool) (Result, error) {
 				cleared = &Cleared{Path: p, Reason: last.Result, Time: time.Now().UTC()}
 			}
 			if stop {
-				return r.result(cleared), nil
+				return r.finish(cleared), nil
 			}
 		}
 	}
 	for _, p := range pathCandidates(env) {
 		if r.try(p, SourcePath) {
-			return r.result(cleared), nil
+			return r.finish(cleared), nil
 		}
 	}
 	if env.Getenv(EnvNoSearch) == "1" {
 		if r.win != nil {
-			return r.result(cleared), nil
+			return r.result(cleared), nil // no search: no bundled lookup either
 		}
 		return Result{}, &NotFoundError{GOOS: env.GOOS, Home: env.searchHome(), Rejected: r.probed, Cleared: cleared}
 	}
 	cands := Candidates(env)
 	for _, p := range cands {
 		if r.try(p, SourceStandalone) {
-			return r.result(cleared), nil
+			return r.finish(cleared), nil
 		}
 	}
 	if r.win == nil {
@@ -338,30 +392,34 @@ func resolve(env Env, configured string, survey bool) (Result, error) {
 			for _, p := range npmCandidates(env.GOOS, prefix) {
 				cands = append(cands, p)
 				if r.try(p, SourceStandalone) {
-					return r.result(cleared), nil
+					return r.finish(cleared), nil
 				}
 			}
 		}
 	}
 	// Bundled copies come last (D98): a standalone CLI the user installed
 	// on purpose always wins over one that ships inside an app.
-	for _, c := range bundledCandidates(env) {
-		if r.try(c.path, c.src) {
-			return r.result(cleared), nil
-		}
-	}
-	if r.win != nil {
-		return r.result(cleared), nil
+	if r.bundled() || r.win != nil {
+		return r.finish(cleared), nil
 	}
 	desktop, editors := bundleSearched(env)
 	return Result{}, &NotFoundError{GOOS: env.GOOS, Searched: cands, Desktop: desktop, Editors: editors,
-		Home: env.searchHome(), Rejected: r.probed, Cleared: cleared}
+		Home: env.searchHome(), Rejected: r.probed, Cleared: cleared, Notes: BundleNotes(env)}
 }
 
-// sourced is a candidate path with the lookup step it belongs to.
+// sourced is a candidate path with the lookup step it belongs to; tier
+// is a bundled copy's rank within its family (0 = the newest).
 type sourced struct {
 	path string
 	src  Source
+	tier int
+}
+
+func (env Env) stat(p string) (fs.FileInfo, error) {
+	if env.Stat == nil {
+		return nil, fs.ErrNotExist
+	}
+	return env.Stat(p)
 }
 
 // searchHome is the home dir reports shorten to ~ (USERPROFILE on
@@ -373,6 +431,19 @@ func (env Env) searchHome() string {
 		}
 	}
 	return env.Home
+}
+
+// finish is the result once a winner is known. A survey (the reports)
+// still probes the newest copy of every bundled family, past SurveyLimit
+// (D103), and explains desktop-app folders without an executable.
+func (r *resolver) finish(cleared *Cleared) Result {
+	if r.survey && r.env.Getenv(EnvNoSearch) != "1" {
+		r.bundled()
+		res := r.result(cleared)
+		res.Notes = BundleNotes(r.env)
+		return res
+	}
+	return r.result(cleared)
 }
 
 func (r *resolver) result(cleared *Cleared) Result {

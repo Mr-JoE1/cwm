@@ -20,6 +20,8 @@ type Info struct {
 	Bind    string    `json:"bind"`
 	Started time.Time `json:"started"`
 	Version string    `json:"version"`
+	// PausedBy names a migration holding the maintenance tick (D101).
+	PausedBy string `json:"paused_by,omitempty"`
 }
 
 // ErrNotRunning means no agent answered at the address in server.toml.

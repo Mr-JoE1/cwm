@@ -3,6 +3,98 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-25 (v0.8.3 — patch release, the first real Windows migration)
+
+- **D103: the desktop app's copy is found in more layouts, and every
+  bundled family is probed.** On the owner's machine B,
+  `%APPDATA%\Claude\claude-code\2.1.328` existed, but no candidate came
+  from it. The research (SPEC-V0.8 research notes) confirms
+  `<ver>\claude.exe` on Windows, with the real file under the MSIX
+  package's `LocalCache\Roaming` when the app runs virtualised. It also
+  shows that macOS uses `<ver>/claude.app/Contents/MacOS/claude`, which
+  the D98 pattern missed. The lookup now tries, under each claude-code
+  folder (`%APPDATA%`, the MSIX `LocalCache`, macOS Application Support,
+  and the Linux builds' `~/.config/Claude`): `<ver>/claude(.exe)` and
+  one and two levels below it, plus the app bundle. That is four fixed
+  globs and no walk. Within one version the shallowest path wins. The
+  candidates are tiered: the newest copy of every family (MSIX /
+  roaming, Squirrel, editor extensions) is probed before any second
+  copy. A survey (doctor, `/api/claude`, the debug bundle) always probes
+  that first tier, even past `SurveyLimit`. When several bundled copies
+  of one tier verify, the highest probed Claude Code version wins, and
+  on a tie the desktop app's copy wins (more stable than an editor
+  extension's). This supersedes D98's "desktop before extension". The
+  result's `why` ("chosen: … the newest (2.1.330); the Claude desktop
+  app has 2.1.328") goes into doctor's `claude-bundled` line and the
+  bundle's `choice:` line. For the newest `<ver>` folder that holds no
+  executable, the debug bundle adds `bundled: desktop app dir found
+  (~\AppData\Roaming\Claude\claude-code\2.1.328) but no claude.exe
+  inside; entries: …` (up to five names, dirs marked).
+  `$CWM_CLAUDE_NO_SEARCH=1` still turns the bundled lookup off.
+- **D102: a migration adopts the live login into the account the user
+  already has.** The owner's config named one account, `tat`
+  (`default_account = tat`), with an empty vault; the live
+  `~/.claude/.credentials.json` was tat's, yet the plan imported it as a
+  new account `default`. When no account's recorded identity matches the
+  live login (accountUuid, else email, from the live `.claude.json`), the
+  plan now picks a target: the account named with `--account` if it
+  exists; else the only account; else `default_account`. A target with no
+  saved login (in the vault, or saved by this plan from a v0.7 launch
+  dir) receives the live login and stays the default. A target whose
+  saved login has a provably different identity leaves the live login
+  to a new account (`default`, or `--account`'s new name) with a plan
+  warning; one whose saved login cannot be compared still receives it,
+  with a warning (the saved copy stays in the backup). No accounts at
+  all: `default`, as before. The plan line says who receives the login
+  and why: `import tat (~/.claude/.credentials.json -> ~/.cwm/accounts/tat/.credentials.json)
+  — the live login is tat's (the only account, no saved login yet)`;
+  login lines use `~` paths, warnings are printed, and neither carries
+  a credential value or an email. `cwm doctor --fix` on a pre-v0.8
+  config now saves the live login into the default account's empty
+  vault entry (the doctor's own suggestion; the vault path is the same
+  in both layouts) and leaves everything else for the migration.
+- **D101: a migration pauses the running agent; the backup skips what
+  the agent or claude holds open.** The first real Windows migration
+  (0.8.1) failed in the backup: the running agent holds
+  `~/.cwm/state/agent.lock` with share mode 0, so reading it is a
+  sharing violation, and the run left a partial `backups/migrate-<id>`
+  behind. Changes: (1) never backed up and never rolled back: in
+  `~/.cwm` the backups, logs, `cache/` (the rebuildable stats cache),
+  `state/migrations.json`, `state/agent.lock`, `state/*.pid`,
+  `state/*.sock`, `server.toml` (the dashboard token and port must
+  outlive a rollback), every `*.lock`, and claude's `session-env` /
+  `shell-snapshots` inside the isolated root, login-only dirs and v0.7
+  launch dirs; in `~/.claude` every `*.lock`, `session-env` and
+  `shell-snapshots`. The plan's backup size uses the same rules.
+  (2) A source file that stays locked (sharing or lock violation)
+  through four retries (about 2 s) is recorded in the manifest as
+  `skipped: locked`, reported as a warning and left alone by a
+  rollback, unless the plan reads or writes it: then the backup fails
+  with the file and its likely holder named. (3) The manifest is
+  written first with `incomplete: true` and the pid, and rewritten at
+  the end; a backup that fails before the apply is removed. A
+  `migrate-*` dir with no manifest (a pre-0.8.3 failure, older than
+  10 minutes) or with an incomplete one whose process is gone is never
+  a rollback target; every migration removes such dirs before it
+  starts, `cwm migrate list` shows them, and `cwm migrate clean`
+  removes them. (4) Coordination: option (a), pause over the local
+  API, because the agent API made it small and the dashboard's own
+  apply needs the same pause. `POST /api/agent/pause {holder, why,
+  seconds}` takes a lease on the maintenance tick (mirror, MCP bridge,
+  conflict watcher, `.stignore`) and returns once no tick is running;
+  the CLI renews it every 30 s, the lease lasts 2 min, so a killed
+  `cwm migrate` never leaves the agent paused. `POST
+  /api/agent/resume` ends it. Both skip the action lock, so a pause
+  during a dashboard migration answers 409 at once; a dashboard apply
+  during a CLI pause answers 409 too. `cwm migrate` and `cwm migrate
+  rollback` pause after the confirmation, plan again, and stop if the
+  plan changed. With no agent running they hold `agent.lock`
+  themselves, so none starts half-way. An agent that holds the lock
+  but does not answer, or one older than v0.8.3 (no pause endpoint),
+  gets option (b): "the cwm agent is running — stop it first: cwm
+  service stop (start it again afterwards: cwm service start)".
+  `GET /api/agent` gains `paused_by`.
+
 ## 2026-11-25 (v0.8.1 — patch release, GitHub issue #1)
 
 - **D100: a one-field bug form, and "report a bug" fills it.** The owner

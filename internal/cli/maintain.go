@@ -80,8 +80,9 @@ func logMaintain(w io.Writer, name string, rep upkeep.Report, err error, lastCon
 // doctorFix is `cwm doctor --fix`: one agent maintenance pass now (the
 // generated .stignore, history merge, login-only dir links, MCP bridge,
 // cwm's hooks, path mirroring) plus saving the live login into the
-// default account's vault entry. It never touches a pre-v0.8 config:
-// that is migrated first, after the user reviewed the plan.
+// default account's vault entry. On a pre-v0.8 config it only saves the
+// live login (safe in either layout, D102): the rest waits for the
+// migration the user reviews.
 func doctorFix(w io.Writer, dry bool) error {
 	l, err := storage.NewLayout()
 	if err != nil {
@@ -95,7 +96,22 @@ func doctorFix(w io.Writer, dry bool) error {
 		return err
 	}
 	if why := upkeep.Ready(l, cfg); why != "" {
-		fmt.Fprintf(w, "fix: nothing changed — %s\n", why)
+		if !cfg.NeedsMigration() || cfg.DefaultAccount == "" {
+			fmt.Fprintf(w, "fix: nothing changed — %s\n", why)
+			return nil
+		}
+		if dry {
+			fmt.Fprintf(w, "fix (dry run): would save the live login into %s's vault entry if it has none; the rest waits for the migration (review: cwm migrate --dry-run)\n", cfg.DefaultAccount)
+			return nil
+		}
+		if saved, err := accounts.SaveLive(l, cfg, nil); err != nil {
+			fmt.Fprintf(w, "fix: vault: %v\n", err)
+		} else if saved {
+			fmt.Fprintf(w, "fix: saved the live login into %s's vault entry\n", cfg.DefaultAccount)
+		} else {
+			fmt.Fprintln(w, "fix: vault: nothing to save")
+		}
+		fmt.Fprintf(w, "fix: the rest waits for the migration — %s\n", why)
 		return nil
 	}
 	if dry {

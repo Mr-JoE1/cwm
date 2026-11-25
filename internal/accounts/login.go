@@ -340,3 +340,6 @@ func ConfigDirReady(a config.Account) bool {
 	fi, err := os.Stat(a.ExpandedDir())
 	return err == nil && fi.IsDir()
 }
+
+// ProcessAlive reports whether pid still runs on this machine.
+func ProcessAlive(pid int) bool { return processAlive(pid) }

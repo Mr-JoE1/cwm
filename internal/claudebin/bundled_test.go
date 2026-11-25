@@ -104,10 +104,15 @@ func TestBundledPrecedence(t *testing.T) {
 	if res, err := Resolve(env, ""); err != nil || res.Path != ext {
 		t.Fatalf("extension alone: %+v, %v", res, err)
 	}
-	// The desktop app beats the extension, even with an older version.
-	desk := w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.300/claude.exe", false, versionText("2.1.300"))
-	if res, err := Resolve(env, ""); err != nil || res.Path != desk {
-		t.Fatalf("desktop over extension: %+v, %v", res, err)
+	// D103: both verify — the newer Claude Code wins...
+	w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.300/claude.exe", false, versionText("2.1.300"))
+	if res, err := Resolve(env, ""); err != nil || res.Path != ext || !strings.Contains(res.Why, "the newest (2.1.400)") {
+		t.Fatalf("newer extension over older desktop: %+v, %v", res, err)
+	}
+	// ...and on a tie the desktop app's copy.
+	desk := w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.400/claude.exe", false, versionText("2.1.400"))
+	if res, err := Resolve(env, ""); err != nil || res.Path != desk || !strings.Contains(res.Why, "on a tie the desktop app's copy is preferred") {
+		t.Fatalf("desktop on a tie: %+v, %v", res, err)
 	}
 	// A standalone install beats both...
 	std := w.fileWith(t, p+".local/bin/claude.exe", false, goodClaude)
@@ -171,9 +176,9 @@ func TestBundledPosixFamilies(t *testing.T) {
 	posixOnly(t)
 	w := newWorld(t)
 	w.vars["PATH"] = filepath.Join(w.root, "empty")
-	// macOS: the desktop app's claude-code/<ver>/claude.
-	mac := w.fileWith(t, "home/Library/Application Support/Claude/claude-code/2.1.319/claude", true, goodClaude)
-	w.fileWith(t, "home/Library/Application Support/Claude/claude-code/2.1.300/claude", true, versionText("2.1.300"))
+	// macOS: the desktop app's claude-code/<ver>/claude.app/Contents/MacOS/claude (D103).
+	mac := w.fileWith(t, "home/Library/Application Support/Claude/claude-code/2.1.319/claude.app/Contents/MacOS/claude", true, goodClaude)
+	w.fileWith(t, "home/Library/Application Support/Claude/claude-code/2.1.300/claude.app/Contents/MacOS/claude", true, versionText("2.1.300"))
 	if res, err := Resolve(w.env("darwin"), ""); err != nil || res.Path != mac || res.Source != SourceDesktop {
 		t.Fatalf("darwin desktop: %+v, %v", res, err)
 	}
@@ -258,5 +263,93 @@ func TestShortPath(t *testing.T) {
 		if got := ShortPath(`C:\Users\U`, `c:\users\u\.vscode`); got != `~\.vscode` {
 			t.Errorf("windows-style ShortPath = %q", got)
 		}
+	}
+}
+
+// D103: the layout inside the desktop app's <ver> folder.
+func TestBundledDesktopLayouts(t *testing.T) {
+	for _, rel := range []string{"2.1.328/claude.exe", "2.1.328/bin/claude.exe", "2.1.328/x64/bin/claude.exe"} {
+		w, p := winWorld(t)
+		want := w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/"+rel, false, versionText("2.1.328"))
+		res, err := Survey(w.env("windows"), "")
+		if err != nil || res.Path != want || res.Source != SourceDesktop {
+			t.Fatalf("%s: got %+v, %v", rel, res, err)
+		}
+		if len(res.Notes) != 0 {
+			t.Errorf("%s: notes %q", rel, res.Notes)
+		}
+	}
+	// Three levels down is out of bounds (the lookup stays three globs).
+	w, p := winWorld(t)
+	w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.328/a/b/c/claude.exe", false, versionText("2.1.328"))
+	if _, err := Resolve(w.env("windows"), ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("too deep: %v", err)
+	}
+}
+
+// The owner's machine B: the version folder exists, no claude.exe in it.
+func TestBundledDesktopEmptyDirNote(t *testing.T) {
+	w, p := winWorld(t)
+	dir := filepath.Join(w.root, p, "AppData/Roaming/Claude/claude-code/2.1.328")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ext := w.fileWith(t, p+".vscode/extensions/anthropic.claude-code-2.1.320-win32-x64/resources/native-binary/claude.exe", false, versionText("2.1.320"))
+	res, err := Survey(w.env("windows"), "")
+	if err != nil || res.Path != ext {
+		t.Fatalf("got %+v, %v", res, err)
+	}
+	want := "desktop app dir found (" + filepath.Join("~", "AppData", "Roaming", "Claude", "claude-code", "2.1.328") + ") but no claude.exe inside; it is empty"
+	if len(res.Notes) != 1 || res.Notes[0] != want {
+		t.Fatalf("notes = %q, want %q", res.Notes, want)
+	}
+	// With entries: up to five names, dirs marked.
+	for _, n := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"} {
+		w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.328/"+n, false, "x")
+	}
+	w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.328/.verified", false, "")
+	w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.328/sub/readme", false, "")
+	// The not-found error carries the note too.
+	if err := os.Remove(ext); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Survey(w.env("windows"), "")
+	var nf *NotFoundError
+	if !errors.As(err, &nf) || len(nf.Notes) != 1 || !strings.Contains(nf.Notes[0], "entries: .verified, a.txt, b.txt, c.txt, d.txt (+3 more)") {
+		t.Fatalf("not-found notes = %+v (%v)", nf, err)
+	}
+}
+
+// Survey probes the newest copy of every family before any second copy,
+// and always lists the newest desktop copy, however many are found first.
+func TestBundledEveryFamilyProbed(t *testing.T) {
+	w, p := winWorld(t)
+	for _, v := range []string{"2.1.310", "2.1.311", "2.1.312"} {
+		w.fileWith(t, p+".vscode/extensions/anthropic.claude-code-"+v+"-win32-x64/resources/native-binary/claude.exe", false, versionText(v))
+		w.fileWith(t, p+".cursor/extensions/anthropic.claude-code-"+v+"-win32-x64/resources/native-binary/claude.exe", false, versionText(v))
+	}
+	desk := w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.300/claude.exe", false, versionText("2.1.300"))
+	// A PATH winner and four standalone copies fill SurveyLimit first.
+	onPath := w.fileWith(t, "bin/claude.exe", false, goodClaude)
+	w.vars["PATH"] = filepath.Dir(onPath)
+	for _, rel := range []string{".local/bin/claude.exe", "AppData/Local/Programs/claude/claude.exe", "AppData/Local/Microsoft/WinGet/Links/claude.exe", "scoop/shims/claude.exe"} {
+		w.fileWith(t, p+rel, false, goodClaude)
+	}
+	res, err := Survey(w.env("windows"), "")
+	if err != nil || res.Path != onPath {
+		t.Fatalf("got %+v, %v", res, err)
+	}
+	var fams []string
+	for _, c := range res.Candidates {
+		if c.Source.Bundled() {
+			fams = append(fams, string(c.Source)+" "+filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(c.Path)))))
+		}
+		if c.Path == desk {
+			fams = append(fams, "desktop newest")
+		}
+	}
+	got := strings.Join(fams, ",")
+	if !strings.Contains(got, "desktop newest") || !strings.Contains(got, "anthropic.claude-code-2.1.312-win32-x64") {
+		t.Fatalf("bundled probed = %s", got)
 	}
 }

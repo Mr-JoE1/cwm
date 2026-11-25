@@ -100,13 +100,44 @@ func Apply(l *storage.Layout, cfg *config.Config, p *Plan, o Options) (*Record, 
 		SessionsBefore: len(p.Sessions), Conflicts: p.Conflicts, Default: p.Default}
 	say := func(format string, a ...any) { fmt.Fprintf(o.Progress, format+"\n", a...) }
 
+	// 0. Leftovers of runs that died while backing up (D101).
+	if gone, err := RemoveIncomplete(l); err != nil {
+		say("backup: %v", err)
+	} else {
+		for _, d := range gone {
+			say("backup: removed the incomplete backup %s (an earlier run never finished it)", claudepaths.Tilde(d))
+		}
+	}
+
 	// 1. Back up.
 	say("backup: %s", claudepaths.Tilde(dir))
-	m, err := Backup(dir, id, p.roots, now)
+	m, err := backup(dir, id, p.roots, now, backupOpts{
+		needed: p.needs(),
+		warn: func(path, holder string) {
+			w := "not backed up (locked by " + holder + "): " + claudepaths.Tilde(path)
+			rec.Warnings = append(rec.Warnings, w)
+			say("backup: warning: %s", w)
+		},
+	})
 	if err != nil {
-		return nil, err
+		// Nothing was applied: the partial copy is worthless, and must
+		// never look like a rollback target.
+		if rerr := os.RemoveAll(dir); rerr != nil {
+			return nil, fmt.Errorf("%w (the partial backup %s is marked incomplete; remove it: cwm migrate clean)", err, claudepaths.Tilde(dir))
+		}
+		return nil, fmt.Errorf("%w (nothing changed; the partial backup was removed)", err)
 	}
-	say("backup: %d entries, manifest with sha256 written", len(m.Entries))
+	skipped := 0
+	for _, e := range m.Entries {
+		if e.Skipped != "" {
+			skipped++
+		}
+	}
+	if skipped > 0 {
+		say("backup: %d entries, %d locked file(s) skipped, manifest with sha256 written", len(m.Entries), skipped)
+	} else {
+		say("backup: %d entries, manifest with sha256 written", len(m.Entries))
+	}
 	fail := func(status string, err error) (*Record, error) {
 		rec.Status, rec.Error = status, err.Error()
 		_ = saveRecord(l, rec)
@@ -176,6 +207,43 @@ func Apply(l *storage.Layout, cfg *config.Config, p *Plan, o Options) (*Record, 
 	return &rec, nil
 }
 
+// needs reports the paths the plan reads or writes, for the backup: one
+// of them locked is a hard error, anything else locked is skipped.
+func (p *Plan) needs() func(string) bool {
+	files := map[string]bool{}
+	var dirs []string
+	add := func(x string) {
+		if x != "" {
+			files[filepath.Clean(x)] = true
+		}
+	}
+	for _, a := range p.Actions {
+		if a.Kind == ActMoveBackup {
+			dirs = append(dirs, filepath.Clean(a.Src)+string(filepath.Separator))
+			continue
+		}
+		if a.Kind != ActVault && a.Kind != ActImport && a.Kind != ActSwapIn {
+			add(a.Src)
+			add(a.Dst)
+		}
+		for _, x := range []string{a.from.Credentials, a.from.ClaudeJSON, a.to.Credentials, a.to.ClaudeJSON} {
+			add(x)
+		}
+	}
+	return func(x string) bool {
+		x = filepath.Clean(x)
+		if files[x] {
+			return true
+		}
+		for _, d := range dirs {
+			if strings.HasPrefix(x, d) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 func describe(a Action) string {
 	switch {
 	case a.Account != "":
@@ -233,6 +301,9 @@ func copyKeepTime(src, dst string) error {
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
+		if isLocked(err) {
+			return &LockedError{Path: src, Holder: LikelyHolder(src), Err: err}
+		}
 		return fmt.Errorf("migrate: read %s: %w", src, err)
 	}
 	if err := storage.WriteFileAtomic(dst, data, info.Mode().Perm()); err != nil {

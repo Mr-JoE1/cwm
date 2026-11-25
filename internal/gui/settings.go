@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/migrate"
@@ -354,6 +355,10 @@ func (s *Server) apiMigrateApply(r *http.Request) (any, int, error) {
 		j.mu.Unlock()
 		return nil, http.StatusConflict, errors.New("a migration is already running")
 	}
+	if h, why := s.opts.Pauser.Paused(); h != "" {
+		j.mu.Unlock()
+		return nil, http.StatusConflict, fmt.Errorf("the agent is paused for %s (%s) — wait for it to finish", why, h)
+	}
 	j.running, j.to, j.lines, j.partial, j.record, j.err = true, req.To, []string{}, "", nil, ""
 	j.started, j.finished = time.Now(), time.Time{}
 	j.mu.Unlock()
@@ -368,6 +373,13 @@ func (s *Server) runMigration(to string) {
 	defer s.actionMu.Unlock()
 	j := &s.migration
 	rec, err := func() (*migrate.Record, error) {
+		// D101: the maintenance tick runs in this process too; hold it
+		// while files move, so the mirror, bridge and .stignore writer
+		// never see a half-migrated tree.
+		if err := s.opts.Pauser.Pause(dashboardHolder, "the dashboard's migration", 0); err != nil {
+			return nil, err
+		}
+		defer s.opts.Pauser.Resume(dashboardHolder)
 		l, cfg, err := s.liveLayout()
 		if err != nil {
 			return nil, err
@@ -396,4 +408,52 @@ func (s *Server) runMigration(to string) {
 	if err != nil {
 		j.err = claudepaths.Tilde(err.Error())
 	}
+}
+
+// dashboardHolder is the pause holder of a dashboard migration.
+const dashboardHolder = "dashboard"
+
+// apiAgentPause is POST /api/agent/pause {holder, why, seconds} (D101):
+// `cwm migrate` and `cwm migrate rollback` hold the maintenance tick for
+// a lease (renewed every 30 s) while they move files. 409 while another
+// holder (the dashboard's own migration) has it.
+func (s *Server) apiAgentPause(r *http.Request) (any, int, error) {
+	var req agent.PauseRequest
+	if code, err := decodeBody(r, &req); err != nil {
+		return nil, code, err
+	}
+	if req.Holder == "" || req.Holder == dashboardHolder || len(req.Holder) > 64 {
+		return nil, http.StatusBadRequest, errors.New("pause needs a holder id")
+	}
+	secs := req.Seconds
+	if secs <= 0 || secs > 600 {
+		secs = int(agent.PauseLease / time.Second)
+	}
+	why := req.Why
+	if why == "" || len(why) > 80 {
+		why = "a migration"
+	}
+	s.migration.mu.Lock()
+	running := s.migration.running
+	s.migration.mu.Unlock()
+	if running {
+		return nil, http.StatusConflict, errors.New("the dashboard is running a migration — wait for it to finish")
+	}
+	if err := s.opts.Pauser.Pause(req.Holder, why, time.Duration(secs)*time.Second); err != nil {
+		return nil, http.StatusConflict, err
+	}
+	return map[string]any{"paused": true, "seconds": secs}, http.StatusOK, nil
+}
+
+// apiAgentResume is POST /api/agent/resume {holder}.
+func (s *Server) apiAgentResume(r *http.Request) (any, int, error) {
+	var req agent.PauseRequest
+	if code, err := decodeBody(r, &req); err != nil {
+		return nil, code, err
+	}
+	if req.Holder == dashboardHolder {
+		return nil, http.StatusBadRequest, errors.New("the dashboard's own pause ends with its migration")
+	}
+	s.opts.Pauser.Resume(req.Holder)
+	return map[string]any{"paused": false}, http.StatusOK, nil
 }

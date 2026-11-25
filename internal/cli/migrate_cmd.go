@@ -89,8 +89,10 @@ func cmdMigrate(e *Env, args []string) error {
 			return migrateRollback(e, layout, id, yes, dry)
 		case "list":
 			return migrateList(e, layout, asJSON)
+		case "clean":
+			return migrateClean(e, layout, dry)
 		default:
-			return fmt.Errorf("unknown migrate subcommand %q (want rollback or list)", pos[0])
+			return fmt.Errorf("unknown migrate subcommand %q (want rollback, list or clean)", pos[0])
 		}
 	}
 	return runMigration(e, layout, cfg, to, dry, yes, asJSON)
@@ -99,11 +101,15 @@ func cmdMigrate(e *Env, args []string) error {
 const migrateUsage = `usage: cwm migrate [--dry-run] [--to capture|isolated] [--yes] [--json]
        cwm migrate rollback [<id>] [--yes]
        cwm migrate list [--json]
+       cwm migrate clean [--dry-run]
 
 Moves a v0.7.x layout, an existing ~/.claude or the other mode's root into
 the workspace root of the target mode: backup (sha256 manifest), plan,
 apply, verify, record. Nothing is deleted; rollback restores the backup
-byte for byte.
+byte for byte. A running agent pauses its maintenance while files move
+(an agent older than v0.8.3 must be stopped first: cwm service stop).
+clean removes backups an earlier run never finished (never rollback
+targets; a migration also removes them before it starts).
 `
 
 // runMigration previews the plan, then (unless dry) confirms and applies.
@@ -142,7 +148,21 @@ func runMigration(e *Env, layout *storage.Layout, cfg *config.Config, to string,
 			return nil
 		}
 	}
-	rec, err := migrate.Apply(layout, cfg, plan, o)
+	release, err := holdAgent(e, layout, "cwm migrate")
+	if err != nil {
+		return err
+	}
+	defer release()
+	// The agent may have written while the plan sat on screen: plan again
+	// with it paused, and stop if what would happen changed.
+	fresh, err := migrate.BuildPlan(layout, cfg, o)
+	if err != nil {
+		return err
+	}
+	if planSummary(fresh) != planSummary(plan) {
+		return fmt.Errorf("the plan changed while waiting for confirmation (%s, was %s) — nothing changed; review it again: cwm migrate --dry-run", planSummary(fresh), planSummary(plan))
+	}
+	rec, err := migrate.Apply(layout, cfg, fresh, o)
 	if asJSON && rec != nil {
 		_ = writeJSONOut(e.Stdout, rec)
 	}
@@ -199,6 +219,9 @@ func printMigrationPlan(w io.Writer, p *migrate.Plan, dry bool) {
 		parts = append(parts, fmt.Sprintf("identical %d", p.Skipped))
 	}
 	fmt.Fprintf(w, "  actions: %s\n", strings.Join(parts, ", "))
+	for _, d := range p.Leftovers {
+		fmt.Fprintf(w, "  leftover: %s — an incomplete backup from a run that failed; removed when this migration starts\n", d)
+	}
 	fmt.Fprintf(w, "  verify:  %d session(s) must be present afterwards\n", len(p.Sessions))
 	shown := 0
 	for _, a := range p.Actions {
@@ -212,7 +235,7 @@ func printMigrationPlan(w io.Writer, p *migrate.Plan, dry bool) {
 		line := ""
 		switch {
 		case a.Account != "":
-			line = fmt.Sprintf("%s (%s -> %s)", a.Account, a.Src, a.Dst)
+			line = fmt.Sprintf("%s (%s -> %s)", a.Account, claudepaths.Tilde(a.Src), claudepaths.Tilde(a.Dst))
 		case a.Src != "" && a.Dst != "":
 			line = claudepaths.Tilde(a.Src) + " -> " + claudepaths.Tilde(a.Dst)
 		case a.Src != "":
@@ -231,6 +254,24 @@ func printMigrationPlan(w io.Writer, p *migrate.Plan, dry bool) {
 	if p.Default != "" {
 		fmt.Fprintf(w, "  default account: %s\n", p.Default)
 	}
+	for _, warn := range p.Warnings {
+		fmt.Fprintf(w, "  warning: %s\n", warn)
+	}
+}
+
+// planSummary is the part of a plan a user confirms: kind, counts per
+// action, sessions, default account.
+func planSummary(p *migrate.Plan) string {
+	counts := map[string]int{}
+	for _, a := range p.Actions {
+		counts[a.Kind+" "+a.Account]++
+	}
+	keys := make([]string, 0, len(counts))
+	for k, n := range counts {
+		keys = append(keys, fmt.Sprintf("%s=%d", strings.TrimSpace(k), n))
+	}
+	sort.Strings(keys)
+	return fmt.Sprintf("%s: %s; %d session(s); default %s", p.Kind, strings.Join(keys, ", "), len(p.Sessions), orDash(p.Default))
 }
 
 func humanBytes(n int64) string {
@@ -290,6 +331,11 @@ func migrateRollback(e *Env, layout *storage.Layout, id string, yes, dry bool) e
 			return nil
 		}
 	}
+	release, err := holdAgent(e, layout, "cwm migrate rollback")
+	if err != nil {
+		return err
+	}
+	defer release()
 	rec, err := migrate.Rollback(layout, target, migrate.Options{Progress: e.Stdout})
 	if err != nil {
 		return err
@@ -309,7 +355,8 @@ func migrateList(e *Env, layout *storage.Layout, asJSON bool) error {
 		}
 		return writeJSONOut(e.Stdout, recs)
 	}
-	if len(recs) == 0 {
+	left := migrate.IncompleteBackups(layout)
+	if len(recs) == 0 && len(left) == 0 {
 		fmt.Fprintln(e.Stdout, "no migrations recorded")
 		return nil
 	}
@@ -317,7 +364,31 @@ func migrateList(e *Env, layout *storage.Layout, asJSON bool) error {
 		fmt.Fprintf(e.Stdout, "%s  %-12s %-7s -> %-8s %-13s sessions %d/%d  backup %s\n",
 			r.ID, r.Kind, orDash(r.FromMode), r.ToMode, r.Status, r.SessionsAfter, r.SessionsBefore, r.Backup)
 	}
+	for _, d := range left {
+		fmt.Fprintf(e.Stdout, "%s  incomplete backup (a run failed while backing up; not a rollback target) — remove it: cwm migrate clean\n", claudepaths.Tilde(d))
+	}
 	return nil
+}
+
+// migrateClean is `cwm migrate clean`: remove the backups an earlier run
+// never finished (D101).
+func migrateClean(e *Env, layout *storage.Layout, dry bool) error {
+	left := migrate.IncompleteBackups(layout)
+	if len(left) == 0 {
+		fmt.Fprintln(e.Stdout, "no incomplete backups")
+		return nil
+	}
+	if dry {
+		for _, d := range left {
+			fmt.Fprintf(e.Stdout, "would remove %s (incomplete backup)\n", claudepaths.Tilde(d))
+		}
+		return nil
+	}
+	gone, err := migrate.RemoveIncomplete(layout)
+	for _, d := range gone {
+		fmt.Fprintf(e.Stdout, "removed %s (incomplete backup)\n", claudepaths.Tilde(d))
+	}
+	return err
 }
 
 func orDash(s string) string {

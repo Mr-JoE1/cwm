@@ -1,6 +1,7 @@
 package claudebin
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -17,11 +18,14 @@ import (
 //
 // Layouts (publicly reported; the probe decides, never the location):
 //   - desktop app, Windows MSIX: %APPDATA%\Claude\claude-code\<ver>\claude.exe
-//     (also under the MSIX package's virtualised LocalCache\Roaming);
+//     (also under the MSIX package's virtualised LocalCache\Roaming, where
+//     the file really lives when the app runs virtualised); D103 also
+//     looks one and two levels below <ver>;
 //   - desktop app, legacy Squirrel: %LOCALAPPDATA%\AnthropicClaude\app-<ver>\…\claude.exe,
 //     except app-<ver>\claude.exe itself, which is the desktop app;
-//   - desktop app, macOS: ~/Library/Application Support/Claude/claude-code/<ver>/claude
-//     (same shape as Windows; not confirmed on hardware);
+//   - desktop app, macOS: ~/Library/Application Support/Claude/claude-code/<ver>/claude.app/Contents/MacOS/claude
+//     (D103; the Linux builds use ~/.config/Claude/claude-code with the
+//     same app bundle);
 //   - editor extension: <ext dir>/anthropic.claude-code-<ver>[-<platform>]/resources/native-binary/claude(.exe)
 //     for VS Code, Insiders, Cursor, Windsurf, VSCodium and VS Code Server.
 
@@ -64,20 +68,15 @@ func bundleFamilies(env Env) []bundleFamily {
 		}
 	}
 	var fams []bundleFamily
-	// <…>/claude-code/<ver>/claude: the version is the parent dir.
-	parentVer := func(m string) string { return filepath.Base(filepath.Dir(m)) }
 	switch env.GOOS {
 	case "windows":
 		var pats []string
-		if roaming := env.Getenv("APPDATA"); roaming != "" {
-			pats = append(pats, filepath.Join(roaming, "Claude", "claude-code", "*", exe))
+		for _, base := range desktopBases(env) {
+			pats = append(pats, desktopPatterns(base, exe)...)
 		}
 		local := env.Getenv("LOCALAPPDATA")
-		if local != "" {
-			pats = append(pats, filepath.Join(local, "Packages", "*Claude*", "LocalCache", "Roaming", "Claude", "claude-code", "*", exe))
-		}
 		if len(pats) > 0 {
-			fams = append(fams, bundleFamily{src: SourceDesktop, patterns: pats, version: parentVer})
+			fams = append(fams, bundleFamily{src: SourceDesktop, patterns: pats, version: claudeCodeVer})
 		}
 		if local != "" {
 			// Squirrel nests the CLI an unknown depth below app-<ver>;
@@ -99,10 +98,9 @@ func bundleFamilies(env Env) []bundleFamily {
 					return strings.TrimPrefix(first, "app-")
 				}})
 		}
-	case "darwin":
-		if home != "" {
-			fams = append(fams, bundleFamily{src: SourceDesktop, version: parentVer,
-				patterns: []string{filepath.Join(home, "Library", "Application Support", "Claude", "claude-code", "*", exe)}})
+	case "darwin", "linux":
+		for _, base := range desktopBases(env) {
+			fams = append(fams, bundleFamily{src: SourceDesktop, version: claudeCodeVer, patterns: desktopPatterns(base, exe)})
 		}
 	}
 	if home != "" {
@@ -119,37 +117,254 @@ func bundleFamilies(env Env) []bundleFamily {
 	return fams
 }
 
+// desktopBases are the desktop app's claude-code folders (one per
+// <version> subfolder) for env.GOOS; a base may hold a glob (the MSIX
+// package folder).
+func desktopBases(env Env) []string {
+	var out []string
+	switch env.GOOS {
+	case "windows":
+		if roaming := env.Getenv("APPDATA"); roaming != "" {
+			out = append(out, filepath.Join(roaming, "Claude", "claude-code"))
+		}
+		if local := env.Getenv("LOCALAPPDATA"); local != "" {
+			out = append(out, filepath.Join(local, "Packages", "*Claude*", "LocalCache", "Roaming", "Claude", "claude-code"))
+		}
+	case "darwin":
+		if env.Home != "" {
+			out = append(out, filepath.Join(env.Home, "Library", "Application Support", "Claude", "claude-code"))
+		}
+	case "linux":
+		if env.Home != "" {
+			out = append(out, filepath.Join(env.Home, ".config", "Claude", "claude-code"))
+		}
+	}
+	return out
+}
+
+// desktopPatterns look for the executable in <base>/<ver>/ and up to two
+// levels below it (<ver>/bin/claude.exe, <ver>/<x>/<y>/claude.exe, D103):
+// the layout inside <ver> is not documented and has changed before. Three
+// fixed-depth globs, never a walk, so a lookup stays fast.
+// On macOS (and the Linux builds) the version folder holds an app bundle:
+// <ver>/claude.app/Contents/MacOS/claude.
+func desktopPatterns(base, exe string) []string {
+	pats := []string{
+		filepath.Join(base, "*", exe),
+		filepath.Join(base, "*", "*", exe),
+		filepath.Join(base, "*", "*", "*", exe),
+	}
+	if exe == "claude" {
+		pats = append(pats, filepath.Join(base, "*", "claude.app", "Contents", "MacOS", exe))
+	}
+	return pats
+}
+
+// claudeCodeVer is the path segment after "claude-code" (the version
+// folder of a desktop-app copy).
+func claudeCodeVer(m string) string {
+	parts := strings.Split(filepath.ToSlash(m), "/")
+	for i := len(parts) - 2; i >= 0; i-- {
+		if strings.EqualFold(parts[i], "claude-code") {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
 // bundledCandidates globs every family and returns, per family, the
-// matches ordered highest version first, capped at bundlePerFamily.
+// matches ordered highest version first, capped at bundlePerFamily. The
+// result is tiered (D103): the newest copy of every family first, then
+// the second newest of every family, so no probe cap can drop a whole
+// family.
 func bundledCandidates(env Env) []sourced {
 	if env.Glob == nil {
 		return nil
 	}
-	var out []sourced
+	var perFam [][]sourced
 	for _, f := range bundleFamilies(env) {
 		var matches []string
+		seen := map[string]bool{}
 		for _, pat := range f.patterns {
 			m, err := env.Glob(pat)
 			if err != nil {
 				continue
 			}
 			for _, p := range m {
-				matches = append(matches, p)
+				if !seen[p] {
+					seen[p] = true
+					matches = append(matches, p)
+				}
 			}
 		}
 		ver := map[string]bundleVersion{}
 		for _, m := range matches {
 			ver[m] = parseBundleVersion(f.version(m))
 		}
-		sort.SliceStable(matches, func(i, j int) bool { return ver[matches[i]].newer(ver[matches[j]]) })
+		// Highest version first; within one version the shallowest path
+		// (<ver>/claude.exe before <ver>/bin/claude.exe).
+		sort.SliceStable(matches, func(i, j int) bool {
+			a, b := ver[matches[i]], ver[matches[j]]
+			if a.newer(b) || b.newer(a) {
+				return a.newer(b)
+			}
+			return strings.Count(matches[i], string(filepath.Separator)) < strings.Count(matches[j], string(filepath.Separator))
+		})
+		var fam []sourced
 		for i, m := range matches {
 			if i == bundlePerFamily {
 				break
 			}
-			out = append(out, sourced{path: m, src: f.src})
+			fam = append(fam, sourced{path: m, src: f.src, tier: i})
+		}
+		perFam = append(perFam, fam)
+	}
+	var out []sourced
+	for tier := range bundlePerFamily {
+		for _, fam := range perFam {
+			if tier < len(fam) {
+				out = append(out, fam[tier])
+			}
 		}
 	}
 	return out
+}
+
+// bundledHit is a verified bundled candidate.
+type bundledHit struct {
+	c  sourced
+	pr ProbeResult
+}
+
+// chooseBundled picks among verified bundled copies (D103): the highest
+// Claude Code version (from the probe, not the folder); on a tie the
+// desktop app's copy, which is more stable than an editor extension's. It
+// returns the pick and why, for doctor.
+func chooseBundled(hits []bundledHit) (bundledHit, string) {
+	best := hits[0]
+	for _, h := range hits[1:] {
+		a, b := parseBundleVersion(h.pr.Version), parseBundleVersion(best.pr.Version)
+		switch {
+		case a.newer(b):
+			best = h
+		case !b.newer(a) && h.c.src == SourceDesktop && best.c.src != SourceDesktop:
+			best = h
+		}
+	}
+	if len(hits) == 1 {
+		return best, ""
+	}
+	var others []string
+	tie := false
+	for _, h := range hits {
+		if h.c.path == best.c.path {
+			continue
+		}
+		if h.pr.Version == best.pr.Version {
+			tie = true
+		}
+		others = append(others, BundleName(h.c.src, h.c.path)+" has "+orUnknown(h.pr.Version))
+	}
+	name := BundleName(best.c.src, best.c.path)
+	if tie && best.c.src == SourceDesktop {
+		return best, fmt.Sprintf("chosen: %s's copy (%s); %s — on a tie the desktop app's copy is preferred, it is more stable than an editor extension's",
+			name, orUnknown(best.pr.Version), strings.Join(others, ", "))
+	}
+	return best, fmt.Sprintf("chosen: %s's copy, the newest (%s); %s", name, orUnknown(best.pr.Version), strings.Join(others, ", "))
+}
+
+func orUnknown(v string) string {
+	if v == "" {
+		return "version unknown"
+	}
+	return v
+}
+
+// BundleNotes explains desktop-app folders that hold no executable (D103):
+// for the newest <ver> folder of each claude-code base that has one but
+// in which no claude was found, a line naming the folder and up to five
+// of its entries, so the next bug report shows the layout.
+func BundleNotes(env Env) []string {
+	if env.Glob == nil {
+		return nil
+	}
+	exe := "claude"
+	if env.GOOS == "windows" {
+		exe = "claude.exe"
+	}
+	home := env.searchHome()
+	var notes []string
+	for _, base := range desktopBases(env) {
+		dirs, err := env.Glob(filepath.Join(base, "*"))
+		if err != nil || len(dirs) == 0 {
+			continue
+		}
+		var vers []string
+		for _, d := range dirs {
+			if fi, err := env.stat(d); err == nil && fi.IsDir() {
+				vers = append(vers, d)
+			}
+		}
+		if len(vers) == 0 {
+			continue
+		}
+		sort.SliceStable(vers, func(i, j int) bool {
+			return parseBundleVersion(filepath.Base(vers[i])).newer(parseBundleVersion(filepath.Base(vers[j])))
+		})
+		newest := vers[0]
+		found := false
+		esc := globEscape(newest)
+		for _, pat := range []string{filepath.Join(esc, exe), filepath.Join(esc, "*", exe), filepath.Join(esc, "*", "*", exe),
+			filepath.Join(esc, "claude.app", "Contents", "MacOS", exe)} {
+			if m, err := env.Glob(pat); err == nil && len(m) > 0 {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		ents, _ := env.Glob(filepath.Join(globEscape(newest), "*"))
+		names := make([]string, 0, 5)
+		for _, e := range ents {
+			n := filepath.Base(e)
+			if fi, err := env.stat(e); err == nil && fi.IsDir() {
+				n += string(filepath.Separator)
+			}
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		more := ""
+		if len(names) > 5 {
+			more = fmt.Sprintf(" (+%d more)", len(names)-5)
+			names = names[:5]
+		}
+		listing := "it is empty"
+		if len(names) > 0 {
+			listing = "entries: " + strings.Join(names, ", ") + more
+		}
+		notes = append(notes, fmt.Sprintf("desktop app dir found (%s) but no %s inside; %s", ShortPath(home, newest), exe, listing))
+	}
+	return notes
+}
+
+// globEscape quotes the glob metacharacters of a literal path (a version
+// folder named [x] must not become a character class).
+func globEscape(p string) string {
+	if !strings.ContainsAny(p, "*?[") {
+		return p
+	}
+	var b strings.Builder
+	for _, r := range p {
+		if r == '*' || r == '?' || r == '[' {
+			b.WriteByte('[')
+			b.WriteRune(r)
+			b.WriteByte(']')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // bundleSearched is where the bundled families look, for the not-found
