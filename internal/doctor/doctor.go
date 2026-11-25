@@ -549,8 +549,12 @@ func checkClaude(r *checkList, root string) {
 			// D98: works, but only while the app is installed, and it
 			// changes with every app update. No PATH advice: the folder
 			// carries a version, so it would break on the next update.
-			r.warn("claude-bundled", "only the claude bundled with %s was found (%s): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: %s",
-				res.Bundle, res.Source, claudebin.InstallCommand(runtime.GOOS))
+			why := ""
+			if res.Why != "" {
+				why = " — " + res.Why // D103: which bundled copy, and why
+			}
+			r.warn("claude-bundled", "only the claude bundled with %s was found (%s%s): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: %s",
+				res.Bundle, res.Source, why, claudebin.InstallCommand(runtime.GOOS))
 		case res.OnPath:
 			r.ok("claude-binary", "claude binary: %s (source: %s, verified: %s)", res.Path, res.Source.Label(), line)
 		default:

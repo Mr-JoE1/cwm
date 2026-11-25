@@ -243,6 +243,27 @@ func TestClaudeSectionBundled(t *testing.T) {
 	}
 }
 
+// D103: which bundled copy won and why, and a desktop-app folder that
+// holds no executable, both reach the bundle.
+func TestClaudeSectionBundleChoiceAndNotes(t *testing.T) {
+	note := `desktop app dir found (~\AppData\Roaming\Claude\claude-code\2.1.328) but no claude.exe inside; it is empty`
+	got := ClaudeSection(func() (claudebin.Result, error) {
+		return claudebin.Result{Path: "x", Source: claudebin.SourceExtension, Bundle: "the VS Code extension", Version: "2.1.330",
+			Why: "chosen: the VS Code extension's copy, the newest (2.1.330); the Claude desktop app has 2.1.328", Notes: []string{note}}, nil
+	}, "windows", nil, "")
+	for _, want := range []string{"choice:  chosen: the VS Code extension's copy, the newest (2.1.330)", "bundled: " + note} {
+		if !strings.Contains(got, want) {
+			t.Errorf("section missing %q:\n%s", want, got)
+		}
+	}
+	got = ClaudeSection(func() (claudebin.Result, error) {
+		return claudebin.Result{}, &claudebin.NotFoundError{GOOS: "windows", Notes: []string{note}}
+	}, "windows", nil, "")
+	if !strings.Contains(got, "bundled: "+note) {
+		t.Errorf("not-found section without the note:\n%s", got)
+	}
+}
+
 // D99: session folder names are Claude Code's dash-encoded paths, so
 // they carry the user name and repo names. By default every one is a
 // numbered alias wherever it appears (workspace section, doctor, logs,

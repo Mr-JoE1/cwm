@@ -5,6 +5,32 @@ details. Decisions are binding until superseded by a newer entry.
 
 ## 2026-11-25 (v0.8.3 — patch release, the first real Windows migration)
 
+- **D103: the desktop app's copy is found in more layouts, and every
+  bundled family is probed.** On the owner's machine B,
+  `%APPDATA%\Claude\claude-code\2.1.328` existed, but no candidate came
+  from it. The research (SPEC-V0.8 research notes) confirms
+  `<ver>\claude.exe` on Windows, with the real file under the MSIX
+  package's `LocalCache\Roaming` when the app runs virtualised. It also
+  shows that macOS uses `<ver>/claude.app/Contents/MacOS/claude`, which
+  the D98 pattern missed. The lookup now tries, under each claude-code
+  folder (`%APPDATA%`, the MSIX `LocalCache`, macOS Application Support,
+  and the Linux builds' `~/.config/Claude`): `<ver>/claude(.exe)` and
+  one and two levels below it, plus the app bundle. That is four fixed
+  globs and no walk. Within one version the shallowest path wins. The
+  candidates are tiered: the newest copy of every family (MSIX /
+  roaming, Squirrel, editor extensions) is probed before any second
+  copy. A survey (doctor, `/api/claude`, the debug bundle) always probes
+  that first tier, even past `SurveyLimit`. When several bundled copies
+  of one tier verify, the highest probed Claude Code version wins, and
+  on a tie the desktop app's copy wins (more stable than an editor
+  extension's). This supersedes D98's "desktop before extension". The
+  result's `why` ("chosen: … the newest (2.1.330); the Claude desktop
+  app has 2.1.328") goes into doctor's `claude-bundled` line and the
+  bundle's `choice:` line. For the newest `<ver>` folder that holds no
+  executable, the debug bundle adds `bundled: desktop app dir found
+  (~\AppData\Roaming\Claude\claude-code\2.1.328) but no claude.exe
+  inside; entries: …` (up to five names, dirs marked).
+  `$CWM_CLAUDE_NO_SEARCH=1` still turns the bundled lookup off.
 - **D102: a migration adopts the live login into the account the user
   already has.** The owner's config named one account, `tat`
   (`default_account = tat`), with an empty vault; the live

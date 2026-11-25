@@ -249,6 +249,7 @@ func (src Sources) serviceSection() string {
 func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv func(string) string, note string) string {
 	var b strings.Builder
 	var cands []claudebin.Candidate
+	var notes []string
 	if find == nil {
 		b.WriteString("resolver: not available\n")
 	} else if res, err := find(); err != nil {
@@ -256,6 +257,7 @@ func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv fu
 		var nf *claudebin.NotFoundError
 		if errors.As(err, &nf) {
 			cands = nf.Rejected
+			notes = nf.Notes
 		}
 	} else {
 		src := string(res.Source)
@@ -265,6 +267,9 @@ func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv fu
 		fmt.Fprintf(&b, "found:   yes\npath:    %s\nsource:  %s\non PATH: %t\n", res.Path, src, res.OnPath)
 		if res.Bundle != "" {
 			fmt.Fprintf(&b, "bundle:  %s (looked up afresh each time, never pinned)\n", res.Bundle)
+		}
+		if res.Why != "" {
+			fmt.Fprintf(&b, "choice:  %s\n", res.Why)
 		}
 		fmt.Fprintf(&b, "verified: yes, version %s\n", res.Version)
 		if res.ProbeOutput != "" {
@@ -277,12 +282,16 @@ func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv fu
 			fmt.Fprintf(&b, "fix:     %s\n", claudebin.PathHint(goos, res.Dir()))
 		}
 		cands = res.Candidates
+		notes = res.Notes
 	}
 	if len(cands) > 0 {
 		b.WriteString("candidates probed:\n")
 		for _, c := range cands {
 			fmt.Fprintf(&b, "  %s [%s, on PATH: %t] %s\n", c.Path, c.Source, c.OnPath, c.Result)
 		}
+	}
+	for _, n := range notes {
+		fmt.Fprintf(&b, "bundled: %s\n", n)
 	}
 	if note != "" {
 		fmt.Fprintf(&b, "note:    %s\n", note)
