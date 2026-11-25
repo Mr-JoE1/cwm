@@ -19,7 +19,8 @@
 #                    -Uninstall   / CWM_UNINSTALL=1   remove cwm (keeps ~\.cwm)
 # Look:              NO_COLOR (no colours); CWM_INSTALL_FANCY=1 forces the
 #                    terminal layout when output is redirected (test seam)
-# Test seams (env):  CWM_INSTALL_API, CWM_INSTALL_BASE_URL, CWM_INSTALL_DIR
+# Test seams (env):  CWM_INSTALL_API, CWM_INSTALL_WEB, CWM_INSTALL_BASE_URL,
+#                    CWM_INSTALL_DIR
 #
 # This file is pure ASCII on purpose: `irm | iex` decodes it with whatever
 # charset the web server claims, so every non-ASCII glyph is built from its
@@ -271,14 +272,71 @@ function Get-CwmHome {
 function Get-LatestTag {
     $api = 'https://api.github.com'
     if ($env:CWM_INSTALL_API) { $api = $env:CWM_INSTALL_API }
+    $why = ''
     try {
         $rel = Invoke-RestMethod -UseBasicParsing -Uri "$api/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'cwm-installer' }
         if ($rel.tag_name) { return [string]$rel.tag_name }
+        $why = 'the release API returned no tag_name'
     } catch {
-        Fail "could not determine the latest release ($($_.Exception.Message)); pass -Version vX.Y.Z"
+        $why = $_.Exception.Message
     }
-    Fail 'the release API returned no tag_name; pass -Version vX.Y.Z'
+    # API rate-limited (403, 60 requests/hour per IP) or unreachable: the
+    # releases/latest page redirects to /releases/tag/<tag>. Off when a test
+    # points CWM_INSTALL_API elsewhere, unless it also sets CWM_INSTALL_WEB.
+    if ((-not $env:CWM_INSTALL_API) -or $env:CWM_INSTALL_WEB) {
+        $tag = Get-LatestTagFromRedirect
+        if ($tag) { return $tag }
+    }
+    Fail ("could not determine the latest release ($why); pass -Version vX.Y.Z`n" +
+        "         or set `$env:CWM_VERSION='vX.Y.Z' first")
 }
+
+# Get-LatestTagFromRedirect: the tag named by the redirect of
+# <web>/<repo>/releases/latest, or $null. HEAD without following the
+# redirect first; then a followed GET, reading the final URI.
+function Get-LatestTagFromRedirect {
+    $web = 'https://github.com'
+    if ($env:CWM_INSTALL_WEB) { $web = $env:CWM_INSTALL_WEB }
+    $url = "$($web.TrimEnd('/'))/$Repo/releases/latest"
+    $found = @()
+    try {
+        $req = [System.Net.HttpWebRequest]::Create($url)
+        $req.Method = 'HEAD'
+        $req.AllowAutoRedirect = $false
+        $req.UserAgent = 'cwm-installer'
+        $req.Timeout = 15000
+        $resp = $req.GetResponse()
+        try { $found += [string]$resp.Headers['Location'] } finally { $resp.Close() }
+    } catch [System.Net.WebException] {
+        # Some runtimes raise on a 3xx when redirects are off.
+        $er = $_.Exception.Response
+        if ($er) { try { $found += [string]$er.Headers['Location'] } finally { $er.Close() } }
+    } catch { }
+    if (-not ($found | Where-Object { Test-ReleaseTag (Get-UrlTag $_) })) {
+        try {
+            $r = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{ 'User-Agent' = 'cwm-installer' }
+            $br = $r.BaseResponse
+            if ($br.PSObject.Properties['ResponseUri'] -and $br.ResponseUri) {
+                $found += [string]$br.ResponseUri.AbsoluteUri # Windows PowerShell 5.1
+            } elseif ($br.PSObject.Properties['RequestMessage'] -and $br.RequestMessage) {
+                $found += [string]$br.RequestMessage.RequestUri.AbsoluteUri # PowerShell 7
+            }
+        } catch { }
+    }
+    foreach ($u in $found) {
+        $t = Get-UrlTag $u
+        if (Test-ReleaseTag $t) { return $t }
+    }
+    return $null
+}
+
+function Get-UrlTag([string]$u) {
+    if (-not $u) { return '' }
+    $u = ($u -split '[?#]')[0].TrimEnd('/')
+    return $u.Substring($u.LastIndexOf('/') + 1)
+}
+
+function Test-ReleaseTag([string]$t) { return ($t -match '^v\d+\.\d+\.\d+') }
 
 function Get-File([string]$url, [string]$dest) {
     try {

@@ -51,6 +51,7 @@ function Test-Banner([string]$text) {
 }
 
 $server = $null
+$fake = $null
 try {
     Write-Host "== building snapshot $tag"
     $ld = "-s -w -X github.com/Mr-JoE1/cwm/internal/cli.Version=$ver -X github.com/Mr-JoE1/cwm/internal/cli.Commit=harness"
@@ -77,6 +78,15 @@ try {
         try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/download/$tag/checksums.txt" | Out-Null; $up = $true } catch { Start-Sleep -Milliseconds 200 }
     }
     if (-not $up) { throw 'http.server did not come up' }
+
+    # Fake rate-limited API (403) + github.com releases/latest redirect.
+    $fport = $port + 1
+    $fake = Start-Process -FilePath $py -ArgumentList @('-I', (Join-Path $repo 'scripts\fake-release-web.py'), "$fport", $tag) -PassThru -WindowStyle Hidden
+    $up = $false
+    for ($i = 0; $i -lt 50 -and -not $up; $i++) {
+        try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$fport/web/Mr-JoE1/cwm/releases/tag/$tag" | Out-Null; $up = $true } catch { Start-Sleep -Milliseconds 200 }
+    }
+    if (-not $up) { throw 'fake-release-web.py did not come up' }
 
     $env:CWM_SERVICE_DRYRUN = '1'
     $env:CWM_NO_OPEN = '1'
@@ -124,6 +134,36 @@ try {
     $iex -split "`n" | Select-Object -First 8 | ForEach-Object { Write-Host "    | $_" }
     Check 'irm | iex: installed' (Test-Path -LiteralPath (Join-Path $env:CWM_INSTALL_DIR 'cwm.exe'))
     Check 'banner art verbatim (irm | iex)' (Test-Banner $iex)
+    Remove-Item Env:\CWM_NO_SERVICE -ErrorAction SilentlyContinue
+    $env:CWM_INSTALL_DIR = $binMain
+
+    Write-Host '== 1d. API rate-limited (403): releases/latest redirect (irm | iex)'
+    $env:CWM_NO_SERVICE = '1'
+    $env:CWM_INSTALL_API = "http://127.0.0.1:$fport/api403"
+    $env:CWM_INSTALL_WEB = "http://127.0.0.1:$fport/web"
+    $env:CWM_INSTALL_DIR = Join-Path $sandbox 'bin-ratelimited'
+    $ErrorActionPreference = 'Continue'
+    $rl = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "irm http://127.0.0.1:$port/install.ps1 | iex" 2>&1 | Out-String)
+    $ErrorActionPreference = $prev
+    $rl -split "`n" | Where-Object { $_ -match 'release|error' } | ForEach-Object { Write-Host "    | $_" }
+    $rlExe = Join-Path $env:CWM_INSTALL_DIR 'cwm.exe'
+    Check 'rate-limited: tag from the redirect' ($rl -match [regex]::Escape("release $tag (latest)"))
+    $rlVer = ''
+    if (Test-Path -LiteralPath $rlExe) { $rlVer = (& $rlExe --version 2>&1 | Out-String) }
+    Check 'rate-limited: that release is installed' ($rlVer -match [regex]::Escape($ver))
+
+    Write-Host '== 1e. API and redirect both fail'
+    $env:CWM_INSTALL_WEB = "http://127.0.0.1:$fport/webnone"
+    $env:CWM_INSTALL_DIR = Join-Path $sandbox 'bin-bothfail'
+    $ErrorActionPreference = 'Continue'
+    $bf = (& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\install.ps1') 2>&1 | Out-String)
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    $bf -split "`n" | Where-Object { $_ -match 'error|or set' } | ForEach-Object { Write-Host "    | $_" }
+    Check 'both fail: exit 1, nothing installed' (($code -ne 0) -and -not (Test-Path -LiteralPath (Join-Path $env:CWM_INSTALL_DIR 'cwm.exe')))
+    Check 'both fail: error has -Version and $env:CWM_VERSION hints' (($bf -match 'could not determine the latest release \(.*403.*\); pass -Version vX\.Y\.Z') -and ($bf -match [regex]::Escape("or set `$env:CWM_VERSION='vX.Y.Z' first")))
+    $env:CWM_INSTALL_API = "http://127.0.0.1:$port"
+    Remove-Item Env:\CWM_INSTALL_WEB -ErrorAction SilentlyContinue
     Remove-Item Env:\CWM_NO_SERVICE -ErrorAction SilentlyContinue
     $env:CWM_INSTALL_DIR = $binMain
 
@@ -178,6 +218,7 @@ try {
     Check 'uninstall: exit 0, binaries gone, Path cleaned' (($code -eq 0) -and -not (Test-Path -LiteralPath $exe) -and -not (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $env:CWM_INSTALL_DIR))
 } finally {
     if ($server) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+    if ($fake) { Stop-Process -Id $fake.Id -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
 }
 
