@@ -312,6 +312,7 @@ func TestAccountAddLaunchesTerminal(t *testing.T) {
 
 func TestLaunchNoTerminal501(t *testing.T) {
 	f, l := actionFixture(t, okSync)
+	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"isolated\"\n")
 	l.err = fmt.Errorf("term: %w (headless)", term.ErrNoTerminal)
 	cases := map[string]string{
 		"/api/accounts":        fakeCwm + " account add work",
@@ -347,6 +348,9 @@ func TestLaunchNoTerminal501(t *testing.T) {
 
 func TestResumeLooksUpSession(t *testing.T) {
 	f, l := actionFixture(t, okSync)
+	// Isolated mode: pinned folders, the D20 passthrough (capture mode is
+	// TestResumeCaptureModeFollowsTheSession).
+	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"isolated\"\n")
 	ws := filepath.Join(f.root, "workspace")
 	writeFile(t, filepath.Join(ws, "projects", "alpha", "agent-12345678.jsonl"), "{}\n")
 	writeFile(t, filepath.Join(ws, "projects", "beta", "22222222-bbbb.jsonl"), "{}\n")
@@ -554,5 +558,31 @@ func TestStateReportsClaude(t *testing.T) {
 	f.post(t, "/api/accounts", `{"name":"work"}`, nil)
 	if calls != 2 {
 		t.Errorf("precheck must re-resolve: calls = %d", calls)
+	}
+}
+
+// Capture mode: the project is Claude Code's path-derived folder (it may
+// start with "-", never reaches the argv) and the resume is `cwm sessions
+// resume <id>`, which follows the session to this machine's clone (D91).
+func TestResumeCaptureModeFollowsTheSession(t *testing.T) {
+	f, l := actionFixture(t, okSync)
+	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"capture\"\n")
+	ws := filepath.Join(f.root, "workspace")
+	writeFile(t, filepath.Join(ws, "projects", "-home-a-projects-api", "44444444-dddd.jsonl"), "{}\n")
+	rec := f.post(t, "/api/sessions/resume", `{"project":"-home-a-projects-api","id":"44444444-dddd"}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume = %d\n%s", rec.Code, rec.Body.String())
+	}
+	want := fakeCwm + "|--hold-on-error|sessions|resume|44444444-dddd"
+	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != want {
+		t.Fatalf("launcher argv = %q, want %s", l.calls, want)
+	}
+	for _, body := range []string{
+		`{"project":"../x","id":"44444444-dddd"}`,
+		`{"project":"-home-a-projects-api","id":"99999999-ffff"}`,
+	} {
+		if rec := f.post(t, "/api/sessions/resume", body, nil); rec.Code == http.StatusOK {
+			t.Errorf("%s: accepted", body)
+		}
 	}
 }

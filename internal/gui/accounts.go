@@ -4,14 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"
+	"github.com/Mr-JoE1/cwm/internal/storage"
 )
 
 // accountView is one GET /api/accounts row (D56): the v0.5 identity row
@@ -27,6 +30,35 @@ type accountView struct {
 	LoginUpdated     string               `json:"login_updated,omitempty"`
 	// ConfigDirReady is set on the default account only.
 	ConfigDirReady *bool `json:"config_dir_ready,omitempty"`
+	// RunningNow is set when cwm can tell which account a running claude
+	// uses (Linux: its CLAUDE_CONFIG_DIR); absent = unknown (D95).
+	RunningNow *bool `json:"running_now,omitempty"`
+	// Parallel is true for an account that is not the default: it runs
+	// beside the default from its login-only dir (`cwm run --account`).
+	Parallel bool `json:"parallel"`
+}
+
+// runningNow attributes running claude processes to accounts by the
+// CLAUDE_CONFIG_DIR they run with. nil = not known on this platform.
+func runningNow(procs []accounts.ClaudeProc, live claudepaths.Paths) *bool {
+	on := false
+	for _, p := range procs {
+		if !p.EnvKnown {
+			return nil
+		}
+		dir := p.ConfigDir
+		switch {
+		case live.Env == "" && (dir == "" || sameDir(dir, live.Root)):
+			on = true
+		case live.Env != "" && dir != "" && sameDir(dir, live.Env):
+			on = true
+		}
+	}
+	return &on
+}
+
+func sameDir(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 // loginTracker is the agent's in-memory view of every account's login
@@ -87,6 +119,11 @@ func (s *Server) accountViews() ([]accountView, error) {
 	}
 	rows := accounts.Rows(accounts.Gather(cfg, s.opts.Layout))
 	out := make([]accountView, 0, len(rows))
+	procs := s.switcher().ListProcs()
+	// A copy: the live paths only need the mode's root, and this read
+	// must not re-point the server's layout.
+	l := storage.NewLayoutAt(s.opts.Layout.Root)
+	_ = claudepaths.Apply(l, cfg)
 	for i, a := range cfg.Accounts {
 		st := s.loginState(a)
 		v := accountView{
@@ -101,6 +138,10 @@ func (s *Server) accountViews() ([]accountView, error) {
 		if v.IsDefault {
 			ready := accounts.ConfigDirReady(a)
 			v.ConfigDirReady = &ready
+		}
+		v.Parallel = !v.IsDefault
+		if live, err := claudepaths.LiveFor(l, cfg, a.Name); err == nil {
+			v.RunningNow = runningNow(procs, live)
 		}
 		out = append(out, v)
 	}
@@ -222,13 +263,15 @@ func (s *Server) apiAccountsSetDefault(r *http.Request) (any, int, error) {
 	if _, ok := cfg.Account(req.Name); !ok {
 		return nil, http.StatusNotFound, fmt.Errorf("unknown account %q", req.Name)
 	}
-	if err := accounts.Use(cfg, req.Name); err != nil {
-		return nil, http.StatusInternalServerError, err
+	res, err := s.switcher().Use(s.opts.Layout, cfg, req.Name)
+	if err != nil {
+		return nil, http.StatusConflict, err
 	}
 	if err := config.Save(s.opts.Layout.ConfigPath(), cfg); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
-	return map[string]string{"default": req.Name}, http.StatusOK, nil
+	// "default" keeps the v0.6 shape; the rest is additive (D79).
+	return map[string]any{"default": req.Name, "saved_back": res.SavedBack, "warning": res.Warning(), "running": len(res.Running)}, http.StatusOK, nil
 }
 
 type accountRemoveRequest struct {
@@ -265,7 +308,7 @@ func (s *Server) apiAccountsRemove(r *http.Request) (any, int, error) {
 	if accounts.LoginRunning(s.opts.Layout, a) {
 		return nil, http.StatusConflict, fmt.Errorf("a login for %q is still running in a terminal window — finish or close it first", req.Name)
 	}
-	res, err := accounts.RemoveWith(s.opts.Layout, cfg, req.Name, accounts.RemoveOptions{DeleteDir: req.AlsoDeleteConfigDir})
+	res, err := accounts.RemoveWith(s.opts.Layout, cfg, req.Name, accounts.RemoveOptions{DeleteDir: req.AlsoDeleteConfigDir, Switch: s.switcher().SwitchFunc(s.opts.Layout), Store: s.switcher().CredStore()})
 	if err != nil {
 		if errors.Is(err, accounts.ErrLastAccount) {
 			return nil, http.StatusConflict, err
@@ -277,4 +320,38 @@ func (s *Server) apiAccountsRemove(r *http.Request) (any, int, error) {
 	}
 	s.logins.forget(req.Name)
 	return accountRemoveResult{Removed: req.Name, Backup: res.Backup, DeletedConfigDir: res.DeletedDir, Default: cfg.DefaultAccount}, http.StatusOK, nil
+}
+
+// apiAccountsRun is POST /api/accounts/run: open a terminal running
+// `cwm run --account <name>` — the default account in the workspace root,
+// any other one in parallel from its login-only dir (D80).
+func (s *Server) apiAccountsRun(r *http.Request) (any, int, error) {
+	var req accountNameRequest
+	if code, err := decodeBody(r, &req); err != nil {
+		return nil, code, err
+	}
+	cfg, err := config.Load(s.opts.Layout.ConfigPath())
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if _, ok := cfg.Account(req.Name); !ok {
+		return nil, http.StatusNotFound, fmt.Errorf("unknown account %q", req.Name)
+	}
+	res, code, err := s.claudePrecheck()
+	if err != nil {
+		return nil, code, err
+	}
+	body, code, err := s.launch("run", "--account", req.Name)
+	if err != nil {
+		return nil, code, err
+	}
+	return s.withClaudeHint(body, res), code, nil
+}
+
+// switcher is the default-account switch seam (Options.Switcher).
+func (s *Server) switcher() accounts.Switcher {
+	if s.opts.Switcher != nil {
+		return *s.opts.Switcher
+	}
+	return accounts.Switcher{}
 }

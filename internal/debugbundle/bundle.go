@@ -26,6 +26,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/doctor"
 	"github.com/Mr-JoE1/cwm/internal/service"
@@ -359,6 +360,18 @@ func (src Sources) workspaceSection() string {
 	if err != nil {
 		fmt.Fprintf(&b, "accounts:    %v\n", err)
 		return b.String()
+	}
+	// v0.8 (D77): where claude reads from. Paths only; the vault and the
+	// live credential files are never opened here.
+	mode := cfg.EffectiveMode()
+	if cfg.NeedsMigration() {
+		mode += " (config predates v0.8: needs migration)"
+	}
+	fmt.Fprintf(&b, "mode:        %s\n", mode)
+	if live, err := claudepaths.LiveFor(l, cfg, ""); err == nil {
+		fmt.Fprintf(&b, "root:        %s\n", live.Root)
+		fmt.Fprintf(&b, "claude.json: %s\n", live.ClaudeJSON)
+		fmt.Fprintf(&b, "login file:  %s\n", live.Credentials)
 	}
 	names := make([]string, 0, len(cfg.Accounts))
 	loggedIn := 0

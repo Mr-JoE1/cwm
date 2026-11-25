@@ -34,6 +34,10 @@ type Snapshot struct {
 	// Stats is the stats engine's fingerprint of the all-time totals
 	// (D64); reading it never scans, it only nudges the 60 s refresh.
 	Stats string `json:"stats,omitempty"`
+	// Settings fingerprints config.toml (v0.8 Settings tab, D95): a
+	// change made in another tab or with `cwm config set` reaches every
+	// open page as a "settings" change.
+	Settings string `json:"settings,omitempty"`
 }
 
 // changed lists the snapshot sections that differ, in a fixed order; the
@@ -55,6 +59,9 @@ func (a Snapshot) changed(b Snapshot) []string {
 	// "" is "no scan finished yet": the first scan landing is not news.
 	if a.Stats != b.Stats && a.Stats != "" {
 		out = append(out, "stats")
+	}
+	if a.Settings != b.Settings {
+		out = append(out, "settings")
 	}
 	return out
 }
@@ -90,7 +97,11 @@ func (s *Server) snapshot() Snapshot {
 			}
 		}
 	}
-	snap.Stats = s.statsEngine().Fingerprint()
+	if s.statsEnabled() {
+		// features.stats off: no engine, so no scan at all.
+		snap.Stats = s.statsEngine().Fingerprint()
+	}
+	snap.Settings = s.configHash()
 	s.snap, s.snapAt = snap, time.Now()
 	return snap
 }

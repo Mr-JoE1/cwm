@@ -3,6 +3,263 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-24 (v0.8 — one workspace, SPEC-V0.8)
+
+The owner-approved spec `SPEC-V0.8.md` is the input; its OWNER DECISIONS
+are binding and reverse the per-account launch-dir design of D11.
+
+- **D97: the agent service gets the installing PATH (v0.8 polish).** A
+  service-started agent had the manager's short PATH, so doctor's bare
+  `cwm hook …` check warned with the generic hook copy and `cwm init` as the
+  fix, which changed nothing. `cwm service install` now writes the PATH it
+  runs with, cwm's own folder first, into the systemd unit
+  (`Environment=PATH=…`) and the launchd plist (`EnvironmentVariables`);
+  an empty PATH leaves the manager default. Windows logon tasks inherit the
+  user Path, so the fix there puts cwm's folder on it. The warning has its
+  own id `cwm-path` and Health copy ("background service can't find cwm")
+  with the one-command fix per OS: `cwm service install` (macOS; launchd
+  reloads the agent), `cwm service install && systemctl --user restart
+  cwm-agent` (Linux), the user-Path PowerShell line (Windows).
+- **D96: the default account's login is always live (P9 QA).** On a
+  machine without a Claude login, the first `cwm account add` made the
+  account the default but left its login only in the vault, so plain
+  `claude` and cwm's own default launches (no `CLAUDE_CONFIG_DIR` in
+  capture mode) ran logged out while Health said OK. Now a login of the
+  default account is installed live: after `account add` only when the
+  live location is empty (adding never replaces a live login), after
+  `account login` always (the user asked for that login; the replaced
+  files are backed up first). The `vault` check warns when the vault has
+  the default's login but the live location does not, and `cwm doctor
+  --fix` fills an empty live location from the vault. Also from QA:
+  every command answers `--help`; a bare `cwm hook …` entry that the
+  checking process cannot find on its own PATH (an agent started by a
+  service manager) is one warning instead of a failure per hook.
+- **D95: the Settings tab and its API (P8).** The dashboard edits the
+  same keys as `cwm config set`, through one shared code path
+  (`PUT /api/settings`, CSRF), so a switch means the same thing in both
+  places and runs the same side effects (service install, `.stignore`
+  regeneration, hook merge). Keys whose effect reaches outside
+  config.toml (autostart, the login opener, private sync) are previewed
+  with `dry_run` and confirmed first. The mode is never a plain setting:
+  the page opens the migration preview and applies it as a background
+  job whose progress is polled and shown in the terminal-log component.
+  Live updates ride the existing SSE stream (a `settings` topic keyed by
+  the config hash). "running now" on account cards is shown only where
+  it can be known without privileges (Linux `/proc`); elsewhere the
+  field is absent rather than guessed. The 200 KB budget is kept by
+  compacting existing assets, not by raising it. Atomic writes retry
+  the rename briefly on Windows, where a concurrent reader of
+  config.toml makes it fail with "Access denied".
+- **D94: the v0.8 health checks (P7).** The v0.7 "CLAUDE_CONFIG_DIR not
+  exported in ~/.bashrc" check is gone. `claude-reads-from` lists the
+  live root, `.claude.json` and credentials (with `~`) and, in capture
+  mode, FAILs on a persistent CLAUDE_CONFIG_DIR: an uncommented sh, csh
+  or fish assignment in `~/.bashrc`, `~/.profile`, `~/.zshrc`,
+  `~/.zprofile`, `~/.bash_profile` or `~/.zshenv` (each with a `sed` line
+  to remove it), the Windows HKCU environment (`reg query`, read only)
+  or launchd (`launchctl getenv`); a pre-v0.8 config only warns
+  (migrate first), isolated mode is OK. New: `migration` (pre-v0.8
+  config), `stignore` compares with the generated allow-list,
+  `conflicts`, `mcp-bridge` (once `mcp.json` exists), `cwm-hooks`
+  (settings.json agrees with features.hooks), `vault` (the default's
+  login is saved; checked by existence only, the Keychain item without
+  `-w`, so no prompt and no secret read) and `unknown-items`, an ok-level
+  INFO line in capture mode. Fixes point to one command, `cwm doctor
+  --fix`: one agent maintenance pass now, plus saving the live login
+  into an EMPTY vault entry (a filled entry is left alone: the live
+  login may be one the user switched to by hand). The exit code is
+  unchanged: any FAIL exits 1.
+- **D93: every feature switch is honoured.** `features.stats` off:
+  no stats engine is created (no scan); `GET /api/stats` and
+  `cwm stats --json` return `{"disabled": true, "reason": …}`, and
+  `/api/state` gains `stats: false` so the page hides the Stats tab.
+  `features.update_check = "off"`: `/api/about` reports
+  `update.disabled`, the button is hidden and the check endpoint
+  answers 403 without any network call. `features.autostart` and
+  `features.open_dashboard_at_login` drive the per-user service:
+  `cwm config set` installs (with or without the login opener) or
+  uninstalls it, `--dry-run` prints the plan; the opener switch is only
+  recorded while autostart is off. `cwm service install|uninstall`
+  record the result back into `[features]`, so a v0.7-style install
+  (opener on) shows as such in Settings. Every switch is read per
+  request or tick, so no agent restart is needed.
+- **D92: where path mirroring keeps its records, and how resume finds
+  the local clone.** The session -> repo record is synced but written
+  per device (`session-repos/<host>.tsv`, rides with `sync.sessions`):
+  one writer per file means Syncthing never makes a conflict copy. The
+  remote -> clone path map is machine-local state. Lookup order: the
+  recorded path, `<repos root>/<name>` with the same origin, the source
+  path when it exists here with the same origin, else clone on demand
+  from `repos.tsv`. `cwm sessions resume <id>` is the capture-mode
+  resume for the CLI and the dashboard (the path-derived folder is
+  never put in an argv); `cwm sessions mirror` runs the agent's pass by
+  hand. Every mirror write goes to this machine's own folder only, so
+  each copy has exactly one writing device. The list dedupes by id and
+  adds `copies`/`devices` (additive). Mirroring only runs on a config
+  that records `mode = "capture"`: a pre-v0.8 workspace still has pinned
+  folders.
+- **D91: cross-device resume by path mirroring (owner-approved, P6b).**
+  Capture mode files sessions under Claude Code's path-derived folder
+  (D86), so a session from another device's clone at a different path is
+  invisible to claude here. cwm materialises a local copy under the
+  folder this machine's path produces (`internal/pathmirror`, Claude
+  Code's exact name algorithm, see SPEC-V0.8 research notes), rewriting
+  every `cwd` equal to or under the source repo path. Copies compare by
+  line key (`uuid`, else the line hash without `cwd`), never by mtime, so
+  mirroring cannot ping-pong: a copy that is a prefix of another is
+  older and gets extended; two copies that are not on one chain have
+  diverged, are both kept untouched and raise a Health warning, and the
+  one whose last entry is newest is resumed. The source copy is never
+  written. Repo identity is the normalised git remote (host lower-cased,
+  scheme/user/port/`.git` dropped); the remote -> local path map is
+  machine-local state, never synced. `features.path_mirror` switches it
+  (default on in capture mode; isolated mode pins names and needs none).
+- **D90: how `cwm migrate` merges, what it backs up, what rollback
+  restores.** One engine (`internal/migrate`) serves `cwm migrate`,
+  `cwm mode set` (and `cwm config set mode`, which needs `--yes` when
+  non-interactive), `cwm init`'s and the dashboard's first run. Sources
+  are the other mode's root and any real (unlinked) item of a v0.7
+  launch dir; only allow-list items move, whatever the `[sync]` switches
+  say (they decide what crosses devices, not what this machine keeps).
+  Merge rules: a missing file is copied (mtime kept); a session file
+  that is a prefix of the other copy is extended, never conflicted; a
+  session that diverged is kept as `<id>.conflict-<host>.jsonl`; every
+  other differing file keeps the target and stores the source version
+  as a `*.sync-conflict-<stamp>-MIGRATE*` copy, so Health's "pick one"
+  action resolves it; `history.jsonl` merges by line (timestamp order),
+  `repos.tsv` by line, `settings.json`/`mcp.json` deep-merge (target wins
+  scalars, arrays such as hook matchers and permission lists are
+  unioned). Logins: a fresher v0.7 launch-dir copy refreshes the vault;
+  the old mode's live login is saved back into the default's vault
+  entry; a login already live at the target stays live (plain `claude`
+  keeps its account) and is imported as `default` when no account
+  matches its identity; otherwise the default's login is swapped in.
+  The v0.7 default's `.claude.json` project entries (trust, allowed
+  tools) are added to the live one when absent. A real migration backs
+  up `~/.claude`, `~/.claude.json` and `~/.cwm`; adopt-in-place and a
+  fresh first run back up only what they write (`~/.cwm`,
+  `~/.claude.json`, `~/.claude/.stignore` and `.credentials.json`), so
+  the installer never copies a large `~/.claude`. The manifest records
+  files (sha256, mode), dirs and links (never followed: login-only dirs
+  link into the workspace). Rollback undoes only the newest migration
+  still in effect, restores every manifest entry and moves anything
+  newer into `~/.cwm/backups/rollback-<id>-<stamp>/`; it leaves
+  `~/.cwm/backups`, `~/.cwm/logs` and `state/migrations.json` (the record
+  of the rollback itself) alone. macOS Keychain items are not files, so
+  they are outside the backup (documented). Verify fails when any session
+  id seen in a source is missing from the root; the mode is recorded only
+  after verify passes.
+- **D76: one workspace, two modes; D11 is superseded.** Sessions, history,
+  memory, skills, agents, commands, rules, output styles, scheduled tasks,
+  plugins, MCP servers and settings belong to the workspace, never to an
+  account. Capture mode (the default) makes the standard Claude config dir
+  (`~/.claude`) the workspace, so everything Claude Code does on the
+  machine is captured whether or not cwm launched it, and never sets a
+  global `CLAUDE_CONFIG_DIR`. Isolated mode (opt-in) keeps the workspace in
+  `~/.cwm/workspace` and only cwm-launched sessions use it. The assembled
+  `~/.cwm/launch/<account>/` dirs of D11 are gone; migration moves them
+  into a backup (D83).
+- **D77: one root resolver.** `internal/claudepaths` is the only code that
+  turns (mode, account) into paths: the workspace root, the live
+  `.claude.json`, the live credentials and the `CLAUDE_CONFIG_DIR` value to
+  set (none for the default account in capture mode). Every caller (stats,
+  sessions, list, open, handoff, doctor, the dashboard, the MCP bridge,
+  Syncthing) receives a `storage.Layout` whose workspace root came from it.
+- **D78: config.toml grows, its version does not.** `mode`, `[sync]`,
+  `[features]` and `[display]` are additive keys of schema version 1, so a
+  v0.7 binary still reads a v0.8 config (unknown keys are tolerated). A
+  config written before v0.8 has no `mode`: it loads as `capture` and is
+  flagged "needs migration" until `cwm migrate` records one. Every key is
+  reachable from `cwm config list|get|set`; the dashboard writes the same
+  keys through the same setter.
+- **D79: accounts are a credential vault.** `~/.cwm/accounts/<name>/`
+  keeps a login's credentials and its `.claude.json` identity keys, never
+  data. Switching the default saves the live credentials back into the
+  old default's entry first (Claude refreshes tokens in place), then swaps
+  the new one in, merging only identity keys into the live `.claude.json`.
+  Both writes are atomic and the replaced files are backed up. macOS
+  Keychain access sits behind an interface with a fake and is marked
+  untested on hardware.
+- **D80: parallel accounts use login-only dirs.** A non-default account
+  launched with `cwm run --account <name>` gets `CLAUDE_CONFIG_DIR` =
+  `~/.cwm/accounts/<name>/`, which holds its credentials, its own
+  `.claude.json` and links to every shared workspace item (dirs: symlink
+  or junction; files on Windows: symlink, else a hardlink that every run
+  and agent tick re-verifies and merges back when an atomic rename broke
+  it). The default account uses the root directly.
+- **D81: the `.stignore` is an allow-list.** It is generated from
+  `[sync]`: one `!/<item>` line per enabled item and a final `*`, so
+  anything a future Claude Code adds stays local. Turning a switch off
+  only ignores the item; nothing is deleted.
+- **D82: `mcp.json` is the synced MCP source of truth.** A 3-way merge
+  against a stored last-synced snapshot bridges it into every live
+  `.claude.json` (deletions propagate both ways, the workspace wins
+  conflicts and logs them) on each agent tick and cwm launch. Other
+  `.claude.json` keys are never touched.
+- **D83: migration is backup, plan, apply, verify, record.** The backup
+  copies `~/.claude`, `~/.claude.json` and `~/.cwm` (minus backups) with a
+  sha256 manifest; rollback restores from it byte for byte. Nothing is
+  deleted, only moved into the backup. The agent never migrates silently:
+  it shows a banner.
+- **D84: `PUT /api/settings` is the first PUT.** Settings are a document,
+  so the dashboard writes them with PUT under the same CSRF header,
+  content-type and body-size rules as every POST action; the change is
+  broadcast on the event stream.
+- **D85: `repos.tsv` rides with `sync.sessions`.** The spec's allow-list
+  has no entry for cwm's repo manifest, but `cwm open` and session resume
+  need it on the other device to clone a session's repo. It is cwm's own
+  file, so it syncs whenever sessions do.
+- **D86: capture mode gives up project-name pinning for the default
+  account.** Claude Code ignores `CLAUDE_CODE_PROJECT_DIR_NAME` unless
+  `CLAUDE_CONFIG_DIR` is set (SPEC-V0.8 research notes), and capture mode
+  must not set it for the default account, or plain `claude` and
+  cwm-launched sessions would read different `.claude.json` files and, on
+  macOS, different Keychain entries. Those sessions use Claude's
+  path-derived folder names; isolated mode and parallel accounts keep
+  pinning. Documented as a known limitation.
+- **D87: conflict copies are settled in the workspace, never lost.**
+  The agent's maintenance tick (once a minute, and only when the config
+  records a v0.8 mode and the root exists, so it never touches `~/.claude`
+  before a migration was reviewed) regenerates the `.stignore` and folds
+  `history.sync-conflict-*.jsonl` into `history.jsonl`: exact-line
+  dedupe, ordered by the `timestamp` field (a line without one stays after
+  its predecessor). Every other conflict copy inside a synced item waits
+  for a choice (`cwm conflicts`, `GET /api/conflicts`,
+  `POST /api/conflicts/resolve`): keep the current file, take a copy, or
+  keep both merged by line — refused for JSON documents, where a line
+  union would break the file. Merged copies and losing versions move to
+  `~/.cwm/backups/conflicts/<stamp>/`. `conflicts` becomes a reserved
+  name.
+- **D88: private sync is enforced on, restored off only on request.**
+  With `features.private_sync` on, `cwm pair` and `cwm config set` set
+  Syncthing's `globalAnnounceEnabled` and `relaysEnabled` to false and
+  `localAnnounceEnabled` to true, keeping every other option. Turning the
+  switch off restores those three to Syncthing's defaults once; a plain
+  `cwm pair` with the switch off never touches them, so a user's own
+  Syncthing tuning survives. `cwm pair <id> --address tcp://host:22000`
+  (repeatable; `POST /api/pair` takes `addresses`) replaces the peer's
+  address list; without it the list is left alone.
+- **D89: one upkeep pass, shared by the agent and every launch.**
+  `internal/upkeep` holds the steps that keep a v0.8 workspace
+  consistent: `.stignore`, the history merge, the login-only dir link
+  re-verify, the MCP bridge and the hook merge. The agent runs them once
+  a minute; `cwm open`, `cwm run` and dashboard launches run the bridge
+  and the hook merge before claude starts and never fail the launch on
+  them. The launcher stops passing `--mcp-config` once the account's
+  `.claude.json` carries the servers (it would list each server twice)
+  and keeps it as the fallback when that file does not exist yet or the
+  bridge failed. Nothing runs on a config that still needs migration.
+  Hook entries are recognised by their command string (the bare
+  `cwm hook session-start|session-end`, or any older path to a cwm
+  binary, which is replaced). With `features.hooks` off the tick leaves
+  `settings.json` alone and `cwm config set features.hooks off` removes
+  cwm's entries once, while `cwm hook` itself becomes a no-op on that
+  machine; otherwise two devices with different switches would fight over
+  the synced file. `features.handoff_push` off makes `session-end` skip
+  the push. The bridge snapshot lives in `~/.cwm/state/mcp-bridge.json`
+  (per target path, canonical JSON per server); a `.claude.json` that is
+  not valid JSON fails the bridge and is never rewritten.
+
 ## 2026-11-20 (v0.7.2 — UI refresh, terminal vocabulary, SPEC-V0.7.2)
 
 The designer review (`docs/ui/DESIGN-REVIEW-V0.7.2.md`) is the input; its
@@ -634,7 +891,8 @@ confirmed.
   import, shortcuts) as a *subset* of its workspace model. No dependency on
   ccam or any other tool; "use ccam alongside cwm" positioning is withdrawn.
   README rewritten accordingly.
-- **D11 — workspace-first account architecture.** The workspace (sessions,
+- **D11 — workspace-first account architecture.** *(Superseded by D76 in
+  v0.8: one workspace, accounts are logins only, no launch dirs.)* The workspace (sessions,
   memory, skills) is the primary object; accounts are pluggable logins
   attached to it. Layout: `~/.cwm/workspace/` (synced content) +
   `~/.cwm/accounts/<name>/` (credentials only, never synced by default) +

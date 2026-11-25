@@ -16,9 +16,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/gui"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
-	"github.com/Mr-JoE1/cwm/internal/storage"
 )
 
 // Seams for tests: the shutdown signal context and the browser opener.
@@ -105,7 +105,7 @@ func StdinIsTTY() bool { return stdinIsTTY() }
 func newGuiLauncher() *term.System {
 	l := term.NewSystem()
 	l.LogPath = func() string {
-		layout, err := storage.NewLayout()
+		layout, err := claudepaths.NewLayoutLenient()
 		if err != nil {
 			return ""
 		}

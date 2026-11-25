@@ -307,9 +307,9 @@ func TestStaticDashboard(t *testing.T) {
 			t.Errorf("index.html does not reference %s", asset)
 		}
 	}
-	// v0.7.1: seven tabs, shortcuts 1-7 (D57, D65).
-	if n := strings.Count(body, `role="tab"`); n != 7 || !strings.Contains(body, `data-key="7"`) || !strings.Contains(body, "<kbd>1</kbd>–<kbd>7</kbd>") {
-		t.Errorf("dashboard has %d tabs (want 7 with keys 1-7 in the help)", n)
+	// v0.8: eight tabs, shortcuts 1-8 (D65, D95).
+	if n := strings.Count(body, `role="tab"`); n != 8 || !strings.Contains(body, `aria-keyshortcuts="8"`) || !strings.Contains(body, "<kbd>1</kbd>–<kbd>8</kbd>") {
+		t.Errorf("dashboard has %d tabs (want 8 with keys 1-8 in the help)", n)
 	}
 	// The 16 px favicon is its own hand-tuned file (D66).
 	if !strings.Contains(body, `href="/favicon-16.svg" type="image/svg+xml" sizes="16x16"`) || !strings.Contains(body, `href="/favicon.svg" type="image/svg+xml" sizes="any"`) {

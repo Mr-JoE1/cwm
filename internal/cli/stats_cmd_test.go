@@ -21,7 +21,7 @@ import (
 func statsSandbox(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("CWM_HOME", home)
+	isolatedCWMHome(t, home)
 	for _, k := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
 		t.Setenv(k, t.TempDir())
 	}
@@ -157,7 +157,7 @@ func TestStatsAttribution(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(acctDir, ".claude.json"), []byte(`{"oauthAccount":{"accountUuid":"uuid-work","emailAddress":"w@example.invalid"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := "version = 1\ndefault_account = \"work\"\n\n[[account]]\nname = \"work\"\ndir = " + strconv.Quote(acctDir) + "\n"
+	cfg := "version = 1\nmode = \"isolated\"\ndefault_account = \"work\"\n\n[[account]]\nname = \"work\"\ndir = " + strconv.Quote(acctDir) + "\n"
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -193,5 +193,26 @@ func TestStatsAttribution(t *testing.T) {
 	}
 	if names["work"] != 2 || names["unattributed"] != 2 || len(names) != 2 {
 		t.Errorf("accounts = %v", names)
+	}
+}
+
+// features.stats off: `cwm stats` scans nothing and says how to turn it
+// on; --json is the GET /api/stats disabled body.
+func TestStatsOff(t *testing.T) {
+	home := statsSandbox(t)
+	writeStatsTranscript(t, home, "alpha/s1.jsonl", time.Now(), 5)
+	if got := runCLI(t, "config", "set", "features.stats", "off"); got.code != ExitOK {
+		t.Fatalf("config set: %d %q", got.code, got.err)
+	}
+	got := runCLI(t, "stats")
+	if got.code != ExitOK || !strings.Contains(got.out, "cwm config set features.stats on") {
+		t.Errorf("stats off: %d %q", got.code, got.out)
+	}
+	got = runCLI(t, "stats", "--json")
+	if !strings.Contains(got.out, `"disabled": true`) {
+		t.Errorf("stats --json off: %q", got.out)
+	}
+	if _, err := os.Stat(filepath.Join(home, "cache", "stats.json")); err == nil {
+		t.Error("a stats cache was written while stats are off")
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
-	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/workspace"
 )
 
@@ -46,7 +46,7 @@ func initWithMigrate(e *Env, args []string) error {
 	if !migrate {
 		return nil
 	}
-	l, err := storage.NewLayout()
+	l, err := claudepaths.NewLayout()
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
@@ -106,7 +106,7 @@ func cmdImport(e *Env, args []string) error {
 	if ccam && account != "" {
 		return fmt.Errorf("--account is not valid with --ccam (profile dirs name the accounts)")
 	}
-	l, err := storage.NewLayout()
+	l, err := claudepaths.NewLayout()
 	if err != nil {
 		return fmt.Errorf("import: %w", err)
 	}

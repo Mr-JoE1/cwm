@@ -315,3 +315,29 @@ func TestFind(t *testing.T) {
 		}
 	}
 }
+
+// A session mirrored for another clone path (D91) is listed once, with
+// its copies counted and the devices that recorded it.
+func TestListDedupesMirroredCopies(t *testing.T) {
+	ws := t.TempDir()
+	projects := filepath.Join(ws, "projects")
+	for _, dir := range []string{"-A-home-projects-api", "-B-work-api"} {
+		if err := os.MkdirAll(filepath.Join(projects, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"user","message":{"content":"fix it"}}` + "\n"
+		if err := os.WriteFile(filepath.Join(projects, dir, "s1.jsonl"), []byte(line), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(ws, "session-repos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "session-repos", "a.tsv"), []byte("s1\tgithub.com/me/api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list, err := List(projects, "", 0)
+	if err != nil || len(list) != 1 || list[0].Copies != 2 || strings.Join(list[0].Devices, ",") != "a" {
+		t.Fatalf("List = %+v %v", list, err)
+	}
+}

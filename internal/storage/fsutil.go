@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"time"
 )
 
 // WriteFileAtomic durably replaces path's content: write a temp file in the
@@ -37,9 +39,26 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("storage: chmod %s: %w", tmpName, err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := renameRetry(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("storage: rename %s -> %s: %w", tmpName, path, err)
 	}
 	return nil
+}
+
+// renameRetry is os.Rename, retried briefly on Windows: there a rename
+// over a file another process or goroutine has open (the agent hashing
+// config.toml for its change feed, an antivirus scan, Syncthing) fails
+// with "Access denied" until that handle closes. Elsewhere it is one
+// plain rename.
+func renameRetry(from, to string) error {
+	err := os.Rename(from, to)
+	if runtime.GOOS != "windows" {
+		return err
+	}
+	for i := 1; err != nil && os.IsPermission(err) && i <= 10; i++ {
+		time.Sleep(time.Duration(i*15) * time.Millisecond)
+		err = os.Rename(from, to)
+	}
+	return err
 }

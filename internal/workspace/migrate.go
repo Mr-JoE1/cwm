@@ -74,7 +74,7 @@ type importPlan struct {
 // every canonical workspace item present in the source is COPIED into
 // workspace/ (dirs merge file-by-file, existing content kept, conflicts
 // logged), the source .credentials.json/.claude.json become account "main"
-// (registered as the default account), and the launch dir is assembled.
+// (registered as the default account).
 // The source itself is never modified. dryRun prints the plan only.
 func MigrateFromBashKit(l *storage.Layout, cfg *config.Config, o MigrateOptions) error {
 	o = o.withDefaults()
@@ -310,9 +310,6 @@ func printPlan(p *importPlan, o MigrateOptions) {
 			fmt.Fprintf(w, "  refresh account %s\n", desc)
 		}
 	}
-	for _, n := range p.assemble {
-		fmt.Fprintf(w, "  link    launch/%s\n", n)
-	}
 	fmt.Fprintf(w, "  receipt backups/<ts>-%s/RECEIPT.md\n", p.receiptLabel)
 }
 
@@ -362,12 +359,8 @@ func executePlan(l *storage.Layout, cfg *config.Config, p *importPlan, o Migrate
 	if err := config.Save(l.ConfigPath(), cfg); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	for _, n := range p.assemble {
-		if err := EnsureLaunch(l, cfg, n); err != nil {
-			return fmt.Errorf("%s: assemble launch dir for %s: %w", label, n, err)
-		}
-		fmt.Fprintf(o.Stdout, "✓ launch dir assembled at %s\n", filepath.Join(l.LaunchDir(), n))
-	}
+	// v0.8 (D76): no launch dirs to assemble; the default account uses
+	// the workspace root and the others get login-only dirs at launch.
 
 	receipt := filepath.Join(receiptDir, "RECEIPT.md")
 	if err := writeReceipt(receipt, p, copied, accountLines, time.Now().UTC()); err != nil {

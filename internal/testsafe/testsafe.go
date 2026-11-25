@@ -38,3 +38,35 @@ func hasClaude(dir string) bool {
 	}
 	return false
 }
+
+// homeVars are every variable a cwm or Claude Code path can derive from.
+var homeVars = []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"}
+
+// IsolateHome points HOME, USERPROFILE, LOCALAPPDATA, APPDATA, the XDG
+// dirs and CWM_HOME at a fresh temp dir, so a test that forgets its own
+// t.Setenv can never reach the machine's real ~/.claude, ~/.claude.json or
+// ~/.cwm: since v0.8 capture mode resolves the workspace to ~/.claude
+// (D76). It returns the dir and a cleanup.
+func IsolateHome() (string, func()) {
+	dir, err := os.MkdirTemp("", "cwm-test-home-")
+	if err != nil {
+		// No temp dir means no safe HOME: point everything at a path that
+		// cannot exist rather than at the real one.
+		dir = filepath.Join(string(filepath.Separator), "nonexistent-cwm-test-home")
+	}
+	for _, k := range homeVars {
+		os.Setenv(k, dir)
+	}
+	os.Setenv("CWM_HOME", filepath.Join(dir, ".cwm"))
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	return dir, func() { _ = os.RemoveAll(dir) }
+}
+
+// Main is the TestMain body every package uses: no real claude, no real
+// home, then the tests.
+func Main(m interface{ Run() int }) int {
+	NoRealClaude()
+	_, cleanup := IsolateHome()
+	defer cleanup()
+	return m.Run()
+}

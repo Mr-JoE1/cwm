@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Mr-JoE1/cwm/internal/pathmirror"
 )
 
 const (
@@ -28,6 +30,11 @@ type Session struct {
 	Branch      string
 	Modified    time.Time
 	Size        int64
+	// Copies is how many projects/ folders hold this session id (path
+	// mirroring, D91, keeps one per clone path); the list shows it once.
+	Copies int
+	// Devices are the hosts that recorded running it (session-repos/).
+	Devices []string
 }
 
 type indexEntry struct {
@@ -48,11 +55,39 @@ func List(wsProjectsDir string, project string, limit int) ([]Session, error) {
 	for _, name := range projects {
 		out = append(out, listProject(filepath.Join(wsProjectsDir, name), name)...)
 	}
+	out = dedupe(out)
+	idx := pathmirror.LoadSessionIndex(filepath.Dir(wsProjectsDir))
+	for i := range out {
+		out[i].Devices = idx.Devices[out[i].ID]
+	}
 	sortSessions(out)
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// dedupe keeps one row per session id — the copy with the most
+// messages, then the newest — and counts the copies.
+func dedupe(list []Session) []Session {
+	at := map[string]int{}
+	out := list[:0:0]
+	for _, s := range list {
+		i, seen := at[s.ID]
+		if !seen {
+			s.Copies = 1
+			at[s.ID] = len(out)
+			out = append(out, s)
+			continue
+		}
+		cur := out[i]
+		if s.Messages > cur.Messages || (s.Messages == cur.Messages && s.Modified.After(cur.Modified)) {
+			s.Copies = cur.Copies
+			out[i] = s
+		}
+		out[i].Copies++
+	}
+	return out
 }
 
 func ResolvePick(wsProjectsDir string, project string, n int) (Session, error) {

@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/doctor"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -25,7 +27,7 @@ func (e silentExit) Error() string { return fmt.Sprintf("exit %d", e.code) }
 // layoutAndDir resolves the cwm home plus the caller's working dir — the
 // hooks and `cwm wip` both operate on the repo in the current directory.
 func layoutAndDir() (*storage.Layout, string, error) {
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayout()
 	if err != nil {
 		return nil, "", err
 	}
@@ -44,11 +46,23 @@ func cmdHook(e *Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	// features.hooks off makes both hooks no-ops on this machine even when
+	// a synced settings.json from another device still wires them (D89);
+	// features.handoff_push off keeps session-end from pushing.
+	cfg, cfgErr := config.Load(layout.ConfigPath())
 	switch args[0] {
 	case "session-start":
 		// Hook contract: never fail the session; result is log-only.
+		if cfgErr == nil && !cfg.Features.Hooks {
+			return nil
+		}
 		wip.SessionStart(layout, dir)
+		id, cwd := readHookPayload(e.Stdin)
+		recordSessionRepo(layout, dir, id, cwd)
 	case "session-end":
+		if cfgErr == nil && (!cfg.Features.Hooks || !cfg.Features.HandoffPush) {
+			return nil
+		}
 		wip.SessionEnd(layout, dir)
 	default:
 		return fmt.Errorf("unknown hook %q (want: session-start or session-end)", args[0])
@@ -89,15 +103,26 @@ func wipSummary(res wip.EndResult) string {
 }
 
 func cmdDoctor(e *Env, args []string) error {
-	net, asJSON := false, false
+	net, asJSON, fix := false, false, false
 	for _, a := range args {
 		switch a {
 		case "--net":
 			net = true
 		case "--json":
 			asJSON = true
+		case "--fix":
+			fix = true
 		default:
-			return fmt.Errorf("usage: cwm doctor [--net] [--json]")
+			return fmt.Errorf("usage: cwm doctor [--net] [--json] [--fix]")
+		}
+	}
+	if fix {
+		out := e.Stdout
+		if asJSON {
+			out = e.Stderr
+		}
+		if err := doctorFix(out, e.DryRun); err != nil {
+			return err
 		}
 	}
 	checks := status.Doctor("", net)
@@ -122,7 +147,7 @@ func cmdList(e *Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayout()
 	if err != nil {
 		return err
 	}

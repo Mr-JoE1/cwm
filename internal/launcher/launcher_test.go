@@ -24,7 +24,7 @@ func TestClaudeArgsModes(t *testing.T) {
 		{ModeLast, []string{"--continue"}},
 	}
 	for _, c := range cases {
-		got, err := claudeArgs(layout, c.mode, nil)
+		got, err := claudeArgs(layout, c.mode, nil, true)
 		if err != nil {
 			t.Fatalf("mode %s: %v", c.mode, err)
 		}
@@ -32,7 +32,7 @@ func TestClaudeArgsModes(t *testing.T) {
 			t.Errorf("mode %s: got %v want %v", c.mode, got, c.want)
 		}
 	}
-	if _, err := claudeArgs(layout, Mode("bogus"), nil); err == nil {
+	if _, err := claudeArgs(layout, Mode("bogus"), nil, true); err == nil {
 		t.Error("bogus mode: want error")
 	}
 }
@@ -49,7 +49,7 @@ func TestClaudeArgsMCPAndExtra(t *testing.T) {
 	if err := os.WriteFile(mcp, []byte(`{"mcpServers":{"x":{"command":"echo"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := claudeArgs(layout, ModeResume, []string{"--verbose"})
+	got, err := claudeArgs(layout, ModeResume, []string{"--verbose"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +57,19 @@ func TestClaudeArgsMCPAndExtra(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("mcp: got %v want %v", got, want)
 	}
+	// Bridged into .claude.json: no --mcp-config (no duplicate servers).
+	got, err = claudeArgs(layout, ModeResume, []string{"--verbose"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"--resume", "--verbose"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("bridged: got %v want %v", got, want)
+	}
 
 	if err := os.WriteFile(mcp, []byte("   \n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err = claudeArgs(layout, ModeResume, nil)
+	got, err = claudeArgs(layout, ModeResume, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

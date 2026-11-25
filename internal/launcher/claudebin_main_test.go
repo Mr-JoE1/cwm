@@ -11,6 +11,5 @@ import (
 // real install folders and strips real claude dirs from PATH: a test must
 // never reach a real claude.
 func TestMain(m *testing.M) {
-	testsafe.NoRealClaude()
-	os.Exit(m.Run())
+	os.Exit(testsafe.Main(m))
 }

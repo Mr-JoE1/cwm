@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui"
 	"github.com/Mr-JoE1/cwm/internal/stats"
@@ -71,9 +72,17 @@ func cmdStats(e *Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayout()
 	if err != nil {
 		return err
+	}
+	if cfg, err := config.Load(layout.ConfigPath()); err == nil && !cfg.Features.Stats {
+		// features.stats off: no scan, a disabled state instead.
+		if p.asJSON {
+			return writeJSON(e.Stdout, gui.StatsOff)
+		}
+		fmt.Fprintln(e.Stdout, gui.StatsOff.Reason)
+		return nil
 	}
 	q, err := gui.StatsQuery(p.rng, p.tz, statsAccountMap(layout))
 	if err != nil {

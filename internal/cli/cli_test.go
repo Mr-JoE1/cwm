@@ -144,7 +144,7 @@ func TestRepoLaunchDirectForm(t *testing.T) {
 	// `gui` is a real subcommand since v0.5-A; it stays reserved as a repo
 	// name, which `cwm open gui` must still reject.
 	t.Run("reserved gui via open", func(t *testing.T) {
-		t.Setenv("CWM_HOME", t.TempDir())
+		isolatedCWMHome(t, t.TempDir())
 		got := runCLI(t, "open", "gui")
 		if got.code != ExitError || !strings.Contains(got.err, "reserved") {
 			t.Fatalf("cwm open gui: code = %d err = %q, want reserved error", got.code, got.err)
@@ -152,7 +152,7 @@ func TestRepoLaunchDirectForm(t *testing.T) {
 	})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("CWM_HOME", t.TempDir())
+			isolatedCWMHome(t, t.TempDir())
 			got := runCLI(t, tt.arg)
 			if got.code != ExitError {
 				t.Fatalf("code = %d, want %d", got.code, ExitError)
@@ -217,7 +217,7 @@ func TestFlagErrors(t *testing.T) {
 }
 
 func TestIsReserved(t *testing.T) {
-	reserved := []string{"init", "import", "open", "list", "wip", "doctor", "account", "mcp", "hook", "version", "help", "statusline", "gui", "pair", "devices", "sessions", "agent", "service", "dashboard", "debug", "stats"}
+	reserved := []string{"init", "import", "open", "list", "wip", "doctor", "account", "mcp", "hook", "version", "help", "statusline", "gui", "pair", "devices", "sessions", "agent", "service", "dashboard", "debug", "stats", "config", "mode", "run", "conflicts", "migrate"}
 	if len(ReservedNames) != len(reserved) {
 		t.Fatalf("len(ReservedNames) = %d, want %d", len(ReservedNames), len(reserved))
 	}
@@ -236,7 +236,7 @@ func TestIsReserved(t *testing.T) {
 func TestEveryReservedNameHasCLIHandling(t *testing.T) {
 	// list/wip/doctor/hook now execute for real: sandbox the home and cwd so
 	// the sweep never touches the real ~/.cwm or the cwm repo itself.
-	t.Setenv("CWM_HOME", t.TempDir())
+	isolatedCWMHome(t, t.TempDir())
 	for _, k := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
 		t.Setenv(k, t.TempDir())
 	}
@@ -267,7 +267,7 @@ func TestEveryReservedNameHasCLIHandling(t *testing.T) {
 
 func TestListProjects(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("CWM_HOME", home)
+	isolatedCWMHome(t, home)
 	write := func(rel, content string) {
 		t.Helper()
 		path := filepath.Join(home, rel)
@@ -295,7 +295,7 @@ func TestListProjects(t *testing.T) {
 
 func TestListEmptyAndMissingWorkspace(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("CWM_HOME", home)
+	isolatedCWMHome(t, home)
 
 	// Workspace exists, no projects dir yet.
 	if err := os.MkdirAll(filepath.Join(home, "workspace"), 0o755); err != nil {
@@ -307,7 +307,7 @@ func TestListEmptyAndMissingWorkspace(t *testing.T) {
 	}
 
 	// No workspace at all: fail with an init pointer, like the launcher.
-	t.Setenv("CWM_HOME", filepath.Join(home, "absent"))
+	isolatedCWMHome(t, filepath.Join(home, "absent"))
 	got = runCLI(t, "list")
 	if got.code != ExitError || !strings.Contains(got.err, "cwm init") {
 		t.Fatalf("missing workspace: code = %d err = %q, want init hint", got.code, got.err)
@@ -315,7 +315,7 @@ func TestListEmptyAndMissingWorkspace(t *testing.T) {
 }
 
 func TestWipCommands(t *testing.T) {
-	t.Setenv("CWM_HOME", t.TempDir())
+	isolatedCWMHome(t, t.TempDir())
 	t.Chdir(t.TempDir()) // not a git repo: session-end skips, status errors
 
 	got := runCLI(t, "wip")
@@ -338,7 +338,7 @@ func TestWipCommands(t *testing.T) {
 }
 
 func TestHookCommand(t *testing.T) {
-	t.Setenv("CWM_HOME", t.TempDir())
+	isolatedCWMHome(t, t.TempDir())
 	t.Chdir(t.TempDir()) // not a git repo: hooks must still exit 0 silently
 
 	for _, args := range [][]string{{"hook"}, {"hook", "bogus"}, {"hook", "session-start", "extra"}} {
@@ -359,8 +359,8 @@ func TestHookCommand(t *testing.T) {
 }
 
 func TestDoctorCommand(t *testing.T) {
-	t.Setenv("CWM_HOME", t.TempDir()) // no workspace: doctor must FAIL
-	t.Setenv("PATH", t.TempDir())     // never a real claude
+	isolatedCWMHome(t, t.TempDir()) // no workspace: doctor must FAIL
+	t.Setenv("PATH", t.TempDir())   // never a real claude
 
 	got := runCLI(t, "doctor")
 	if got.code != ExitError {
@@ -378,5 +378,19 @@ func TestDoctorCommand(t *testing.T) {
 	got = runCLI(t, "doctor", "--bogus")
 	if got.code != ExitError || !strings.Contains(got.err, "usage: cwm doctor [--net]") {
 		t.Fatalf("cwm doctor --bogus: code = %d err = %q", got.code, got.err)
+	}
+}
+
+func TestSubcommandHelpFlag(t *testing.T) {
+	for _, c := range commands {
+		if c.name == "help" || c.name == "version" {
+			continue
+		}
+		for _, flag := range []string{"--help", "-h"} {
+			got := runCLI(t, c.name, flag)
+			if got.code != ExitOK || !strings.Contains(got.out+got.err, "usage") {
+				t.Errorf("cwm %s %s: code %d, out %q, err %q", c.name, flag, got.code, got.out, got.err)
+			}
+		}
 	}
 }

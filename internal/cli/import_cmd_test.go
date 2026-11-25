@@ -13,7 +13,7 @@ import (
 
 func importCmdEnv(t *testing.T) (*Env, *bytes.Buffer) {
 	t.Helper()
-	t.Setenv("CWM_HOME", t.TempDir())
+	isolatedCWMHome(t, t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)

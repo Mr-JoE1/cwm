@@ -19,6 +19,9 @@ import (
 	"strings"
 
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
+	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/pathmirror"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 )
@@ -138,7 +141,7 @@ func Render(w io.Writer, list []Check) bool {
 	return nFail == 0
 }
 
-// Checks runs the 12 checks against root ("" resolves $CWM_HOME / ~/.cwm)
+// Checks runs the health checks against root ("" resolves $CWM_HOME / ~/.cwm)
 // and returns them in report order — the single source for the text
 // report, `cwm doctor --json` and the GUI (D26). netProbe adds the SSH
 // probe (check 11); without it ssh is never invoked. Check 12 (syncthing
@@ -154,7 +157,12 @@ func Checks(root string, netProbe bool) []Check {
 		}
 		root = layout.Root
 	}
-	ws := filepath.Join(root, "workspace")
+	// The workspace root comes from the one resolver (D77): ~/.claude in
+	// capture mode, ~/.cwm/workspace in isolated mode. A config that does
+	// not load still resolves (capture) so every other check runs.
+	resolved, _ := claudepaths.LayoutAt(root)
+	ws := resolved.WorkspaceDir()
+	cfg := loadConfig(root)
 
 	// 1. workspace dir
 	if info, err := os.Stat(ws); err == nil && info.IsDir() {
@@ -162,6 +170,10 @@ func Checks(root string, netProbe bool) []Check {
 	} else {
 		r.fail("workspace", "workspace dir missing (%s) — run `cwm init` or pair Syncthing so the folder is restored", ws)
 	}
+	checkMigration(&r, cfg)
+	// 1b. which dir plain claude reads (replaces the v0.7 ~/.bashrc
+	// export check: capture mode needs NO persistent CLAUDE_CONFIG_DIR).
+	checkReadsFrom(&r, resolved, cfg)
 
 	// 2 + 3. settings.json: present, hooks wired, wired hooks exist + are
 	// executable. Key presence is checked by substring, exactly like the
@@ -172,7 +184,7 @@ func Checks(root string, netProbe bool) []Check {
 	settings := filepath.Join(ws, "settings.json")
 	bashKitHooks := false
 	if data, err := os.ReadFile(settings); err != nil {
-		r.ok("settings", "no workspace settings.json (not used: the Go kit writes settings.json into each launch dir when it assembles one)")
+		r.ok("settings", "no workspace settings.json yet (cwm adds its hooks to it on the next agent tick; now: %s)", FixCommand)
 	} else {
 		raw := string(data)
 		if strings.Contains(raw, `"hooks"`) && strings.Contains(raw, `"SessionStart"`) {
@@ -181,11 +193,24 @@ func Checks(root string, netProbe bool) []Check {
 			r.warn("settings", `settings.json lacks "hooks"/"SessionStart" keys — hooks not wired`)
 		}
 		wired := wiredHookCommands(raw)
+		seen := map[string]bool{}
 		for _, bin := range wired {
+			if seen[bin] {
+				continue
+			}
+			seen[bin] = true
 			if strings.HasSuffix(bin, ".sh") {
 				bashKitHooks = true
 			}
 			path, ok := resolveHookBin(bin)
+			if !ok && isSelf(bin) {
+				// The bare `cwm hook …` entries: this process (often the
+				// agent, started by a service manager with a short PATH)
+				// cannot see cwm, but Claude Code runs the hook with the
+				// user's PATH. Advice, not a failure.
+				r.warn("cwm-path", "cwm is not on this process's PATH (%s); Claude Code runs `cwm hook …` and needs cwm on the PATH it starts with; fix: `%s`", selfExe(), cwmPathFix(hostOS, selfExe()))
+				continue
+			}
 			if !ok {
 				r.fail("hook-wired", "hook wired but missing: %s — re-run the cwm bootstrap or `cwm init`", path)
 				continue
@@ -207,17 +232,13 @@ func Checks(root string, netProbe bool) []Check {
 	case n > 0:
 		r.ok("hook-scripts", "hook scripts present in %s (%d file(s))", hooksDir, n)
 	case bashKitHooks:
-		r.warn("hook-scripts", "no hook scripts in %s, but settings.json wires bash-kit hooks — re-run the bash-kit bootstrap, or let cwm assemble launch dirs instead", hooksDir)
+		r.warn("hook-scripts", "no hook scripts in %s, but settings.json wires bash-kit hooks — re-run the bash-kit bootstrap, or let cwm wire `cwm hook …` instead (%s)", hooksDir, FixCommand)
 	default:
 		r.ok("hook-scripts", "no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)")
 	}
 
-	// 5. sync ignore policy
-	if fileExists(filepath.Join(ws, ".stignore")) {
-		r.ok("stignore", ".stignore present (sync ignore policy installed)")
-	} else {
-		r.warn("stignore", ".stignore missing — sync not configured (re-run the cwm bootstrap)")
-	}
+	// 5. sync ignore policy: the allow-list generated from [sync] (D81).
+	checkStIgnore(&r, resolved, cfg)
 
 	// 6. claude presence + version (pinning needs >= 2.1.234), verified by
 	// behaviour (D54): the probe's own version line, no second spawn. No
@@ -274,16 +295,6 @@ func Checks(root string, netProbe bool) []Check {
 		r.ok("claude-cleared", "%s (it no longer verified as Claude Code; cwm looks it up afresh)", note)
 	}
 
-	// 7. CLAUDE_CONFIG_DIR persisted in a shell profile — a unix shell
-	// convention; on Windows the claude-binary check covers resolution.
-	if hostOS != "windows" {
-		if persistedConfigDir() {
-			r.ok("config-dir", "CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile")
-		} else {
-			r.warn("config-dir", "CLAUDE_CONFIG_DIR not exported in ~/.bashrc or ~/.profile — run `cwm init` or the cwm bootstrap")
-		}
-	}
-
 	// 7b. duplicate PATH entries: informational only (never a warning,
 	// cwm never rewrites PATH). Installers that append to the user Path
 	// on every run leave these behind.
@@ -336,12 +347,45 @@ func Checks(root string, netProbe bool) []Check {
 				legacy = append(legacy, e.Name())
 			}
 		}
-		if len(legacy) > 0 {
+		capture := cfg != nil && !cfg.NeedsMigration() && cfg.Mode == config.ModeCapture
+		if len(legacy) > 0 && capture {
+			// Capture mode files every session under Claude Code's own
+			// path-derived folder; path mirroring keeps them resumable on
+			// other devices (D91).
+			r.ok("session-folders", "%d path-derived session folder(s) (capture mode: expected; cwm sessions resume follows a session across devices)", len(legacy))
+		} else if len(legacy) > 0 {
 			r.warn("session-folders", "unpinned session folders (resume via cwm to keep sessions cross-OS; these were created by plain claude): %s", strings.Join(legacy, " "))
 		} else {
 			r.ok("session-folders", "no unpinned (dash-prefixed) session folders")
 		}
 	}
+
+	// 9b. sessions continued on two devices (D91): both copies are kept,
+	// never overwritten; the user decides which to keep.
+	if div, err := pathmirror.Diverged(ws); err != nil {
+		r.warn("diverged-sessions", "cannot compare session copies: %v", err)
+	} else if len(div) > 0 {
+		short := make([]string, len(div))
+		for i, id := range div {
+			short[i] = id
+			if len(id) > 8 {
+				short[i] = id[:8]
+			}
+		}
+		r.warn("diverged-sessions", "session %s was continued on two devices — both copies are kept; resume picks the newest, delete the other copy under projects/ to silence this", strings.Join(short, ", "))
+	} else if n := pathmirror.Mirrored(ws); n > 0 {
+		// Only shown once mirroring is in use, so a single-device
+		// workspace keeps its 12-check report.
+		r.ok("diverged-sessions", "%d session(s) have copies for other clone paths; none diverged", n)
+	}
+
+	// 9c-9g. v0.8: conflict copies, MCP bridge, cwm's hooks, the vault,
+	// items Claude Code added that stay local.
+	checkConflicts(&r, resolved, cfg)
+	checkBridge(&r, resolved, cfg)
+	checkHooks(&r, resolved, cfg)
+	checkVault(&r, resolved, cfg)
+	checkUnknownItems(&r, resolved, cfg)
 
 	// 10. WIP log tail
 	if data, err := os.ReadFile(filepath.Join(root, "logs", "wip.log")); err != nil {
@@ -407,6 +451,41 @@ func wiredHookCommands(raw string) []string {
 
 // resolveHookBin resolves a hook binary to an existing path: explicit paths
 // are stat'd, bare names go through PATH lookup.
+// isSelf reports whether a hook command is the bare name of this binary
+// (`cwm`), which a service-started agent may not find on its own PATH.
+func isSelf(bin string) bool {
+	if strings.ContainsAny(bin, `/\`) {
+		return false
+	}
+	name := strings.TrimSuffix(strings.ToLower(filepath.Base(selfExe())), ".exe")
+	return strings.TrimSuffix(strings.ToLower(bin), ".exe") == "cwm" && strings.HasPrefix(name, "cwm")
+}
+
+// cwmPathFix is the one command (run in the user's terminal, where cwm
+// is on PATH) that puts cwm on the agent's PATH: on
+// Linux and macOS `cwm service install` bakes the installing PATH, with
+// cwm's folder first, into the unit/plist (launchd reloads the agent,
+// systemd needs a restart); a Windows logon task inherits the user Path,
+// so cwm's folder goes there.
+func cwmPathFix(goos, exe string) string {
+	switch goos {
+	case "windows":
+		return claudebin.PathHint(goos, filepath.Dir(exe))
+	case "darwin":
+		return "cwm service install"
+	}
+	return "cwm service install && systemctl --user restart cwm-agent"
+}
+
+// selfExe is this process's binary ("" when unknown); a seam for tests.
+var selfExe = func() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
 func resolveHookBin(bin string) (string, bool) {
 	if filepath.IsAbs(bin) || strings.HasPrefix(bin, "./") ||
 		strings.HasPrefix(bin, "../") || strings.Contains(bin, string(filepath.Separator)) {
@@ -419,20 +498,6 @@ func resolveHookBin(bin string) (string, bool) {
 		return path, true
 	}
 	return bin, false
-}
-
-func persistedConfigDir() bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	for _, name := range []string{".bashrc", ".profile"} {
-		data, err := os.ReadFile(filepath.Join(home, name))
-		if err == nil && strings.Contains(string(data), "CLAUDE_CONFIG_DIR") {
-			return true
-		}
-	}
-	return false
 }
 
 func fileExists(path string) bool {

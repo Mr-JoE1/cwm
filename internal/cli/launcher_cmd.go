@@ -5,6 +5,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 )
@@ -45,4 +46,46 @@ func (e *Env) runDirect(repo string, rest []string) int {
 		return ExitError
 	}
 	return ExitOK
+}
+
+// cmdRun is `cwm run [--account <name>] [-- claude args]` (D80): claude in
+// the current directory as an account. The default account uses the
+// workspace root (capture mode: no CLAUDE_CONFIG_DIR at all); any other
+// runs in parallel from its login-only dir.
+func cmdRun(e *Env, args []string) error {
+	account := e.Account
+	var extra []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			extra = append(extra, args[i+1:]...)
+			i = len(args)
+		case a == "--account":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--account needs a value (try: cwm run --account <name>)")
+			}
+			i++
+			account = args[i]
+		case strings.HasPrefix(a, "--account="):
+			account = strings.TrimPrefix(a, "--account=")
+		case a == "-h" || a == "--help":
+			fmt.Fprint(e.Stdout, "usage: cwm run [--account <name>] [-- claude args]\n\n"+
+				"  Starts claude in the current directory. The default account uses the\n"+
+				"  workspace directly; another account runs in parallel from its\n"+
+				"  login-only dir, sharing every session, memory and setting.\n")
+			return nil
+		default:
+			return fmt.Errorf("cwm run: unexpected %q (claude arguments go after --: cwm run -- %s)", a, a)
+		}
+	}
+	if e.DryRun {
+		who := account
+		if who == "" {
+			who = "the default account"
+		}
+		fmt.Fprintf(e.Stdout, "would run claude %s as %s\n", strings.Join(extra, " "), who)
+		return nil
+	}
+	return launcher.Run(account, extra)
 }

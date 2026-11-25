@@ -1,12 +1,17 @@
 ok:   workspace dir exists (<ROOT>/workspace)
-ok:   no workspace settings.json (not used: the Go kit writes settings.json into each launch dir when it assembles one)
+ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_CONFIG_DIR; plain claude keeps ~/.claude
+      workspace root: <ROOT>/workspace
+      .claude.json:   <ROOT>/workspace/.claude.json
+      credentials:    <ROOT>/workspace/.credentials.json
+ok:   no workspace settings.json yet (cwm adds its hooks to it on the next agent tick; now: cwm doctor --fix)
 ok:   no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)
-ok:   .stignore present (sync ignore policy installed)
+ok:   .stignore matches the [sync] switches (12 of 12 items sync)
 ok:   claude 2.1.319 on PATH (>= 2.1.234: project-name pinning supported)
 ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.319 (Claude Code))
-warn: CLAUDE_CONFIG_DIR not exported in ~/.bashrc or ~/.profile — run `cwm init` or the cwm bootstrap
 ok:   no repos.tsv yet (created on first launch)
 ok:   no session folders yet (<ROOT>/workspace/projects absent — created on first launch)
+ok:   no sync conflict copies
+ok:   no accounts yet (plain claude keeps its own login)
 ok:   no WIP log yet (no sync/<host> pushes recorded)
 skip: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
-doctor: 9 ok, 1 warn, 0 fail, 1 skipped
+doctor: 12 ok, 0 warn, 0 fail, 1 skipped

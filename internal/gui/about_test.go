@@ -174,6 +174,11 @@ func TestHealthCopyCoversDoctor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	v08, err := os.ReadFile(filepath.Join("..", "doctor", "v08.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src = append(src, v08...)
 	js, err := webFS.ReadFile("web/app.js")
 	if err != nil {
 		t.Fatal(err)
@@ -184,8 +189,26 @@ func TestHealthCopyCoversDoctor(t *testing.T) {
 	}
 	for _, m := range ids {
 		id := string(m[1])
-		if !regexp.MustCompile(`\n    "?` + regexp.QuoteMeta(id) + `"?: \[`).Match(js) {
+		if !regexp.MustCompile(`\n\s+"?` + regexp.QuoteMeta(id) + `"?: \[`).Match(js) {
 			t.Errorf("doctor check %q has no plain copy in app.js HEALTH", id)
 		}
+	}
+}
+
+// features.update_check = off hides the button (about.update.disabled)
+// and the endpoint refuses without any network call.
+func TestUpdateCheckOff(t *testing.T) {
+	f := newFixture(t, okSync)
+	f.srv.opts.UpdateClient = noNetwork(t)
+	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"isolated\"\n[features]\nupdate_check = \"off\"\n")
+	var about struct {
+		Update updateInfo `json:"update"`
+	}
+	getJSON(t, f, "/api/about", http.StatusOK, &about)
+	if !about.Update.Disabled {
+		t.Errorf("about.update = %+v, want disabled", about.Update)
+	}
+	if rec := f.post(t, "/api/about/check-update", "{}", nil); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "features.update_check") {
+		t.Errorf("check-update while off = %d %s", rec.Code, rec.Body)
 	}
 }

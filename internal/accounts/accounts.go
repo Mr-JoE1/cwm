@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
@@ -171,6 +172,13 @@ type RemoveOptions struct {
 	// DeleteDir also deletes accounts/<name> and launch/<name> once the
 	// backup succeeded.
 	DeleteDir bool
+	// Switch makes next the default before a default account is removed
+	// (v0.8, D79: the live login must change with it, so it goes through
+	// the vault swap). nil = only config.toml changes (v0.7 behaviour).
+	Switch func(cfg *config.Config, next string) error
+	// Store forgets the account's Keychain item with the dir (macOS);
+	// nil = nothing beyond the dir.
+	Store CredStore
 }
 
 // RemoveResult says what Remove did.
@@ -211,6 +219,22 @@ func RemoveWith(l *storage.Layout, cfg *config.Config, name string, opts RemoveO
 	if len(cfg.Accounts) == 1 {
 		return out, ErrLastAccount
 	}
+	wasDefault := cfg.DefaultAccount == name
+	if wasDefault && opts.Switch != nil {
+		// Switch first: if the next account cannot take over the live
+		// login, nothing has changed yet.
+		next := ""
+		for _, a := range cfg.Accounts {
+			if a.Name != name {
+				next = a.Name
+				break
+			}
+		}
+		if err := opts.Switch(cfg, next); err != nil {
+			return out, fmt.Errorf("accounts: %s is the default and %s cannot take over: %w", name, next, err)
+		}
+		out.NewDefault = next
+	}
 	dir := acct.ExpandedDir()
 	if _, err := os.Stat(dir); err == nil {
 		backup := l.BackupDirPath("account-" + storage.SanitizedLabel(name))
@@ -219,11 +243,10 @@ func RemoveWith(l *storage.Layout, cfg *config.Config, name string, opts RemoveO
 		}
 		out.Backup = backup
 	}
-	wasDefault := cfg.DefaultAccount == name
 	if err := cfg.RemoveAccount(name); err != nil {
 		return out, err
 	}
-	if wasDefault && len(cfg.Accounts) > 0 {
+	if wasDefault && opts.Switch == nil && len(cfg.Accounts) > 0 {
 		out.NewDefault = cfg.Accounts[0].Name
 		if err := cfg.SetDefaultAccount(out.NewDefault); err != nil {
 			return out, err
@@ -242,6 +265,13 @@ func RemoveWith(l *storage.Layout, cfg *config.Config, name string, opts RemoveO
 		}
 		if err := os.RemoveAll(filepath.Join(l.LaunchDir(), name)); err != nil {
 			return out, fmt.Errorf("accounts: delete launch dir: %w", err)
+		}
+		if f, ok := opts.Store.(interface {
+			Forget(p claudepaths.Paths) error
+		}); ok {
+			if p, err := VaultPaths(l, cfg.EffectiveMode(), name); err == nil {
+				_ = f.Forget(p) // best effort: the dir and its backup are what count
+			}
 		}
 	}
 	ClearLoginState(l, name)

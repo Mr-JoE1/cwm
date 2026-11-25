@@ -522,3 +522,34 @@ func TestApplyErrorsCarryOutput(t *testing.T) {
 		t.Error("unsupported OS accepted")
 	}
 }
+
+// The install-time PATH goes into the systemd unit and the launchd plist
+// with cwm's own folder first (deduplicated), so the agent finds `cwm`
+// (doctor cwm-path); an empty PATH leaves the manager's default.
+func TestServicePathBaked(t *testing.T) {
+	e, _, _ := withSystemd(t)
+	e.Path = "/usr/bin:/home/jane/.local/bin:/bin%$"
+	p, err := BuildInstall(e, Options{NoOpen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit := fileByPath(t, p, filepath.Join(e.Home, ".config", "systemd", "user", "cwm-agent.service"))
+	if want := "Environment=\"PATH=/home/jane/.local/bin:/usr/bin:/bin%%$$\"\n"; !strings.Contains(unit, want) {
+		t.Errorf("unit lacks %q:\n%s", want, unit)
+	}
+	e.Path = ""
+	p, _ = BuildInstall(e, Options{NoOpen: true})
+	if unit := fileByPath(t, p, filepath.Join(e.Home, ".config", "systemd", "user", "cwm-agent.service")); strings.Contains(unit, "PATH=") {
+		t.Errorf("empty PATH baked:\n%s", unit)
+	}
+	d, _, _ := testEnv(t, "darwin", nil)
+	d.Path = "/usr/bin:/opt/a&b"
+	p, err = BuildInstall(d, Options{NoOpen: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plist := fileByPath(t, p, d.PlistPath(AgentLabel))
+	if want := "<key>PATH</key>\n    <string>/home/jane/.local/bin:/usr/bin:/opt/a&amp;b</string>"; !strings.Contains(plist, want) {
+		t.Errorf("plist lacks %q:\n%s", want, plist)
+	}
+}

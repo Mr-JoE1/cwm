@@ -11,7 +11,7 @@
 <h3>Claude Workspace Manager</h3>
 
 <p><strong>Your Claude Code workspace on every device, under any account.</strong></p>
-<p>Sessions, memory, skills and MCP servers in a private folder you own,<br>synced peer-to-peer between your machines and independent of any login.</p>
+<p>Every Claude Code session, memory, skill and MCP server on this machine,<br>synced peer-to-peer between your machines and independent of any login.</p>
 
 [![Latest release](https://img.shields.io/github/v/release/Mr-JoE1/cwm?sort=semver&display_name=tag&color=00c27a&label=release)](https://github.com/Mr-JoE1/cwm/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/Mr-JoE1/cwm/ci.yml?branch=main&label=CI&logo=github)](https://github.com/Mr-JoE1/cwm/actions/workflows/ci.yml?query=branch%3Amain) [![License: MIT](https://img.shields.io/github/license/Mr-JoE1/cwm?color=blue)](LICENSE) [![Go version](https://img.shields.io/github/go-mod/go-version/Mr-JoE1/cwm?logo=go&logoColor=white)](go.mod) [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-555)](https://github.com/Mr-JoE1/cwm/wiki/Installation)
 
@@ -69,19 +69,19 @@ Per user, with no sudo and no admin rights. Every download is SHA-256-checked ag
 
 Claude Code keeps your sessions, memory, skills and MCP setup in one config folder on one machine, tied to one login. Switching accounts splits your history, a new computer starts from zero, and copied sessions don't resume on another OS because their folder names come from OS-specific paths.
 
-**cwm makes the workspace the main thing.** Your sessions, memory, skills, agents, commands and MCP servers live in a private folder you own. Claude accounts are logins that plug into it, so switching accounts changes nothing else. The folder syncs directly between your own devices with [Syncthing](https://syncthing.net), with no cloud in between, and session folders are pinned so Linux, Windows and macOS all resume the same conversations.
+**cwm makes the workspace the main thing.** By default (capture mode) `~/.claude` itself is the workspace: every Claude Code run on the machine lands in it — plain `claude`, the IDE extensions, the desktop app — with no wrapper and no environment variable. Claude accounts are logins kept in a credential vault, so switching accounts swaps the login and changes nothing else. An allow-list of workspace items syncs directly between your own devices with [Syncthing](https://syncthing.net), with no cloud in between, and cwm mirrors each session under the folder name your other machine's path for the same repo produces, so Linux, Windows and macOS resume the same conversations. Prefer to keep `~/.claude` untouched? Isolated mode keeps the workspace in `~/.cwm/workspace` for runs started through cwm ([Capture vs. isolated](https://github.com/Mr-JoE1/cwm/wiki/Capture-vs-Isolated)).
 
 ## Features
 
 <table>
   <tr>
-    <td width="33%" valign="top"><h4>🔀 Multiple accounts</h4><p>Add, list and switch Claude logins. Launch any project under any account with <code>--account</code>.</p></td>
-    <td width="33%" valign="top"><h4>🔒 Private workspace</h4><p>Everything lives in <code>~/.cwm</code> (or wherever you choose), apart from any single login.</p></td>
-    <td width="33%" valign="top"><h4>🔄 Device sync</h4><p>Peer-to-peer over Syncthing. <code>cwm pair</code> does the setup. Credentials never sync.</p></td>
+    <td width="33%" valign="top"><h4>🔀 Multiple accounts</h4><p>Logins in a vault: <code>cwm account use</code> saves the current login and swaps in another. <code>cwm run --account</code> runs a second account beside it, on the same sessions.</p></td>
+    <td width="33%" valign="top"><h4>🔒 One workspace</h4><p>Capture mode makes <code>~/.claude</code> the workspace, so every Claude Code run is in it. Isolated mode keeps it in <code>~/.cwm/workspace</code> instead.</p></td>
+    <td width="33%" valign="top"><h4>🔄 Device sync</h4><p>Peer-to-peer over Syncthing, from an allow-list you switch per item. <code>cwm pair</code> does the setup. Credentials never sync.</p></td>
   </tr>
   <tr>
-    <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click; the repo clones if it's missing.</p></td>
-    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, set default, remove) and Stats, in a tmux-style frame with a Ctrl-K command palette. Dark/light themes, live updates, phone layout with a bottom bar.</p></td>
+    <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click, even when the repo sits at a different path on this machine; it clones if it's missing.</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, make default, run in parallel, remove), Stats and Settings, in a tmux-style frame with a Ctrl-K command palette. Dark/light themes, live updates, phone layout with a bottom bar.</p></td>
     <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
   </tr>
   <tr>
@@ -91,7 +91,7 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
   </tr>
   <tr>
     <td valign="top"><h4>📦 One binary</h4><p>Linux, Windows and macOS on amd64 and arm64. No runtime, no Node, no CDN.</p></td>
-    <td valign="top"><h4>📥 Bring your setup</h4><p>Import an existing Claude config folder, with a dry run and backups first.</p></td>
+    <td valign="top"><h4>📥 Bring your setup</h4><p>An existing <code>~/.claude</code> is adopted in place. <code>cwm migrate</code> previews, backs up with a sha256 manifest, and rolls back byte for byte.</p></td>
     <td valign="top"><h4>🛡️ Local only</h4><p>No telemetry, no cloud. The dashboard listens on localhost behind a token.</p></td>
   </tr>
   <tr>
@@ -135,24 +135,37 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
 |---|---|---|---|
 | Several accounts, one shared history | one config folder per account | symlink each item yourself | ✅ accounts attach to one workspace |
 | Sessions synced across devices | — | set up sync and ignore rules yourself | ✅ `cwm pair`, ignore rules included |
-| Resume on another OS | — (folder names differ per OS) | rename or rewrite paths | ✅ session folders pinned per repo |
-| Credentials kept out of sync | n/a | easy to get wrong | ✅ stored outside the synced folder |
+| Resume on another OS or path | — (folder names differ per path) | rename or rewrite paths | ✅ sessions mirrored per repo |
+| Credentials kept out of sync | n/a | easy to get wrong | ✅ allow-list sync, never `.credentials.json` or `.claude.json` |
 | Repos cloned on demand | — | — | ✅ from the synced repo list |
 | Browse all sessions + dashboard | per project folder | — | ✅ `cwm sessions` and the web UI |
 
 ## Quick start
 
 ```sh
-cwm account add main          # attach a Claude login (or the dashboard's Accounts tab)
+cwm account add work          # save another Claude login in the vault (the live one is kept)
+cwm account use work          # make it the default: plain claude now logs in as "work"
+cwm run --account personal    # a second account beside the default, same sessions
 cwm myproject                 # open ~/repos/myproject: clone on demand, then the resume picker
 cwm sessions --pick           # every session, newest first: pick one to resume
 cwm pair                      # pair this device with another one
 cwm doctor                    # health checks
+cwm config list               # every setting (the dashboard's Settings tab edits the same keys)
 ```
 
 cwm finds Claude Code even when its folder isn't on `PATH` yet (right after its installer, for example), remembers it as `claude_path` in `config.toml`, and prints the command that puts it on `PATH`. To use a specific binary, set `CWM_CLAUDE=/path/to/claude`.
 
 Every command takes `--help`, and every view takes `--json`. Full list: **[CLI Reference](https://github.com/Mr-JoE1/cwm/wiki/CLI-Reference)**.
+
+## What syncs, and what doesn't
+
+Synced (each item has a switch, `cwm config set sync.<item> off`): sessions (`projects/`), prompt history, `CLAUDE.md`, skills, agents, commands, rules, output styles, scheduled tasks, plugins (not their caches), `settings.json` and cwm's `mcp.json`, which cwm merges into each machine's `.claude.json`.
+
+Never synced: credentials (`.credentials.json`, the macOS Keychain) and `.claude.json` itself (it holds the login identity and machine-specific state), caches, logs, todos, tasks, shell snapshots, file history, IDE state and anything a future Claude Code version adds. The `.stignore` is an allow-list, so new items stay local until cwm knows them.
+
+Not cwm's to sync: claude.ai connectors and other account-level settings live in Anthropic's cloud and follow your account, not your devices. An MCP server added with `claude mcp add` (outside cwm) stays on that machine; `cwm mcp add` makes it follow you. A session open on two devices at once can split; cwm keeps both copies and the Health tab says so.
+
+Details: [Device sync](https://github.com/Mr-JoE1/cwm/wiki/Device-Sync).
 
 ## Documentation
 
@@ -164,6 +177,8 @@ Every command takes `--help`, and every view takes `--json`. Full list: **[CLI R
       <a href="https://github.com/Mr-JoE1/cwm/wiki/Installation">Installation</a> ·
       <a href="https://github.com/Mr-JoE1/cwm/wiki/First-Time-Setup">Setup wizard</a> ·
       <a href="https://github.com/Mr-JoE1/cwm/wiki/Device-Sync">Device sync</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Capture-vs-Isolated">Capture vs. isolated</a> ·
+      <a href="https://github.com/Mr-JoE1/cwm/wiki/Migration">Migration</a> ·
       <a href="https://github.com/Mr-JoE1/cwm/wiki/Auto-Start-and-Service">Autostart</a> ·
       <a href="https://github.com/Mr-JoE1/cwm/wiki/Troubleshooting">Troubleshooting</a> ·
       <a href="https://github.com/Mr-JoE1/cwm/wiki/FAQ">FAQ</a>
@@ -183,7 +198,7 @@ Every command takes `--help`, and every view takes `--json`. Full list: **[CLI R
 ## Privacy & security
 
 - **Local only, no telemetry.** No server, no analytics, nothing phones home. Sync runs directly between your devices.
-- **Credentials stay on the machine.** Logins live outside the synced folder, and the dashboard API never returns them.
+- **Credentials stay on the machine.** The live login and the vault (`~/.cwm/accounts`, or the macOS Keychain) are never synced, the dashboard API never returns them, and the debug report redacts them.
 - **Localhost dashboard.** Bound to `127.0.0.1`, with a per-user token, CSRF checks on every action, a DNS-rebinding guard and strict input allowlists.
 - **Verified installs.** The installers check SHA-256 against `checksums.txt` and refuse to install on a mismatch.
 

@@ -67,6 +67,9 @@ ExecStart={{q .Exe}} agent --no-open
 {{- if .CwmHome}}
 Environment={{q (print "CWM_HOME=" .CwmHome)}}
 {{- end}}
+{{- with .ServicePath}}
+Environment={{q (print "PATH=" .)}}
+{{- end}}
 Restart=on-failure
 RestartSec=5
 

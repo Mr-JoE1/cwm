@@ -1,11 +1,14 @@
 // Package config loads and saves the cwm config.toml (version, default
-// account, link mode, account list) and implements account CRUD.
+// account, link mode, account list, and since v0.8 the workspace mode and
+// the [sync], [features] and [display] switches) and implements account
+// CRUD.
 package config
 
 import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/BurntSushi/toml"
@@ -56,13 +59,40 @@ type Config struct {
 	LinkMode       string `toml:"link_mode"`
 	// ClaudePath pins the claude executable (D49). Written automatically
 	// when claude was found off PATH; empty = look it up.
-	ClaudePath string    `toml:"claude_path,omitempty"`
-	Accounts   []Account `toml:"account"`
+	ClaudePath string `toml:"claude_path,omitempty"`
+
+	// Mode is the workspace mode (D76): ModeCapture or ModeIsolated. It is
+	// empty only for a config written before v0.8, which loads as capture
+	// and NeedsMigration (D78); omitempty keeps it empty on a re-save, so
+	// rewriting an old config (account add, claude_path) never hides that
+	// a migration is still due.
+	Mode     string          `toml:"mode,omitempty"`
+	Sync     map[string]bool `toml:"sync"`
+	Features Features        `toml:"features"`
+	Display  Display         `toml:"display"`
+
+	Accounts []Account `toml:"account"`
 }
 
-// Default returns a fresh config with schema defaults filled in.
+// Default returns a fresh config with schema defaults filled in. A fresh
+// config has an explicit mode: there is nothing to migrate.
 func Default() *Config {
-	return &Config{Version: CurrentVersion, LinkMode: LinkModeAuto}
+	return &Config{
+		Version:  CurrentVersion,
+		LinkMode: LinkModeAuto,
+		Mode:     ModeCapture,
+		Sync:     DefaultSync(),
+		Features: DefaultFeatures(),
+		Display:  DefaultDisplay(),
+	}
+}
+
+// legacyDefault is the decode target for an existing file: the same
+// defaults, but no mode, so a file without one stays recognisable.
+func legacyDefault() *Config {
+	c := Default()
+	c.Mode = ""
+	return c
 }
 
 // Load reads path. A missing file yields Default(), not an error: several
@@ -83,7 +113,7 @@ func Load(path string) (*Config, error) {
 }
 
 func parse(data string) (*Config, error) {
-	var c Config
+	c := *legacyDefault()
 	meta, err := toml.Decode(data, &c)
 	if err != nil {
 		return nil, fmt.Errorf("parse: %w", err)
@@ -102,6 +132,9 @@ func parse(data string) (*Config, error) {
 	}
 	if !validLinkMode(c.LinkMode) {
 		return nil, fmt.Errorf("invalid link_mode %q (want auto, symlink, junction or copy)", c.LinkMode)
+	}
+	if err := c.normalize(); err != nil {
+		return nil, err
 	}
 	return &c, nil
 }
@@ -122,9 +155,16 @@ func Save(path string, c *Config) error {
 	if c.LinkMode == "" {
 		c.LinkMode = LinkModeAuto
 	}
+	if err := c.normalize(); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		return fmt.Errorf("config: encode: %w", err)
+	}
+	// `cwm config set` may be the first thing a fresh machine runs.
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("config: create %s: %w", filepath.Dir(path), err)
 	}
 	if err := storage.WriteFileAtomic(path, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("config: save %s: %w", path, err)

@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 	"github.com/Mr-JoE1/cwm/internal/sessions"
 	"github.com/Mr-JoE1/cwm/internal/status"
-	"github.com/Mr-JoE1/cwm/internal/storage"
 )
 
 const (
@@ -88,11 +88,17 @@ func parseSessionsArgs(args []string) (sessionsArgs, error) {
 }
 
 func cmdSessions(e *Env, args []string) error {
+	if len(args) > 0 && args[0] == "resume" {
+		return cmdSessionsResume(e, args[1:])
+	}
+	if len(args) > 0 && args[0] == "mirror" {
+		return cmdSessionsMirror(e, args[1:])
+	}
 	p, err := parseSessionsArgs(args)
 	if err != nil {
 		return err
 	}
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayout()
 	if err != nil {
 		return err
 	}

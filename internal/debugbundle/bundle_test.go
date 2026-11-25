@@ -190,3 +190,34 @@ func TestConfigMissingAndBroken(t *testing.T) {
 		t.Errorf("broken config:\n%s", got)
 	}
 }
+
+// v0.8: fake tokens planted in every vault and live credential location
+// (vault entry, login-only .claude.json, live ~/.claude, ~/.claude.json,
+// a switch backup) never reach the bundle; the resolved paths do, as ~.
+func TestBundleNeverReadsVaultOrLiveCredentials(t *testing.T) {
+	src, home := fixtureSources(t)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	root := src.Layout.Root
+	planted := map[string]string{
+		filepath.Join(root, "accounts", "work", ".credentials.json"):                                `{"claudeAiOauth":{"accessToken":"fake-VAULT-TOKEN-1"}}`,
+		filepath.Join(root, "accounts", "work", ".claude.json"):                                     `{"oauthAccount":{"emailAddress":"vault@example.invalid"},"primaryApiKey":"fake-VAULT-APIKEY-2"}`,
+		filepath.Join(home, ".claude", ".credentials.json"):                                         `{"claudeAiOauth":{"refreshToken":"fake-LIVE-TOKEN-3"}}`,
+		filepath.Join(home, ".claude.json"):                                                         `{"oauthAccount":{"emailAddress":"live@example.invalid"},"primaryApiKey":"fake-LIVE-APIKEY-4"}`,
+		filepath.Join(root, "backups", "20261124T000000Z-switch-work-to-home", ".credentials.json"): `{"claudeAiOauth":{"accessToken":"fake-BACKUP-TOKEN-5"}}`,
+	}
+	for p, body := range planted {
+		write(t, p, body)
+	}
+	got := Build(src)
+	for _, leak := range []string{"fake-VAULT-TOKEN-1", "fake-VAULT-APIKEY-2", "fake-LIVE-TOKEN-3", "fake-LIVE-APIKEY-4", "fake-BACKUP-TOKEN-5", "vault@example.invalid", "live@example.invalid"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("bundle leaks %q", leak)
+		}
+	}
+	for _, want := range []string{"mode:        capture (config predates v0.8: needs migration)", "login file:  " + tilde(".claude/.credentials.json"), "claude.json: " + tilde(".claude.json")} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bundle lacks %q:\n%s", want, Extract(got, "workspace"))
+		}
+	}
+}

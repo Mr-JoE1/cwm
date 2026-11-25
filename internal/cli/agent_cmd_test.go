@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/service"
 )
 
@@ -308,6 +309,10 @@ func TestServiceInstallLinuxNoSystemdStartsAgent(t *testing.T) {
 		return nil
 	}
 	agentStartWait = 5 * time.Second
+	cfgPath := filepath.Join(root, "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("mode = \"capture\"\n[features]\nautostart = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	got := runCLI(t, "service", "install")
 	if got.code != ExitOK || spawned != 1 || len(r.calls) != 0 || !strings.Contains(got.out, "agent running (pid") {
 		t.Fatalf("install: %d spawned=%d calls=%v out=%q err=%q", got.code, spawned, r.calls, got.out, got.err)
@@ -322,9 +327,62 @@ func TestServiceInstallLinuxNoSystemdStartsAgent(t *testing.T) {
 	if got.code != ExitOK || !strings.Contains(got.out, "login opener") || !strings.Contains(got.out, "installed") {
 		t.Errorf("status: %q", got.out)
 	}
+	// D93: install/uninstall keep [features] truthful.
+	if cfg, err := config.Load(cfgPath); err != nil || !cfg.Features.Autostart || !cfg.Features.OpenDashboardAtLogin {
+		t.Errorf("after install: %+v %v", cfg.Features, err)
+	}
 	got = runCLI(t, "service", "uninstall")
 	if _, err := os.Stat(desk); got.code != ExitOK || err == nil {
 		t.Errorf("uninstall: %d %q (desktop still there: %v)", got.code, got.err, err == nil)
+	}
+	if cfg, err := config.Load(cfgPath); err != nil || cfg.Features.Autostart {
+		t.Errorf("after uninstall: %+v %v", cfg.Features, err)
+	}
+}
+
+// features.autostart / open_dashboard_at_login are honoured: `cwm config
+// set` installs or removes the per-user service (D93), --dry-run only
+// prints the plan.
+func TestConfigSetAutostart(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX paths in a Linux plan; the Windows plan is covered in internal/service (D22)")
+	}
+	root := isolateHome(t)
+	r := stubService(t, "linux")
+	serviceLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("mode = \"capture\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	desk := filepath.Join(home, ".config", "autostart", service.DesktopName)
+
+	got := runCLI(t, "config", "set", "features.autostart", "off")
+	if got.code != ExitOK || !strings.Contains(got.out, "autostart removed") {
+		t.Fatalf("autostart off: %d %q %q", got.code, got.out, got.err)
+	}
+	got = runCLI(t, "config", "set", "features.open_dashboard_at_login", "on")
+	if got.code != ExitOK || !strings.Contains(got.out, "takes effect once features.autostart is on") {
+		t.Errorf("opener while autostart off: %q", got.out)
+	}
+	got = runCLI(t, "--dry-run", "config", "set", "features.autostart", "on")
+	if _, err := os.Stat(desk); got.code != ExitOK || err == nil || !strings.Contains(got.out, "would write") {
+		t.Errorf("dry run: %d %q (file written: %v)", got.code, got.out, err == nil)
+	}
+	got = runCLI(t, "config", "set", "features.autostart", "on")
+	data, err := os.ReadFile(desk)
+	if got.code != ExitOK || err != nil || !strings.Contains(string(data), "dashboard --wait") || strings.Contains(string(data), "--no-open") {
+		t.Fatalf("autostart on: %d %q %v\n%s", got.code, got.err, err, data)
+	}
+	if !strings.Contains(got.out, "dashboard opens in your browser") {
+		t.Errorf("autostart on output: %q", got.out)
+	}
+	// Without systemd the desktop entry also starts the agent: --no-open.
+	got = runCLI(t, "config", "set", "features.open_dashboard_at_login", "off")
+	if data, _ := os.ReadFile(desk); got.code != ExitOK || !strings.Contains(string(data), "--no-open") {
+		t.Errorf("opener off: %q\n%s", got.err, data)
+	}
+	if len(r.calls) != 0 {
+		t.Errorf("no systemd: no commands expected, got %v", r.calls)
 	}
 }
 

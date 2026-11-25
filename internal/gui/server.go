@@ -31,10 +31,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/debugbundle"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
+	"github.com/Mr-JoE1/cwm/internal/migrate"
 	"github.com/Mr-JoE1/cwm/internal/stats"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -110,6 +113,18 @@ type Options struct {
 	// manual update check (nil / "" = a 5 s client / the GitHub API).
 	UpdateClient *http.Client
 	UpdateURL    string
+
+	// v0.8 default-account switch (D79); nil = the platform credential
+	// store and process finder.
+	Switcher *accounts.Switcher
+
+	// v0.8 Settings (D95). SettingEffects runs what `cwm config set` runs
+	// after saving key (the .stignore, hooks, autostart service, Syncthing
+	// privacy); dry only describes it into out. nil = save only. Migrate
+	// tunes the engine for the dashboard's mode change (nil = defaults,
+	// with the Syncthing folder re-pointed through SyncClient).
+	SettingEffects func(cfg *config.Config, key string, dry bool, out io.Writer) error
+	Migrate        *migrate.Options
 }
 
 // Server is the dashboard http.Handler bound to one port and one token.
@@ -145,6 +160,8 @@ type Server struct {
 	stats     *stats.Engine
 	// update remembers the last manual update check (D69).
 	update updateState
+	// migration is the dashboard's mode-change job (D95).
+	migration migrationJob
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -409,6 +426,9 @@ type endpoint func(r *http.Request) (any, int, error)
 type route struct {
 	get  endpoint
 	post endpoint
+	// put is a settings write (v0.8 PUT /api/settings): same CSRF, JSON
+	// and serialisation rules as post.
+	put endpoint
 }
 
 func (s *Server) routes() map[string]route {
@@ -435,6 +455,13 @@ func (s *Server) routes() map[string]route {
 		"/api/stats":                {get: s.apiStats},
 		"/api/about":                {get: s.apiAbout},
 		"/api/about/check-update":   {post: s.apiCheckUpdate},
+		"/api/conflicts":            {get: s.apiConflicts},
+		"/api/conflicts/resolve":    {post: s.apiConflictsResolve},
+		"/api/settings":             {get: s.apiSettings, put: s.apiSettingsPut},
+		"/api/migrate":              {get: s.apiMigrateStatus},
+		"/api/migrate/preview":      {post: s.apiMigratePreview},
+		"/api/migrate/apply":        {post: s.apiMigrateApply},
+		"/api/accounts/run":         {post: s.apiAccountsRun},
 	}
 }
 
@@ -446,7 +473,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	readOnly := r.Method == http.MethodGet || r.Method == http.MethodHead
 	if !readOnly {
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut {
 			w.Header().Set("Allow", "GET, HEAD, POST")
 			s.writeError(w, r, http.StatusMethodNotAllowed, apiError{Error: "method not allowed"})
 			return
@@ -466,8 +493,16 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ep := rt.get
-	if !readOnly {
+	switch r.Method {
+	case http.MethodPost:
 		ep = rt.post
+	case http.MethodPut:
+		ep = rt.put
+	}
+	if ep == nil && r.Method == http.MethodPut {
+		w.Header().Set("Allow", "GET, HEAD, POST")
+		s.writeError(w, r, http.StatusMethodNotAllowed, apiError{Error: "method not allowed (PUT is only for /api/settings)"})
+		return
 	}
 	if ep == nil {
 		if readOnly {
@@ -482,7 +517,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	if !readOnly {
 		mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mt != "application/json" {
-			s.writeError(w, r, http.StatusUnsupportedMediaType, apiError{Error: "POST body must be Content-Type: application/json"})
+			s.writeError(w, r, http.StatusUnsupportedMediaType, apiError{Error: r.Method + " body must be Content-Type: application/json"})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)

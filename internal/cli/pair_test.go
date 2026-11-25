@@ -91,7 +91,7 @@ func syncWorkspaceHome(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(home, "workspace"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CWM_HOME", home)
+	isolatedCWMHome(t, home)
 	return home
 }
 
@@ -125,7 +125,7 @@ func TestPairStatusOutput(t *testing.T) {
 
 func TestPairWorkspaceAndConnectionGuards(t *testing.T) {
 	// No workspace: same guard error as the launcher.
-	t.Setenv("CWM_HOME", t.TempDir())
+	isolatedCWMHome(t, t.TempDir())
 	st := newSyncStub()
 	useSyncStub(t, st)
 	got := runCLI(t, "pair")
@@ -226,7 +226,7 @@ func TestPairFlagParsing(t *testing.T) {
 
 func TestPairHelpTopics(t *testing.T) {
 	got := runCLI(t, "help", "pair")
-	if got.code != ExitOK || !strings.Contains(got.out, "usage: cwm pair [--start] [<device-id> [name]]") {
+	if got.code != ExitOK || !strings.Contains(got.out, "usage: cwm pair [--start] [<device-id> [name] [--address tcp://host:22000]]") {
 		t.Fatalf("help pair: code = %d out = %q", got.code, got.out)
 	}
 	got = runCLI(t, "help", "devices")
@@ -282,5 +282,42 @@ func TestDevicesCommand(t *testing.T) {
 	got = runCLI(t, "devices", "--start")
 	if got.code != ExitError || !strings.Contains(got.err, "usage: cwm devices") {
 		t.Fatalf("devices --start: code = %d err = %q, want usage error", got.code, got.err)
+	}
+}
+
+func TestPairAddressAndPrivateSync(t *testing.T) {
+	syncWorkspaceHome(t)
+	st := newSyncStub()
+	useSyncStub(t, st)
+	if got := runCLI(t, "config", "set", "features.private_sync", "on"); got.code != ExitOK {
+		t.Fatalf("config set: %d %s", got.code, got.err)
+	}
+	if v, _ := st.cfg.Option("relaysEnabled"); string(v) != "false" {
+		t.Fatalf("relaysEnabled = %s after private_sync on", v)
+	}
+	got := runCLI(t, "pair", testPeerID, "laptop", "--address", "tcp://192.0.2.7:22000")
+	if got.code != ExitOK {
+		t.Fatalf("pair --address: %d %s", got.code, got.err)
+	}
+	var addrs []string
+	for _, d := range st.cfg.Devices {
+		if d.DeviceID == testPeerID {
+			addrs = d.Addresses
+		}
+	}
+	if len(addrs) != 1 || addrs[0] != "tcp://192.0.2.7:22000" {
+		t.Fatalf("peer addresses = %v", addrs)
+	}
+	if got := runCLI(t, "pair", testPeerID, "--address", "host:1"); got.code != ExitError || !strings.Contains(got.err, "invalid device address") {
+		t.Fatalf("bad address: %d %q", got.code, got.err)
+	}
+	if got := runCLI(t, "pair", "--address", "tcp://h:1"); got.code != ExitError {
+		t.Fatal("--address without a device id accepted")
+	}
+	if got := runCLI(t, "config", "set", "features.private_sync", "off"); got.code != ExitOK {
+		t.Fatalf("config set off: %d %s", got.code, got.err)
+	}
+	if v, _ := st.cfg.Option("globalAnnounceEnabled"); string(v) != "true" {
+		t.Fatalf("globalAnnounceEnabled = %s after private_sync off", v)
 	}
 }

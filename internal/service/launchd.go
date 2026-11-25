@@ -51,11 +51,17 @@ var plistTmpl = template.Must(template.New("plist").Funcs(template.FuncMap{
 {{- end}}
   <key>LimitLoadToSessionType</key>
   <string>Aqua</string>
-{{- if .CwmHome}}
+{{- if or .CwmHome .Path}}
   <key>EnvironmentVariables</key>
   <dict>
+{{- if .CwmHome}}
     <key>CWM_HOME</key>
     <string>{{x .CwmHome}}</string>
+{{- end}}
+{{- if .Path}}
+    <key>PATH</key>
+    <string>{{x .Path}}</string>
+{{- end}}
   </dict>
 {{- end}}
   <key>StandardOutPath</key>
@@ -68,7 +74,7 @@ var plistTmpl = template.Must(template.New("plist").Funcs(template.FuncMap{
 
 func (e Env) plist(label string, args []string, keepAlive bool, log string) (File, error) {
 	content, err := render(plistTmpl, map[string]any{
-		"Label": label, "Args": args, "KeepAlive": keepAlive, "CwmHome": e.CwmHome, "Log": log,
+		"Label": label, "Args": args, "KeepAlive": keepAlive, "CwmHome": e.CwmHome, "Path": e.ServicePath(), "Log": log,
 	})
 	if err != nil {
 		return File{}, err

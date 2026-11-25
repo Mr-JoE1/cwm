@@ -144,11 +144,9 @@ func TestMigrateFromBashKit(t *testing.T) {
 	}
 
 	// Launch dir assembled and readable through the links.
-	if got := migrateReadFile(t, filepath.Join(l.LaunchDir(), "main", "CLAUDE.md")); got != "migrated playbook" {
-		t.Fatalf("launch CLAUDE.md = %q", got)
-	}
-	if got := migrateReadFile(t, filepath.Join(l.LaunchDir(), "main", ".credentials.json")); got != `{"token":"tk"}` {
-		t.Fatalf("launch credentials = %q", got)
+	// v0.8 (D76): no launch dir is assembled any more.
+	if _, err := os.Stat(l.LaunchDir()); !os.IsNotExist(err) {
+		t.Fatalf("launch dir assembled: %v", err)
 	}
 
 	// Receipt written listing the copies.
@@ -252,8 +250,8 @@ func TestImportDir(t *testing.T) {
 	if acct.Login == nil || acct.Login.Email != "imported@example.com" {
 		t.Fatalf("imported login = %+v", acct.Login)
 	}
-	if _, err := os.Stat(filepath.Join(l.LaunchDir(), "imported", ".credentials.json")); err != nil {
-		t.Fatalf("launch dir not assembled: %v", err)
+	if _, err := os.Stat(l.LaunchDir()); !os.IsNotExist(err) {
+		t.Fatalf("launch dir assembled (D76): %v", err)
 	}
 	if receipts, _ := filepath.Glob(filepath.Join(l.BackupsDir(), "*-import", "RECEIPT.md")); len(receipts) != 1 {
 		t.Fatalf("import receipts = %v", receipts)
@@ -340,8 +338,8 @@ func TestImportCcam(t *testing.T) {
 	}
 
 	// Launch dirs assembled with fresh credentials.
-	if got := migrateReadFile(t, filepath.Join(l.LaunchDir(), "dev", ".credentials.json")); got != `{"token":"d"}` {
-		t.Fatalf("launch dev creds = %q", got)
+	if _, err := os.Stat(l.LaunchDir()); !os.IsNotExist(err) {
+		t.Fatalf("launch dir assembled (D76): %v", err)
 	}
 	if receipts, _ := filepath.Glob(filepath.Join(l.BackupsDir(), "*-import-ccam", "RECEIPT.md")); len(receipts) != 1 {
 		t.Fatalf("ccam receipts = %v", receipts)

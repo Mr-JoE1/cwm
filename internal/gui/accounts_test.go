@@ -39,7 +39,16 @@ func accountsFixture(t *testing.T) (*fixture, *fakeLauncher, *storage.Layout) {
 	if err := config.Save(layout.ConfigPath(), cfg); err != nil {
 		t.Fatal(err)
 	}
+	// D79: no real Keychain, no /proc scan.
+	f.srv.opts.Switcher = &accounts.Switcher{Store: accounts.FileStore{}, Running: func() []int { return nil }}
 	return f, l, layout
+}
+
+// vaultLogin gives an account a saved (obviously fake) login in its vault
+// entry, which a default switch needs.
+func vaultLogin(t *testing.T, layout *storage.Layout, name string) {
+	t.Helper()
+	writeFile(t, filepath.Join(layout.AccountsDir(), name, ".credentials.json"), `{"claudeAiOauth":{"accessToken":"fake-test-token-`+name+`"}}`)
 }
 
 func getAccounts(t *testing.T, f *fixture) map[string]accountView {
@@ -63,7 +72,8 @@ var accountActions = map[string]string{
 func TestAccountActionGates(t *testing.T) {
 	for target, good := range accountActions {
 		t.Run(target, func(t *testing.T) {
-			f, l, _ := accountsFixture(t)
+			f, l, layout := accountsFixture(t)
+			vaultLogin(t, layout, "home")
 			cases := []struct {
 				name string
 				body string
@@ -293,6 +303,10 @@ func TestAccountsLoginStateTransitionsAndRetry(t *testing.T) {
 
 func TestAccountsSetDefaultAndRemove(t *testing.T) {
 	f, _, layout := accountsFixture(t)
+	if rec := f.post(t, "/api/accounts/set-default", `{"name":"home"}`, nil); rec.Code != http.StatusConflict {
+		t.Errorf("set-default to an account without a saved login: %d, want 409", rec.Code)
+	}
+	vaultLogin(t, layout, "home")
 	if rec := f.post(t, "/api/accounts/set-default", `{"name":"ghost"}`, nil); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown default: %d", rec.Code)
 	}

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/service"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
@@ -63,6 +64,7 @@ func serviceEnv(e *Env) (service.Env, error) {
 		Root:       root,
 		CwmHome:    os.Getenv(storage.EnvHome),
 		Exe:        serviceExe(),
+		Path:       os.Getenv("PATH"),
 		UID:        os.Getuid(),
 		UserID:     user,
 		XDGConfig:  os.Getenv("XDG_CONFIG_HOME"),
@@ -99,6 +101,7 @@ func cmdService(e *Env, args []string) error {
 			return err
 		}
 		if !senv.DryRun {
+			recordAutostart(e, false, nil)
 			fmt.Fprintln(e.Stdout, "cwm service: autostart removed (a running agent keeps running until `cwm service stop` or logout)")
 		}
 		return nil
@@ -156,6 +159,8 @@ func serviceInstall(e *Env, senv service.Env, args []string) error {
 		fmt.Fprintf(e.Stdout, "cwm service: %s opens at every login\n", o.URL)
 		return nil
 	}
+	open := !o.NoOpen
+	recordAutostart(e, true, &open)
 	// Make sure an agent runs now, not only after the next login (systemd
 	// and launchd already started it; Windows' task only fires at logon).
 	c, info, err := agent.Wait(context.Background(), senv.Root, 3*time.Second)
@@ -322,4 +327,67 @@ func serviceOpenURL(e *Env, args []string) error {
 		time.Sleep(serviceOpenURLPoll)
 	}
 	return guiOpenBrowser(raw)
+}
+
+// recordAutostart keeps [features] truthful after `cwm service
+// install|uninstall` (D93): autostart, and whether the dashboard opens at
+// login. Only an existing, readable config.toml is updated; the service
+// change itself already happened, so a failure is a note, not an error.
+func recordAutostart(e *Env, on bool, open *bool) {
+	l, err := storage.NewLayout()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(l.ConfigPath()); err != nil {
+		return
+	}
+	cfg, err := config.Load(l.ConfigPath())
+	if err != nil {
+		return
+	}
+	if cfg.Features.Autostart == on && (open == nil || cfg.Features.OpenDashboardAtLogin == *open) {
+		return
+	}
+	cfg.Features.Autostart = on
+	if open != nil {
+		cfg.Features.OpenDashboardAtLogin = *open
+	}
+	if err := config.Save(l.ConfigPath(), cfg); err != nil {
+		fmt.Fprintf(e.Stderr, "cwm service: could not record features.autostart in config.toml: %v\n", err)
+	}
+}
+
+// applyAutostart makes the per-user service match features.autostart and
+// features.open_dashboard_at_login (`cwm config set`, Settings): install
+// with or without the login opener, or uninstall. dry only prints the
+// plan. It does not start an agent: the caller usually is one, and
+// systemd/launchd start it themselves.
+func applyAutostart(e *Env, cfg *config.Config, dry bool) error {
+	senv, err := serviceEnv(e)
+	if err != nil {
+		return err
+	}
+	senv.DryRun = senv.DryRun || dry
+	var plan service.Plan
+	if cfg.Features.Autostart {
+		plan, err = service.BuildInstall(senv, service.Options{NoOpen: !cfg.Features.OpenDashboardAtLogin})
+	} else {
+		plan, err = service.BuildUninstall(senv)
+	}
+	if err != nil {
+		return err
+	}
+	if err := senv.Apply(plan); err != nil {
+		return err
+	}
+	switch {
+	case senv.DryRun:
+	case !cfg.Features.Autostart:
+		fmt.Fprintln(e.Stdout, "  autostart removed: the agent no longer starts at login (a running agent keeps running)")
+	case cfg.Features.OpenDashboardAtLogin:
+		fmt.Fprintln(e.Stdout, "  autostart installed: the agent starts at login and the dashboard opens in your browser")
+	default:
+		fmt.Fprintln(e.Stdout, "  autostart installed: the agent starts at login (no browser)")
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/mcp"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
@@ -17,7 +18,7 @@ func cmdMcp(e *Env, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: cwm mcp add|list|remove (see: cwm help mcp)")
 	}
-	l, err := storage.NewLayout()
+	l, err := claudepaths.NewLayout()
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -45,12 +46,13 @@ func cmdMcp(e *Env, args []string) error {
 	case "-h", "--help":
 		fmt.Fprintf(e.Stdout, "usage: cwm mcp add|list|remove\n\n"+
 			"  add <name> [--env K=V]... -- <command> [args...]\n"+
-			"                                      register a command (stdio) server in workspace/mcp.json\n"+
+			"                                      register a command (stdio) server in the workspace mcp.json\n"+
 			"  add <name> --url <url> [--type http|sse] [--header 'K: V']...\n"+
 			"                                      register a remote server (type defaults to http)\n"+
 			"  list                                show configured servers\n"+
 			"  remove <name>                       drop a server\n\n"+
-			"  Other keys and fields in mcp.json are kept as they are.\n")
+			"  Other keys and fields in mcp.json are kept as they are. cwm merges the\n"+
+			"  servers into every account's .claude.json on each agent tick and launch.\n")
 		return nil
 	default:
 		return fmt.Errorf("unknown mcp subcommand %q (want add, list or remove)", args[0])

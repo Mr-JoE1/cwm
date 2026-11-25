@@ -12,7 +12,7 @@ import (
 
 func TestListJSON(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("CWM_HOME", home)
+	isolatedCWMHome(t, home)
 	path := filepath.Join(home, "workspace", "projects", "alpha", "a.jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -39,8 +39,8 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestDoctorJSONExitCode(t *testing.T) {
-	t.Setenv("CWM_HOME", t.TempDir()) // no workspace: doctor must FAIL
-	t.Setenv("PATH", t.TempDir())     // never a real claude
+	isolatedCWMHome(t, t.TempDir()) // no workspace: doctor must FAIL
+	t.Setenv("PATH", t.TempDir())   // never a real claude
 	t.Setenv(syncthing.EnvURL, "http://127.0.0.1:1")
 	t.Setenv(syncthing.EnvAPIKey, "test")
 	got := runCLI(t, "doctor", "--json")

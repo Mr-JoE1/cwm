@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,8 +17,11 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
+	"github.com/Mr-JoE1/cwm/internal/migrate"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
 )
@@ -147,7 +151,7 @@ func runAgent(e *Env, o agentOpts) error {
 	if o.gui {
 		name = "cwm gui"
 	}
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayout()
 	if err != nil {
 		return err
 	}
@@ -199,6 +203,10 @@ func runAgent(e *Env, o agentOpts) error {
 		AllowHosts:       o.allowHosts,
 		PersistentCookie: true,
 		StatsAccounts:    func() map[string]string { return statsAccountMap(layout) },
+		SettingEffects: func(c *config.Config, key string, dry bool, out io.Writer) error {
+			return configEffects(&Env{Stdout: out, Stderr: out, Stdin: strings.NewReader("")}, layout, c, key, dry)
+		},
+		Migrate: &migrate.Options{SyncFolder: migrateSync},
 	}, port, cfg.Token)
 	if err != nil {
 		_ = ln.Close()
@@ -238,9 +246,30 @@ func runAgent(e *Env, o agentOpts) error {
 			}
 		})
 	}()
+	maintainDone := make(chan struct{})
+	go func() {
+		defer close(maintainDone)
+		last := 0
+		tick := func() {
+			rep, err := maintainOnce(time.Now())
+			logMaintain(e.Stdout, name, rep, err, &last)
+		}
+		tick()
+		t := time.NewTicker(agentMaintainEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				tick()
+			}
+		}
+	}()
 	err = gui.Serve(ctx, ln, srv)
 	stop()
 	<-watchDone
+	<-maintainDone
 	if err != nil {
 		return err
 	}

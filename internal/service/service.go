@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
@@ -47,8 +48,12 @@ type Env struct {
 	Root    string // the cwm home (server.toml, logs)
 	CwmHome string // $CWM_HOME at install time ("" = default), baked into units
 	Exe     string // absolute path of the cwm binary
-	UID     int    // macOS launchctl gui/<uid> domain
-	UserID  string // Windows DOMAIN\user for the logon trigger
+	// Path is $PATH at install time ("" = leave the manager's default).
+	// systemd and launchd units get it with the cwm binary's folder first,
+	// so the agent finds `cwm` and the user's tools (doctor cwm-path).
+	Path   string
+	UID    int    // macOS launchctl gui/<uid> domain
+	UserID string // Windows DOMAIN\user for the logon trigger
 	// XDGConfig / XDGRuntime are $XDG_CONFIG_HOME / $XDG_RUNTIME_DIR ("" =
 	// defaults ~/.config and /run/user/<uid>).
 	XDGConfig  string
@@ -351,6 +356,22 @@ func checkPath(p string) error {
 }
 
 // render executes a template into bytes.
+// ServicePath is the PATH baked into the systemd unit and launchd plist:
+// the folder of Exe, then Path without that folder ("" when Path is "").
+func (e Env) ServicePath() string {
+	if e.Path == "" {
+		return ""
+	}
+	dir := path.Dir(filepath.ToSlash(e.Exe)) // unix targets only
+	out := []string{dir}
+	for _, p := range strings.Split(e.Path, ":") {
+		if p != "" && p != dir {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ":")
+}
+
 func render(t interface {
 	Execute(io.Writer, any) error
 }, data any) ([]byte, error) {

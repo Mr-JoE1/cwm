@@ -1,11 +1,13 @@
 package status
 
 import (
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/migrate"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
 	"github.com/Mr-JoE1/cwm/internal/workspace"
@@ -36,6 +38,9 @@ type State struct {
 	Syncthing   bool      `json:"syncthing"`
 	// Claude is the claude lookup (D49), filled by the GUI; nil elsewhere.
 	Claude *Claude `json:"claude,omitempty"`
+	// Stats is features.stats, filled by the GUI (the Stats tab is
+	// hidden while it is off); nil elsewhere.
+	Stats *bool `json:"stats,omitempty"`
 }
 
 // Claude tells the wizard whether Add account can work: where claude is,
@@ -102,6 +107,13 @@ type InitResult struct {
 // non-interactive path (no account login, no migrate); it is idempotent.
 // out receives the human progress lines.
 func Init(layout *storage.Layout, out io.Writer) (InitResult, error) {
+	// First run: adopt ~/.claude in place (or prepare a fresh root) and
+	// record it, exactly as `cwm init` does.
+	if rec, err := migrate.FirstRun(layout, migrate.Options{}); err != nil {
+		return InitResult{}, err
+	} else if rec != nil {
+		fmt.Fprintf(out, "✓ %s mode: workspace root %s (%s)\n", rec.ToMode, rec.Root, rec.Kind)
+	}
 	if err := workspace.Init(layout, "", false, out); err != nil {
 		return InitResult{}, err
 	}
@@ -111,29 +123,36 @@ func Init(layout *storage.Layout, out io.Writer) (InitResult, error) {
 // PairResult reports what a pairing changed. DeviceID (this device) is
 // filled by callers that already read it; Pair itself never needs it.
 type PairResult struct {
-	DeviceID     string `json:"deviceID,omitempty"`
-	PeerID       string `json:"peerID"`
-	PeerName     string `json:"peerName,omitempty"`
-	Changed      bool   `json:"changed"`
-	AddedDevice  bool   `json:"addedDevice"`
-	SharedFolder bool   `json:"sharedFolder"`
+	DeviceID     string   `json:"deviceID,omitempty"`
+	PeerID       string   `json:"peerID"`
+	PeerName     string   `json:"peerName,omitempty"`
+	Addresses    []string `json:"addresses,omitempty"`
+	Changed      bool     `json:"changed"`
+	AddedDevice  bool     `json:"addedDevice"`
+	SharedFolder bool     `json:"sharedFolder"`
 }
 
 // Pair links this device with peerID (syncengine.Pair) and reports what
 // it changed — the one implementation behind `cwm pair <id>` and
 // POST /api/pair (D26).
 func Pair(cl syncengine.Client, peerID, name, ws string) (PairResult, error) {
+	return PairAt(cl, peerID, name, ws, nil)
+}
+
+// PairAt is Pair with static peer addresses (`cwm pair <id> --address`).
+func PairAt(cl syncengine.Client, peerID, name, ws string, addrs []string) (PairResult, error) {
 	peerKnown, folderShared, err := pairPreState(cl, peerID)
 	if err != nil {
 		return PairResult{}, err
 	}
-	changed, err := syncengine.Pair(cl, peerID, name, ws)
+	changed, err := syncengine.PairAt(cl, peerID, name, ws, addrs)
 	if err != nil {
 		return PairResult{}, err
 	}
 	return PairResult{
 		PeerID:       peerID,
 		PeerName:     name,
+		Addresses:    addrs,
 		Changed:      changed,
 		AddedDevice:  changed && !peerKnown,
 		SharedFolder: changed && !folderShared,

@@ -74,6 +74,16 @@ type updateInfo struct {
 	Newer     bool       `json:"newer,omitempty"`
 	URL       string     `json:"url,omitempty"`
 	CheckedAt *time.Time `json:"checked_at"`
+	// Disabled is features.update_check = "off": the button is hidden
+	// and the check endpoint refuses.
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// updateCheckOff reads features.update_check on every call (a switch
+// applies without an agent restart).
+func (s *Server) updateCheckOff() bool {
+	cfg, err := config.Load(s.opts.Layout.ConfigPath())
+	return err == nil && cfg.Features.UpdateCheck == config.UpdateCheckOff
 }
 
 type aboutBody struct {
@@ -159,6 +169,7 @@ func (s *Server) apiAbout(*http.Request) (any, int, error) {
 	s.update.mu.Lock()
 	up := s.update.last
 	s.update.mu.Unlock()
+	up.Disabled = s.updateCheckOff()
 	return aboutBody{
 		Version: in.Version, Label: in.Label(), Channel: buildinfo.Channel, Commit: in.Commit, Dirty: in.Dirty, Dev: in.Dev,
 		BuiltAt: in.BuildDate, Go: in.Go, OS: in.OS, Arch: in.Arch,
@@ -175,6 +186,9 @@ func (s *Server) apiAbout(*http.Request) (any, int, error) {
 // apiCheckUpdate is POST /api/about/check-update: the agent (never the
 // browser) asks GitHub for the latest release, 5 s at most.
 func (s *Server) apiCheckUpdate(r *http.Request) (any, int, error) {
+	if s.updateCheckOff() {
+		return nil, http.StatusForbidden, errors.New("the update check is off (features.update_check = off); turn it on: cwm config set features.update_check manual")
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), updateTimeout)
 	defer cancel()
 	latest, url, err := s.fetchLatest(ctx)

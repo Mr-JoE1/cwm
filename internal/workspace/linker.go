@@ -1,7 +1,7 @@
 // Package workspace creates the cwm workspace skeleton (`cwm init`) and
-// assembles per-account launch dirs (D11): every workspace item linked in,
-// account credentials copied in (never linked), and settings.json
-// generated with the cwm hooks wired.
+// keeps the login-only dirs of parallel accounts (D80): their own
+// credentials and .claude.json, plus a link to every shared item of the
+// one workspace root.
 package workspace
 
 import (
@@ -27,6 +27,9 @@ type Linker interface {
 	Junction(target, link string) error
 	// Copy copies a regular file from src to dst.
 	Copy(src, dst string) error
+	// Hardlink creates newname as a hard link to oldname (os.Link): the
+	// Windows fallback for a file when symlinks are not permitted.
+	Hardlink(oldname, newname string) error
 }
 
 // OSLinker is the real filesystem implementation.
@@ -49,10 +52,16 @@ func (OSLinker) Copy(src, dst string) error {
 	return storage.CopyFile(src, dst)
 }
 
-// linkKind decides how a workspace item is placed into a launch dir:
-// unix always symlinks; windows dirs become junctions; windows files try a
-// symlink first and fall back to a copy when the configured link mode
-// allows it (auto/copy; a strict symlink mode must not silently copy).
+func (OSLinker) Hardlink(oldname, newname string) error {
+	return os.Link(oldname, newname)
+}
+
+// linkKind decides how a shared item is placed into a login-only dir
+// (SPEC-V0.8 Windows notes): unix always symlinks; windows dirs become
+// junctions (no admin rights); windows files try a symlink first and fall
+// back to a HARDLINK, never a copy — a copy would split the data. A
+// strict symlink mode never falls back; the legacy copy mode means
+// hardlink now.
 func linkKind(goos string, isDir bool, linkMode string) string {
 	if goos != "windows" {
 		return "symlink"
@@ -60,10 +69,31 @@ func linkKind(goos string, isDir bool, linkMode string) string {
 	if isDir {
 		return "junction"
 	}
-	if linkMode == config.LinkModeCopy {
-		return "copy"
+	switch linkMode {
+	case config.LinkModeSymlink:
+		return "symlink"
+	case config.LinkModeCopy:
+		return "hardlink"
 	}
-	return "symlink-or-copy"
+	return "symlink-or-hardlink"
+}
+
+func place(lk Linker, kind, src, dst string) error {
+	switch kind {
+	case "junction":
+		return lk.Junction(src, dst)
+	case "hardlink":
+		return lk.Hardlink(src, dst)
+	case "symlink-or-hardlink":
+		if err := lk.Symlink(src, dst); err != nil {
+			if herr := lk.Hardlink(src, dst); herr != nil {
+				return fmt.Errorf("symlink failed (%v); hardlink fallback failed: %w", err, herr)
+			}
+		}
+		return nil
+	default: // symlink
+		return lk.Symlink(src, dst)
+	}
 }
 
 // sameLinkTarget compares a wanted link target with what os.Readlink
@@ -77,37 +107,4 @@ func sameLinkTarget(want, got string) bool {
 		return strings.EqualFold(filepath.Clean(want), filepath.Clean(got))
 	}
 	return filepath.Clean(want) == filepath.Clean(got)
-}
-
-// itemState classifies what currently sits at a launch-dir path.
-type itemState int
-
-const (
-	stateMissing     itemState = iota // nothing there yet
-	stateCorrectLink                  // link pointing exactly where we want
-	stateReplace                      // wrong-target link or unexpected real entry
-)
-
-func classify(dst, wantTarget string) (itemState, error) {
-	fi, err := os.Lstat(dst)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return stateMissing, nil
-		}
-		return stateMissing, fmt.Errorf("workspace: stat %s: %w", dst, err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		got, err := os.Readlink(dst)
-		if err != nil {
-			return stateReplace, fmt.Errorf("workspace: readlink %s: %w", dst, err)
-		}
-		if sameLinkTarget(wantTarget, got) {
-			return stateCorrectLink, nil
-		}
-		return stateReplace, nil
-	}
-	// Junctions on windows may not surface as symlinks everywhere; a real
-	// entry with the wrong shape is still replaceable, so treat anything
-	// non-symlink as a replace candidate and let the backup capture it.
-	return stateReplace, nil
 }

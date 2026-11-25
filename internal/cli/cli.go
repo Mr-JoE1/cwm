@@ -55,6 +55,7 @@ var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
 	"pair", "devices", "sessions", "agent", "service", "dashboard", "debug", "stats",
+	"config", "mode", "run", "conflicts", "migrate",
 }
 
 // IsReserved reports whether name is reserved.
@@ -94,21 +95,26 @@ var commands = []*command{
 	{name: "help", args: "[command]", short: "help for cwm or a command"},
 	{name: "init", args: "[--migrate] [--account <name>] [--yes]", short: "create the cwm workspace skeleton", stage: 'C'},
 	{name: "import", args: "[--from <dir>] [--ccam] [--account <name>] [--yes]", short: "import an existing claude config dir or ccam profiles", stage: 'C'},
+	{name: "run", args: "[--account <name>] [-- claude args]", short: "start claude here as an account (others run in parallel from a login-only dir)"},
 	{name: "open", args: "<repo> [new|last]", short: "open a repo (clone on demand) and launch claude", stage: 'B'},
 	{name: "list", args: "[--json]", short: "list workspace projects with session counts", stage: 'B'},
-	{name: "sessions", args: "[project] [--pick [N]] [--limit K] [--json]", short: "list and resume workspace sessions"},
+	{name: "sessions", args: "[project] [--pick [N]] [--limit K] [--json] | resume <id> [--dry-run] | mirror", short: "list and resume workspace sessions (resume follows a session across devices)"},
 	{name: "wip", args: "[status] | dirty [--json]", short: "run the WIP auto-push now; 'wip status' lists sync branches, 'wip dirty' lists repos with uncommitted work", stage: 'B'},
-	{name: "doctor", args: "[--net] [--json]", short: "run workspace health checks (--net adds an SSH probe)", stage: 'B'},
+	{name: "doctor", args: "[--net] [--json] [--fix]", short: "run workspace health checks (--net adds an SSH probe, --fix runs one maintenance pass first)", stage: 'B'},
 	{name: "account", args: "add|login|list|use|remove", short: "manage claude accounts", stage: 'C'},
 	{name: "mcp", args: "add|list|remove", short: "manage workspace mcp.json servers", stage: 'C'},
 	{name: "hook", args: "session-start|session-end", short: "hook entry points (wired from settings.json)", stage: 'B'},
-	{name: "pair", args: "[--start] [<device-id> [name]]", short: "pair this workspace with another device (syncthing)"},
+	{name: "pair", args: "[--start] [<device-id> [name] [--address tcp://host:22000]]", short: "pair this workspace with another device (syncthing)"},
 	{name: "devices", args: "[--json]", short: "list paired devices and their sync health"},
 	{name: "gui", args: "[--port N] [--no-open]", short: "run the dashboard agent in the foreground and open it (beta)"},
 	{name: "agent", args: "[--bind ADDR] [--port N] [--open|--no-open] [--allow-host H]", short: "run the always-on dashboard agent (one per user; a second launch opens it)"},
 	{name: "dashboard", args: "[--no-open] [--wait SECONDS]", short: "open the dashboard, starting the agent in the background if needed"},
 	{name: "service", args: "install|uninstall|status|start|stop|rotate-token", short: "start the agent at login and open the dashboard (per user, no admin)"},
 	{name: "stats", args: "[--range 7d|30d|90d|365d|all] [--tz ZONE] [--json]", short: "usage stats from the local session transcripts: sessions, messages, tokens, streaks, est. cost"},
+	{name: "config", args: "list [--json] | get <key> | set <key> <value>", short: "show and change cwm settings (mode, sync items, features, display)"},
+	{name: "mode", args: "show [--json] | set capture|isolated [--dry-run] [--yes]", short: "show or change the workspace mode (capture: ~/.claude; isolated: ~/.cwm/workspace)"},
+	{name: "migrate", args: "[--dry-run] [--to capture|isolated] [--yes] | rollback [<id>] | list", short: "move a v0.7 layout, ~/.claude or the other mode's root into the workspace (backup first; rollback restores it)"},
+	{name: "conflicts", args: "[--json] | resolve <file> current|merge|<copy>", short: "list Syncthing conflict copies in the workspace and pick a version"},
 	{name: "debug", args: "[--copy]", short: "print a redacted debug report for bug reports (--copy puts it on the clipboard)"},
 }
 
@@ -158,6 +164,16 @@ func init() {
 			c.run = cmdDebug
 		case "stats":
 			c.run = cmdStats
+		case "config":
+			c.run = cmdConfig
+		case "mode":
+			c.run = cmdMode
+		case "run":
+			c.run = cmdRun
+		case "conflicts":
+			c.run = cmdConflicts
+		case "migrate":
+			c.run = cmdMigrate
 		}
 	}
 }
@@ -196,6 +212,11 @@ func (e *Env) Run(args []string) int {
 		// Direct launch form: `cwm <repo> [new|last] [claude args...]`.
 		return e.runDirect(cmdName, rest)
 	}
+	if len(rest) > 0 && (rest[0] == "--help" || rest[0] == "-h") && !selfHelp[cmd.name] {
+		// `cwm <command> --help` works for every command: the ones
+		// without their own usage text print the registry entry.
+		return e.exitCode(cmdHelp(e, []string{cmd.name}))
+	}
 	if cmd.run == nil {
 		fmt.Fprintf(e.Stderr, "cwm %s: not implemented in this stage (stage %s)\n", cmd.name, string(cmd.stage))
 		return ExitNotImp
@@ -209,6 +230,26 @@ func (e *Env) Run(args []string) int {
 		return ExitError
 	}
 	return ExitOK
+}
+
+// selfHelp lists the commands that print their own, longer usage for
+// --help (or hand their arguments to another program).
+var selfHelp = map[string]bool{
+	"config": true, "mode": true, "migrate": true, "run": true, "import": true,
+	"mcp": true,
+}
+
+// exitCode maps a command error to the process exit code.
+func (e *Env) exitCode(err error) int {
+	if err == nil {
+		return ExitOK
+	}
+	var se silentExit
+	if errors.As(err, &se) {
+		return se.code
+	}
+	fmt.Fprintf(e.Stderr, "cwm: %v\n", err)
+	return ExitError
 }
 
 // parseGlobalFlags consumes flags that apply to every subcommand. It stops at
@@ -250,7 +291,7 @@ func (e *Env) parseGlobalFlags(args []string) (string, []string, error) {
 
 // passthroughCommands hand (some of) their arguments to other programs
 // (claude, MCP servers), so their flags are never rewritten.
-var passthroughCommands = map[string]bool{"open": true, "hook": true, "mcp": true}
+var passthroughCommands = map[string]bool{"open": true, "hook": true, "mcp": true, "run": true}
 
 // normalizeFlags rewrites single-dash long flags (-port, -no-open=x) to
 // their double-dash form (D38) for global flags and for cwm's own

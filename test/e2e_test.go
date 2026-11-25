@@ -40,7 +40,10 @@ func TestMain(m *testing.M) {
 		os.Stderr.Write(out)
 		panic(err)
 	}
+	// After the build: go itself needs the real GOCACHE/GOPATH.
+	_, cleanHome := testsafe.IsolateHome()
 	code := m.Run()
+	cleanHome()
 	os.RemoveAll(tmp)
 	os.Exit(code)
 }
@@ -76,6 +79,15 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(e.binDir, "claude"), src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// These worlds are v0.7-shaped: the workspace is $CWM_HOME/workspace,
+	// which v0.8 calls isolated mode (D76). A capture-mode world deletes
+	// this file.
+	if err := os.MkdirAll(e.root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.root, "config.toml"), []byte("mode = \"isolated\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return e
@@ -409,6 +421,33 @@ func TestSessionEndPushesSyncBranch(t *testing.T) {
 	content := e.git(origin, "cat-file", "-p", "sync/"+host+":dirty.txt")
 	if !strings.Contains(content, "wip content") {
 		t.Errorf("dirty file not on sync branch: %q", content)
+	}
+}
+
+func TestHandoffPushOffSkipsSyncBranch(t *testing.T) {
+	e := newEnv(t)
+	seed, origin := e.seedRepo("wiprepo", map[string]string{"README.md": "x\n"})
+	if err := os.MkdirAll(filepath.Join(e.workspace(), "projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if res := e.run(seed, "hook", "session-start"); res.code != 0 {
+		t.Fatalf("hook: %s", res.errs)
+	}
+	if res := e.run(e.home, "open", "wiprepo", "new"); res.code != 0 {
+		t.Fatalf("open: %s", res.errs)
+	}
+	if res := e.run(e.home, "config", "set", "features.handoff_push", "off"); res.code != 0 {
+		t.Fatalf("config set: %s", res.errs)
+	}
+	clone := filepath.Join(e.repos, "wiprepo")
+	if err := os.WriteFile(filepath.Join(clone, "dirty.txt"), []byte("wip content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := e.run(clone, "hook", "session-end"); res.code != 0 {
+		t.Fatalf("hook session-end: exit %d: %s", res.code, res.errs)
+	}
+	if refs := e.git(origin, "for-each-ref", "--format=%(refname:short)", "refs/heads/sync/"); strings.TrimSpace(refs) != "" {
+		t.Fatalf("handoff_push off still pushed: %q", refs)
 	}
 }
 

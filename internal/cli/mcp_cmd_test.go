@@ -12,7 +12,7 @@ import (
 
 func mcpEnv(t *testing.T) (*Env, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
-	t.Setenv("CWM_HOME", t.TempDir())
+	isolatedCWMHome(t, t.TempDir())
 	home := t.TempDir()
 	for _, k := range []string{"HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
 		t.Setenv(k, home)

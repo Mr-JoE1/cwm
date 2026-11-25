@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"runtime"
+	"strings"
 
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
@@ -16,6 +17,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/sessions"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
+	"github.com/Mr-JoE1/cwm/internal/upkeep"
 )
 
 // Input rules (SPEC-V0.5 B). Every value that ends up in a terminal argv
@@ -29,7 +31,10 @@ var (
 	projectNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$`)
 	// sessionIDRe: claude session IDs are UUIDs; the shape check only
 	// bounds input before the real lookup decides.
-	sessionIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
+	// folderNameRe: a capture-mode projects/ folder (Claude Code's
+	// path-derived name: [A-Za-z0-9-], up to 200 chars plus a hash).
+	folderNameRe = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]{0,254}$`)
+	sessionIDRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
 	// deviceNameRe: optional human label for a syncthing peer.
 	deviceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`)
 )
@@ -124,6 +129,8 @@ func (s *Server) apiState(*http.Request) (any, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 	st.Claude = s.claudeState()
+	on := s.statsEnabled()
+	st.Stats = &on
 	return st, http.StatusOK, nil
 }
 
@@ -178,6 +185,9 @@ func (s *Server) apiAccountAdd(r *http.Request) (any, int, error) {
 type resumeRequest struct {
 	Project string `json:"project"`
 	ID      string `json:"id"`
+	// Account resumes as another account, in parallel (v0.8, D80; ""
+	// = the default). It must be a configured account.
+	Account string `json:"account,omitempty"`
 }
 
 // apiResume opens a terminal on the D20 passthrough for a session that is
@@ -188,21 +198,36 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 	if code, err := decodeBody(r, &req); err != nil {
 		return nil, code, err
 	}
-	if !projectNameRe.MatchString(req.Project) || s.reserved(req.Project) {
-		return nil, http.StatusBadRequest, fmt.Errorf("invalid project name %q", req.Project)
-	}
 	if !sessionIDRe.MatchString(req.ID) {
 		return nil, http.StatusBadRequest, fmt.Errorf("invalid session id %q", req.ID)
 	}
 	if _, err := status.RequireWorkspace(s.opts.Layout); err != nil {
 		return nil, http.StatusConflict, err
 	}
-	m, err := manifest.Load(s.opts.Layout.ManifestPath())
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
+	// Capture mode files sessions under Claude Code's path-derived
+	// folder (D86): the project is that folder (it may start with "-"),
+	// and the resume goes through `cwm sessions resume <id>`, which
+	// follows the session to this machine's clone (D91). The folder name
+	// never reaches the argv.
+	mirror := false
+	if cfg, err := config.Load(s.opts.Layout.ConfigPath()); err == nil {
+		mirror = upkeep.MirrorEnabled(cfg)
 	}
-	if _, ok := m.Lookup(req.Project); !ok {
-		return nil, http.StatusNotFound, fmt.Errorf("unknown project %q — it is not in the workspace manifest (open it once with `cwm open %s` from a terminal)", req.Project, req.Project)
+	if mirror {
+		if !folderNameRe.MatchString(req.Project) || strings.Contains(req.Project, "..") {
+			return nil, http.StatusBadRequest, fmt.Errorf("invalid project folder %q", req.Project)
+		}
+	} else {
+		if !projectNameRe.MatchString(req.Project) || s.reserved(req.Project) {
+			return nil, http.StatusBadRequest, fmt.Errorf("invalid project name %q", req.Project)
+		}
+		m, err := manifest.Load(s.opts.Layout.ManifestPath())
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+		if _, ok := m.Lookup(req.Project); !ok {
+			return nil, http.StatusNotFound, fmt.Errorf("unknown project %q — it is not in the workspace manifest (open it once with `cwm open %s` from a terminal)", req.Project, req.Project)
+		}
 	}
 	sess, ok, err := sessions.Find(status.ProjectsDir(s.opts.Layout), req.Project, req.ID)
 	if err != nil {
@@ -211,11 +236,25 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 	if !ok {
 		return nil, http.StatusNotFound, fmt.Errorf("unknown session %q in project %q", req.ID, req.Project)
 	}
+	argv := launcher.ResumeCLIArgs(sess.Project, sess.ID)
+	if mirror {
+		argv = []string{"sessions", "resume", sess.ID}
+	}
+	if req.Account != "" {
+		cfg, err := config.Load(s.opts.Layout.ConfigPath())
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+		if _, ok := cfg.Account(req.Account); !ok {
+			return nil, http.StatusNotFound, fmt.Errorf("unknown account %q", req.Account)
+		}
+		argv = append([]string{"--account", req.Account}, argv...)
+	}
 	res, code, err := s.claudePrecheck()
 	if err != nil {
 		return nil, code, err
 	}
-	body, code, err := s.launch(launcher.ResumeCLIArgs(sess.Project, sess.ID)...)
+	body, code, err := s.launch(argv...)
 	if err != nil {
 		return nil, code, err
 	}
@@ -223,8 +262,9 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 }
 
 type pairRequest struct {
-	DeviceID string `json:"deviceID"`
-	Name     string `json:"name"`
+	DeviceID  string   `json:"deviceID"`
+	Name      string   `json:"name"`
+	Addresses []string `json:"addresses,omitempty"` // static, for private sync
 }
 
 // apiPair runs the same status.Pair as `cwm pair <id> [name]` in-process.
@@ -238,6 +278,14 @@ func (s *Server) apiPair(r *http.Request) (any, int, error) {
 	}
 	if req.Name != "" && !deviceNameRe.MatchString(req.Name) {
 		return nil, http.StatusBadRequest, fmt.Errorf("invalid device name %q (letters, digits, space, dot, dash, underscore; 1-64 chars)", req.Name)
+	}
+	if len(req.Addresses) > 8 {
+		return nil, http.StatusBadRequest, errors.New("at most 8 addresses")
+	}
+	for _, a := range req.Addresses {
+		if err := syncengine.ValidateAddress(a); err != nil {
+			return nil, http.StatusBadRequest, err
+		}
 	}
 	ws, err := status.RequireWorkspace(s.opts.Layout)
 	if err != nil {
@@ -257,7 +305,7 @@ func (s *Server) apiPair(r *http.Request) (any, int, error) {
 	if req.DeviceID == myID {
 		return nil, http.StatusBadRequest, errors.New("that is THIS device's ID — paste the ID shown on the other device")
 	}
-	res, err := status.Pair(cl, req.DeviceID, req.Name, ws)
+	res, err := status.PairAt(cl, req.DeviceID, req.Name, ws, req.Addresses)
 	if err != nil {
 		return nil, http.StatusBadGateway, err
 	}

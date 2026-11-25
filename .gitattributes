@@ -9,3 +9,7 @@ scripts/banner.txt text eol=lf
 internal/stats/testdata/** -text
 # mcp goldens are compared byte for byte.
 internal/mcp/testdata/** -text
+# Dashboard assets are embedded byte for byte: LF on every checkout, so the
+# 200 KB budget (D71) and release binaries match across OSes.
+internal/gui/web/** text eol=lf
+internal/gui/web/*.svg text eol=lf

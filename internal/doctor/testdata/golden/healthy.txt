@@ -1,16 +1,22 @@
 ok:   workspace dir exists (<ROOT>/workspace)
+ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_CONFIG_DIR; plain claude keeps ~/.claude
+      workspace root: <ROOT>/workspace
+      .claude.json:   <ROOT>/workspace/.claude.json
+      credentials:    <ROOT>/workspace/.credentials.json
 ok:   settings.json wires hooks ("hooks" + "SessionStart" keys present)
 ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
-ok:   .stignore present (sync ignore policy installed)
+ok:   .stignore matches the [sync] switches (12 of 12 items sync)
 ok:   claude 2.1.234 on PATH (>= 2.1.234: project-name pinning supported)
 ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.234 (Claude Code))
-ok:   CLAUDE_CONFIG_DIR persisted in ~/.bashrc or ~/.profile
 ok:   repos.tsv readable, 1 repo(s) recorded
 ok:   no unpinned (dash-prefixed) session folders
+ok:   no sync conflict copies
+ok:   cwm's session hooks are wired in settings.json
+ok:   no accounts yet (plain claude keeps its own login)
 ok:   WIP log tail (last 3 lines of logs/wip.log):
       line two
       line three
       line four
 skip: syncthing not reachable (optional per machine — cwm pair sets it up): syncthing: GET /rest/system/ping: Get "http://127.0.0.1:1/rest/system/ping": dial tcp 127.0.0.1:1: connect: connection refused
-doctor: 11 ok, 0 warn, 0 fail, 1 skipped
+doctor: 14 ok, 0 warn, 0 fail, 1 skipped

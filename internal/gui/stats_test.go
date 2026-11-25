@@ -160,3 +160,25 @@ func TestEventsStreamStatsChange(t *testing.T) {
 		}
 	}
 }
+
+// features.stats off: no engine is created (no scan), /api/stats reports
+// the disabled state and /api/state tells the page to hide the tab.
+func TestStatsOff(t *testing.T) {
+	f := newFixture(t, okSync)
+	writeFile(t, filepath.Join(f.root, "workspace", "projects", "alpha", "s1.jsonl"), statsLines("u", "s1", time.Now(), 5))
+	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"isolated\"\n[features]\nstats = false\n")
+	var body StatsDisabled
+	getJSON(t, f, "/api/stats", http.StatusOK, &body)
+	if !body.Disabled || !strings.Contains(body.Reason, "features.stats") {
+		t.Errorf("/api/stats = %+v", body)
+	}
+	_ = f.srv.snapshot()
+	if f.srv.stats != nil {
+		t.Error("the stats engine was created while features.stats is off")
+	}
+	var st status.State
+	getJSON(t, f, "/api/state", http.StatusOK, &st)
+	if st.Stats == nil || *st.Stats {
+		t.Errorf("/api/state stats = %v, want false", st.Stats)
+	}
+}

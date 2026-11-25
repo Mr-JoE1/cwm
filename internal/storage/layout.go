@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // EnvHome overrides the cwm home dir. config.toml must NOT be able to set it:
@@ -55,10 +56,15 @@ func HomeDir() (string, error) {
 	return filepath.Join(home, defaultHomeSuffix), nil
 }
 
-// Layout maps the D11 home layout onto concrete paths.
+// Layout maps the cwm home layout onto concrete paths.
 type Layout struct {
 	// Root is the cwm home dir ($CWM_HOME or ~/.cwm).
 	Root string
+
+	// mu guards workspace: the agent re-points a live layout when the
+	// workspace mode changes (D77).
+	mu        sync.RWMutex
+	workspace string
 }
 
 // NewLayout resolves the layout from the environment.
@@ -75,14 +81,41 @@ func NewLayoutAt(root string) *Layout {
 	return &Layout{Root: root}
 }
 
-func (l *Layout) ConfigPath() string   { return filepath.Join(l.Root, "config.toml") }
-func (l *Layout) WorkspaceDir() string { return filepath.Join(l.Root, "workspace") }
-func (l *Layout) AccountsDir() string  { return filepath.Join(l.Root, "accounts") }
-func (l *Layout) LaunchDir() string    { return filepath.Join(l.Root, "launch") }
-func (l *Layout) BackupsDir() string   { return filepath.Join(l.Root, "backups") }
-func (l *Layout) StateDir() string     { return filepath.Join(l.Root, "state") }
-func (l *Layout) LogsDir() string      { return filepath.Join(l.Root, "logs") }
-func (l *Layout) CacheDir() string     { return filepath.Join(l.Root, "cache") }
+func (l *Layout) ConfigPath() string { return filepath.Join(l.Root, "config.toml") }
+
+// WorkspaceDir is the workspace root every caller reads and writes:
+// sessions, history, the manifest, mcp.json. internal/claudepaths sets it
+// from the configured mode (D77); a layout nobody resolved (tests,
+// planners) uses the isolated workspace.
+func (l *Layout) WorkspaceDir() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.workspace != "" {
+		return l.workspace
+	}
+	return l.IsolatedWorkspaceDir()
+}
+
+// SetWorkspaceDir points the layout at a resolved workspace root ("" =
+// back to the isolated workspace). Only internal/claudepaths calls it.
+func (l *Layout) SetWorkspaceDir(dir string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.workspace = dir
+}
+
+// IsolatedWorkspaceDir is ~/.cwm/workspace: the isolated-mode root and
+// the v0.7 workspace, whatever the current mode.
+func (l *Layout) IsolatedWorkspaceDir() string { return filepath.Join(l.Root, "workspace") }
+func (l *Layout) AccountsDir() string          { return filepath.Join(l.Root, "accounts") }
+
+// LaunchDir is the v0.7 per-account launch-dir parent (D11, superseded
+// by D76); v0.8 only reads it to migrate it into a backup.
+func (l *Layout) LaunchDir() string  { return filepath.Join(l.Root, "launch") }
+func (l *Layout) BackupsDir() string { return filepath.Join(l.Root, "backups") }
+func (l *Layout) StateDir() string   { return filepath.Join(l.Root, "state") }
+func (l *Layout) LogsDir() string    { return filepath.Join(l.Root, "logs") }
+func (l *Layout) CacheDir() string   { return filepath.Join(l.Root, "cache") }
 
 // StatsCachePath is the incremental stats cache (D61); derived data, never
 // synced, safe to delete.
@@ -123,4 +156,19 @@ func ExpandTilde(p string) string {
 		}
 	}
 	return p
+}
+
+// ReposRootEnv overrides the canonical clone root (default ~/repos).
+const ReposRootEnv = "CWM_REPOS_ROOT"
+
+// ReposRoot returns the canonical clone root: $CWM_REPOS_ROOT or ~/repos.
+func ReposRoot() (string, error) {
+	if v := os.Getenv(ReposRootEnv); v != "" {
+		return ExpandTilde(v), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("storage: cannot determine home dir: %w", err)
+	}
+	return filepath.Join(home, "repos"), nil
 }

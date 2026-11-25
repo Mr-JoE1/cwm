@@ -29,7 +29,7 @@ func TestReposTSVMissing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			noClaude(t)
 			unreachableSyncthing(t)
-			root := t.TempDir()
+			root := isolatedRoot(t)
 			t.Setenv("CWM_HOME", root)
 			ws := filepath.Join(root, "workspace")
 			writeFile(t, filepath.Join(ws, ".stignore"), "x\n")

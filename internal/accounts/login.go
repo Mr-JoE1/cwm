@@ -320,9 +320,13 @@ func recordIdentity(cfg *config.Config, name, dir string, stdout io.Writer, verb
 	return nil
 }
 
-// LastUsed is when name's launch dir was last assembled (every launch
-// refreshes the credential copies in it); zero = never launched.
+// LastUsed is when name's login-only dir last ran claude (Claude Code
+// rewrites .claude.json on every start, D80), or, for a v0.7 layout, when
+// its launch dir was last assembled; zero = never launched.
 func LastUsed(l *storage.Layout, name string) time.Time {
+	if fi, err := os.Stat(filepath.Join(l.AccountsDir(), name, ".claude.json")); err == nil {
+		return fi.ModTime().UTC()
+	}
 	fi, err := os.Stat(filepath.Join(l.LaunchDir(), name))
 	if err != nil || !fi.IsDir() {
 		return time.Time{}

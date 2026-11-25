@@ -20,10 +20,10 @@ import (
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/debugbundle"
 	"github.com/Mr-JoE1/cwm/internal/service"
 	"github.com/Mr-JoE1/cwm/internal/status"
-	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncengine"
 )
 
@@ -99,7 +99,7 @@ func debugBase() debugbundle.Sources {
 }
 
 func buildDebug(e *Env) (string, error) {
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayoutLenient()
 	if err != nil {
 		return "", err
 	}

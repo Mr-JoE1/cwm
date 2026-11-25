@@ -313,8 +313,7 @@ func TestRemoveUnknown(t *testing.T) {
 // TestMain keeps the claude resolver (D49) off this machine's real install
 // folders; tests that exercise the search clear the variable themselves.
 func TestMain(m *testing.M) {
-	testsafe.NoRealClaude()
-	os.Exit(m.Run())
+	os.Exit(testsafe.Main(m))
 }
 
 // The v0.6.0 Windows report: claude installed by its native installer in

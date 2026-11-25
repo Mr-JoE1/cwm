@@ -9,6 +9,7 @@ package syncengine
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
@@ -99,9 +100,22 @@ func EnsureFolder(cl Client, wsPath string) (bool, error) {
 // with BOTH the local and the peer device. The whole mutation lands with a
 // single PUT; a second run with correct state changes nothing.
 func Pair(cl Client, peerID, peerName, wsPath string) (bool, error) {
+	return PairAt(cl, peerID, peerName, wsPath, nil)
+}
+
+// PairAt is Pair with static peer addresses (`cwm pair <id> --address
+// tcp://host:22000`, needed when private sync turns discovery off). Given
+// addresses replace the device's address list; none leaves it as is
+// (Syncthing's default is "dynamic").
+func PairAt(cl Client, peerID, peerName, wsPath string, addrs []string) (bool, error) {
 	peerID = strings.TrimSpace(peerID)
 	if err := ValidateDeviceID(peerID); err != nil {
 		return false, err
+	}
+	for _, a := range addrs {
+		if err := ValidateAddress(a); err != nil {
+			return false, err
+		}
 	}
 	myID, err := MyID(cl)
 	if err != nil {
@@ -124,11 +138,17 @@ func Pair(cl Client, peerID, peerName, wsPath string) (bool, error) {
 		changed = true
 	}
 	if d := findDevice(cfg, peerID); d == nil {
-		cfg.Devices = append(cfg.Devices, syncthing.Device{DeviceID: peerID, Name: peerName})
+		cfg.Devices = append(cfg.Devices, syncthing.Device{DeviceID: peerID, Name: peerName, Addresses: addrs})
 		changed = true
-	} else if d.Name == "" && peerName != "" {
-		d.Name = peerName
-		changed = true
+	} else {
+		if d.Name == "" && peerName != "" {
+			d.Name = peerName
+			changed = true
+		}
+		if len(addrs) > 0 && !slices.Equal(d.Addresses, addrs) {
+			d.Addresses = append([]string(nil), addrs...)
+			changed = true
+		}
 	}
 	f := findFolder(cfg)
 	for _, id := range []string{myID, peerID} {
@@ -141,6 +161,63 @@ func Pair(cl Client, peerID, peerName, wsPath string) (bool, error) {
 		return false, nil
 	}
 	return putConfig(cl, cfg)
+}
+
+// ValidateAddress accepts a Syncthing device address: "dynamic" or a
+// tcp://, tcp4://, tcp6://, quic://, quic4:// or quic6:// URL with a host.
+func ValidateAddress(a string) error {
+	if a == "dynamic" {
+		return nil
+	}
+	scheme, rest, ok := strings.Cut(a, "://")
+	switch scheme {
+	case "tcp", "tcp4", "tcp6", "quic", "quic4", "quic6":
+	default:
+		ok = false
+	}
+	if !ok || rest == "" || strings.ContainsAny(rest, " /") {
+		return fmt.Errorf("syncengine: invalid device address %q (want e.g. tcp://host:22000 or dynamic)", a)
+	}
+	return nil
+}
+
+// privacyOptions are the Syncthing options private sync sets (spec
+// "Modes"): no global discovery, no relays, LAN discovery kept. Turning
+// private sync off restores Syncthing's defaults (all on).
+var privacyOptions = []string{"globalAnnounceEnabled", "relaysEnabled", "localAnnounceEnabled"}
+
+// ApplyPrivacy makes the Syncthing options match features.private_sync;
+// it reports whether the config changed (one PUT at most).
+func ApplyPrivacy(cl Client, private bool) (bool, error) {
+	cfg, err := cl.GetConfig()
+	if err != nil {
+		return false, fmt.Errorf("syncengine: read config: %w", err)
+	}
+	want := map[string]bool{"globalAnnounceEnabled": !private, "relaysEnabled": !private, "localAnnounceEnabled": true}
+	changed := false
+	for _, k := range privacyOptions {
+		c, err := cfg.SetOption(k, want[k])
+		if err != nil {
+			return false, fmt.Errorf("syncengine: %w", err)
+		}
+		changed = changed || c
+	}
+	if !changed {
+		return false, nil
+	}
+	return putConfig(cl, cfg)
+}
+
+// PrivacyState reports whether the Syncthing options currently match
+// private sync (no global discovery and no relays).
+func PrivacyState(cl Client) (private bool, err error) {
+	cfg, err := cl.GetConfig()
+	if err != nil {
+		return false, fmt.Errorf("syncengine: read config: %w", err)
+	}
+	g, _ := cfg.Option("globalAnnounceEnabled")
+	r, _ := cfg.Option("relaysEnabled")
+	return string(g) == "false" && string(r) == "false", nil
 }
 
 // DeviceRow is one line of the sync health report.

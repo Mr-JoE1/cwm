@@ -12,15 +12,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mr-JoE1/cwm/internal/accounts"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 	"github.com/Mr-JoE1/cwm/internal/testsafe"
+	"github.com/Mr-JoE1/cwm/internal/workspace"
 )
 
 // TestMain keeps the claude resolver (D49) off this machine's real install
 // folders; tests that exercise the search clear the variable themselves.
 func TestMain(m *testing.M) {
-	testsafe.NoRealClaude()
-	os.Exit(m.Run())
+	// No test ever queries the real registry, launchd or Keychain.
+	regQueryUserEnv = func(string) (string, bool) { return "", false }
+	launchctlGetenv = func(string) (string, bool) { return "", false }
+	vaultHas = func(_ accounts.CredStore, p claudepaths.Paths) bool { return fileExists(p.Credentials) }
+	os.Exit(testsafe.Main(m))
 }
 
 // stubBin creates a bin dir with the named executable stubs (sh scripts) and
@@ -70,8 +76,10 @@ func writeFile(t *testing.T, path, content string) {
 // healthyWorkspace builds a fully green $CWM_HOME and returns its root.
 func healthyWorkspace(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	ws := filepath.Join(root, "workspace")
+	// The v0.7-shaped fixture is an isolated-mode workspace (D76).
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"isolated\"\n")
 
 	// An executable stub standing in for the cwm binary named in settings.
 	cwmStub := filepath.Join(t.TempDir(), "cwm-stub")
@@ -85,7 +93,7 @@ func healthyWorkspace(t *testing.T) string {
   }
 }`, cwmStub, cwmStub)
 	writeFile(t, filepath.Join(ws, "settings.json"), settings)
-	writeFile(t, filepath.Join(ws, ".stignore"), "settings.json\n")
+	writeFile(t, filepath.Join(ws, ".stignore"), workspace.StIgnoreContent())
 	writeFile(t, filepath.Join(ws, "repos.tsv"), "alpha\t/home/x/repos/alpha\n")
 	writeFile(t, filepath.Join(ws, "hooks", "session-start.sh"), "#!/bin/sh\nexit 0\n")
 	writeFile(t, filepath.Join(ws, "projects", "alpha", "20261102T000000-fake.jsonl"), "{}\n")
@@ -119,10 +127,10 @@ func TestDoctorHealthyWorkspace(t *testing.T) {
 		"ok:   settings.json wires hooks",
 		"ok:   wired hook scripts exist and are executable",
 		"ok:   hook scripts present in",
-		"ok:   .stignore present",
+		"ok:   .stignore matches the [sync] switches",
 		"ok:   claude 2.1.234 on PATH",
 		"ok:   claude binary: ",
-		"ok:   CLAUDE_CONFIG_DIR persisted",
+		"ok:   isolated mode: cwm-launched sessions read",
 		"ok:   repos.tsv readable, 1 repo(s) recorded",
 		"ok:   no unpinned (dash-prefixed) session folders",
 		"ok:   WIP log tail (last 3 lines of logs/wip.log):",
@@ -135,8 +143,8 @@ func TestDoctorHealthyWorkspace(t *testing.T) {
 	if strings.Contains(got, "FAIL:") {
 		t.Errorf("healthy workspace must have no FAIL lines:\n%s", got)
 	}
-	if !regexp.MustCompile(`(?m)^doctor: 11 ok, 0 warn, 0 fail, 1 skipped$`).MatchString(got) {
-		t.Errorf("summary line wrong (11 ok + syncthing skipped, no syncthing configured in the sandbox):\n%s", got)
+	if !regexp.MustCompile(`(?m)^doctor: 14 ok, 0 warn, 0 fail, 1 skipped$`).MatchString(got) {
+		t.Errorf("summary line wrong (14 ok + syncthing skipped, no syncthing configured in the sandbox):\n%s", got)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("default mode must never invoke ssh, but the ssh stub was called")
@@ -148,7 +156,7 @@ func TestDoctorMissingWorkspaceFails(t *testing.T) {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
 	}
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root) // keep every cwm path inside the sandbox
 	_, marker := sshStub(t, "irrelevant")
 	var out strings.Builder
@@ -169,14 +177,14 @@ func TestDoctorMissingWorkspaceFails(t *testing.T) {
 
 func TestDoctorSettingsVariants(t *testing.T) {
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	ws := filepath.Join(root, "workspace", "settings.json")
 
 	// No settings.json: fine for the Go kit (D58), no wired-hook sub-checks.
 	var out strings.Builder
 	Run(&out, root, false)
-	if !strings.Contains(out.String(), "ok:   no workspace settings.json (not used") || strings.Contains(out.String(), "hooks-executable") {
+	if !strings.Contains(out.String(), "ok:   no workspace settings.json yet") || strings.Contains(out.String(), "hooks-executable") {
 		t.Errorf("missing settings must be ok:\n%s", out.String())
 	}
 
@@ -201,7 +209,7 @@ func TestDoctorSettingsVariants(t *testing.T) {
 
 func TestDoctorWiredHookNotExecutable(t *testing.T) {
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	ws := filepath.Join(root, "workspace")
 	bin := filepath.Join(t.TempDir(), "cwm-notexec")
@@ -218,7 +226,7 @@ func TestDoctorWiredHookNotExecutable(t *testing.T) {
 
 func TestDoctorLegacySessionFolders(t *testing.T) {
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	writeFile(t, filepath.Join(root, "workspace", "projects", "-Users-x-legacy", "s.jsonl"), "{}\n")
 
@@ -332,8 +340,8 @@ func TestDoctorNetProbeSuccess(t *testing.T) {
 	} else if !strings.Contains(string(data), "-T git@github.com") {
 		t.Errorf("ssh stub args = %q, want BatchMode/ConnectTimeout/-T git@github.com", string(data))
 	}
-	if !regexp.MustCompile(`(?m)^doctor: 12 ok, 0 warn, 0 fail, 1 skipped$`).MatchString(got) {
-		t.Errorf("summary must count 12 oks plus the skipped syncthing check with --net:\n%s", got)
+	if !regexp.MustCompile(`(?m)^doctor: 15 ok, 0 warn, 0 fail, 1 skipped$`).MatchString(got) {
+		t.Errorf("summary must count 15 oks plus the skipped syncthing check with --net:\n%s", got)
 	}
 }
 
@@ -359,7 +367,7 @@ func TestDoctorEmptyRootResolvesEnvHome(t *testing.T) {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
 	}
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	sshStub(t, "unreachable")
 
@@ -422,14 +430,14 @@ func TestDoctorSyncthingReachableOK(t *testing.T) {
 // bash-kit hook scripts keep the warning.
 func TestDoctorFreshGoKitWorkspaceIsQuiet(t *testing.T) {
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	writeFile(t, filepath.Join(root, "workspace", ".stignore"), "(?d)settings.json\n")
 	var out strings.Builder
 	Run(&out, root, false)
 	got := out.String()
 	for _, want := range []string{
-		"ok:   no workspace settings.json (not used: the Go kit writes settings.json into each launch dir when it assembles one)",
+		"ok:   no workspace settings.json yet (cwm adds its hooks to it on the next agent tick; now: cwm doctor --fix)",
 		"ok:   no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)",
 	} {
 		if !strings.Contains(got, want) {
@@ -457,29 +465,205 @@ func TestDoctorFreshGoKitWorkspaceIsQuiet(t *testing.T) {
 	}
 }
 
-func TestDoctorConfigDirCheckIsUnixOnly(t *testing.T) {
-	noClaude(t)
-	root := t.TempDir()
+// captureRoot is a v0.8 capture-mode cwm home whose workspace is
+// $HOME/.claude (HOME is a temp dir, see noClaude).
+func captureRoot(t *testing.T) (root, ws string) {
+	t.Helper()
+	root = t.TempDir()
 	t.Setenv("CWM_HOME", root)
-	old := hostOS
-	t.Cleanup(func() { hostOS = old })
-	hostOS = "windows"
-	var out strings.Builder
-	Run(&out, root, false)
-	if strings.Contains(out.String(), "CLAUDE_CONFIG_DIR") {
-		t.Errorf("windows must not run the shell-profile check:\n%s", out.String())
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"capture\"\n")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
 	}
-	hostOS = "linux"
-	out.Reset()
-	Run(&out, root, false)
-	if !strings.Contains(out.String(), "warn: CLAUDE_CONFIG_DIR not exported") {
-		t.Errorf("unix keeps the shell-profile check:\n%s", out.String())
+	ws = filepath.Join(home, ".claude")
+	writeFile(t, filepath.Join(ws, ".stignore"), workspace.StIgnoreContent())
+	return root, ws
+}
+
+func checkNamed(t *testing.T, list []Check, name string) Check {
+	t.Helper()
+	for _, c := range list {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("no %q check in %+v", name, list)
+	return Check{}
+}
+
+func hasCheck(list []Check, name string) bool {
+	for _, c := range list {
+		if c.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// The v0.7 "CLAUDE_CONFIG_DIR not exported in ~/.bashrc" check is gone:
+// capture mode FAILs on a persistent CLAUDE_CONFIG_DIR instead.
+func TestDoctorClaudeReadsFrom(t *testing.T) {
+	noClaude(t)
+	unreachableSyncthing(t)
+	root, _ := captureRoot(t)
+	home, _ := os.UserHomeDir()
+
+	c := checkNamed(t, Checks(root, false), "claude-reads-from")
+	if c.Status != StatusOK || !strings.Contains(c.Detail, "capture mode") {
+		t.Fatalf("clean capture machine = %+v, want ok", c)
+	}
+	want := []string{"workspace root: ~" + string(filepath.Separator) + ".claude", ".claude.json:   ~" + string(filepath.Separator) + ".claude.json"}
+	for i, w := range want {
+		if len(c.Lines) <= i || c.Lines[i] != w {
+			t.Errorf("Lines = %q, want %q first", c.Lines, want)
+		}
+	}
+	if hasCheck(Checks(root, false), "config-dir") {
+		t.Error("the bashrc config-dir check must be gone")
+	}
+
+	writeFile(t, filepath.Join(home, ".bashrc"), "# export CLAUDE_CONFIG_DIR=/old\nalias x=y\nexport CLAUDE_CONFIG_DIR=\""+home+"/.cwm/workspace\"\n")
+	writeFile(t, filepath.Join(home, ".zprofile"), "CLAUDE_CONFIG_DIR=/x; export CLAUDE_CONFIG_DIR\n")
+	c = checkNamed(t, Checks(root, false), "claude-reads-from")
+	if c.Status != StatusFail || !strings.Contains(c.Detail, "2 place(s)") {
+		t.Fatalf("persistent export in capture mode = %+v, want FAIL with 2 places", c)
+	}
+	joined := strings.Join(c.Lines, "\n")
+	for _, w := range []string{`~/.bashrc:3: export CLAUDE_CONFIG_DIR="~/.cwm/workspace"`, "sed -i.cwm-bak '3d' ~/.bashrc", "~/.zprofile:1:"} {
+		if !strings.Contains(joined, w) {
+			t.Errorf("lines missing %q:\n%s", w, joined)
+		}
+	}
+	if strings.Contains(joined, home) {
+		t.Errorf("lines must show the home dir as ~:\n%s", joined)
+	}
+	var out strings.Builder
+	if Run(&out, root, false) {
+		t.Error("a FAIL must make Run report unhealthy (cwm doctor exits 1)")
+	}
+
+	// Isolated mode does not care.
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"isolated\"\n")
+	if c := checkNamed(t, Checks(root, false), "claude-reads-from"); c.Status != StatusOK || len(c.Lines) != 3 {
+		t.Errorf("isolated = %+v, want ok with only the 3 path lines", c)
+	}
+	// A pre-v0.8 config only warns (migrate first).
+	writeFile(t, filepath.Join(root, "config.toml"), "")
+	list := Checks(root, false)
+	if c := checkNamed(t, list, "claude-reads-from"); c.Status != StatusWarn {
+		t.Errorf("pre-v0.8 = %+v, want warn", c)
+	}
+	if c := checkNamed(t, list, "migration"); c.Status != StatusWarn || !strings.Contains(c.Detail, "cwm migrate --dry-run") {
+		t.Errorf("migration = %+v", c)
+	}
+}
+
+func TestDoctorClaudeReadsFromWindowsAndLaunchd(t *testing.T) {
+	noClaude(t)
+	unreachableSyncthing(t)
+	root, _ := captureRoot(t)
+	oldOS, oldReg, oldLd := hostOS, regQueryUserEnv, launchctlGetenv
+	t.Cleanup(func() { hostOS, regQueryUserEnv, launchctlGetenv = oldOS, oldReg, oldLd })
+	regQueryUserEnv = func(string) (string, bool) { return `C:\x\ws`, true }
+	launchctlGetenv = func(string) (string, bool) { return "/x/ws", true }
+
+	hostOS = "windows"
+	c := checkNamed(t, Checks(root, false), "claude-reads-from")
+	if c.Status != StatusFail || !strings.Contains(strings.Join(c.Lines, "\n"), "SetEnvironmentVariable('CLAUDE_CONFIG_DIR', $null, 'User')") {
+		t.Errorf("windows HKCU = %+v", c)
+	}
+	hostOS = "darwin"
+	c = checkNamed(t, Checks(root, false), "claude-reads-from")
+	if c.Status != StatusFail || !strings.Contains(strings.Join(c.Lines, "\n"), "launchctl unsetenv CLAUDE_CONFIG_DIR") {
+		t.Errorf("launchd = %+v", c)
+	}
+	hostOS = "linux" // the registry and launchd are not consulted
+	if c := checkNamed(t, Checks(root, false), "claude-reads-from"); c.Status != StatusOK {
+		t.Errorf("linux = %+v, want ok", c)
+	}
+}
+
+func TestDoctorV08Checks(t *testing.T) {
+	noClaude(t)
+	unreachableSyncthing(t)
+	root, ws := captureRoot(t)
+
+	list := Checks(root, false)
+	if c := checkNamed(t, list, "stignore"); c.Status != StatusOK {
+		t.Errorf("generated .stignore = %+v, want ok", c)
+	}
+	if c := checkNamed(t, list, "conflicts"); c.Status != StatusOK {
+		t.Errorf("conflicts = %+v", c)
+	}
+	if c := checkNamed(t, list, "vault"); c.Status != StatusOK {
+		t.Errorf("no accounts = %+v", c)
+	}
+	if hasCheck(list, "unknown-items") || hasCheck(list, "mcp-bridge") {
+		t.Errorf("unknown-items / mcp-bridge must be absent on a plain root: %+v", list)
+	}
+
+	// Switch off an item: the old .stignore no longer matches.
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"capture\"\n[sync]\nskills = false\n")
+	if c := checkNamed(t, Checks(root, false), "stignore"); c.Status != StatusWarn || !strings.Contains(c.Detail, FixCommand) {
+		t.Errorf("stale .stignore = %+v", c)
+	}
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"capture\"\n")
+
+	// A conflict copy of CLAUDE.md.
+	writeFile(t, filepath.Join(ws, "CLAUDE.md"), "a\n")
+	writeFile(t, filepath.Join(ws, "CLAUDE.sync-conflict-20261124-101010-ABCDEFG.md"), "b\n")
+	c := checkNamed(t, Checks(root, false), "conflicts")
+	if c.Status != StatusWarn || !strings.Contains(c.Detail, "2 versions of CLAUDE.md — pick one") ||
+		len(c.Lines) != 1 || !strings.Contains(c.Lines[0], "cwm conflicts resolve CLAUDE.md current|merge|<copy>") {
+		t.Errorf("conflict = %+v", c)
+	}
+
+	// Items Claude Code added that cwm does not know stay local (INFO).
+	writeFile(t, filepath.Join(ws, "brand-new-thing", "x"), "x")
+	writeFile(t, filepath.Join(ws, "todos", "x"), "x")
+	writeFile(t, filepath.Join(ws, "history.jsonl"), "{}\n")
+	c = checkNamed(t, Checks(root, false), "unknown-items")
+	if c.Status != StatusOK || c.Detail != "Claude added brand-new-thing; it stays local (not on the sync allow-list)" {
+		t.Errorf("unknown items = %+v", c)
+	}
+
+	// The default account: live login only, then saved in the vault.
+	home, _ := os.UserHomeDir()
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"capture\"\ndefault_account = \"main\"\n[[account]]\nname = \"main\"\n")
+	if c := checkNamed(t, Checks(root, false), "vault"); c.Status != StatusWarn || !strings.Contains(c.Detail, "has no login") {
+		t.Errorf("no login anywhere = %+v", c)
+	}
+	writeFile(t, filepath.Join(ws, ".credentials.json"), `{"fake":"FAKE-TOKEN-NOT-REAL"}`)
+	c = checkNamed(t, Checks(root, false), "vault")
+	if c.Status != StatusWarn || !strings.Contains(c.Detail, "only live") {
+		t.Errorf("live only = %+v", c)
+	}
+	writeFile(t, filepath.Join(root, "accounts", "main", ".credentials.json"), `{"fake":"FAKE-TOKEN-NOT-REAL"}`)
+	if c := checkNamed(t, Checks(root, false), "vault"); c.Status != StatusOK {
+		t.Errorf("vault entry = %+v", c)
+	}
+
+	// MCP bridge: a workspace server missing from ~/.claude.json.
+	writeFile(t, filepath.Join(ws, "mcp.json"), `{"mcpServers":{"fs":{"command":"fake-mcp"}}}`)
+	writeFile(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{}}`)
+	if c := checkNamed(t, Checks(root, false), "mcp-bridge"); c.Status != StatusWarn || !strings.Contains(c.Detail, "default") {
+		t.Errorf("bridge out of sync = %+v", c)
+	}
+	writeFile(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"fs":{"command":"fake-mcp"}}}`)
+	if c := checkNamed(t, Checks(root, false), "mcp-bridge"); c.Status != StatusOK {
+		t.Errorf("bridge in sync = %+v", c)
+	}
+	for _, c := range Checks(root, false) {
+		if strings.Contains(c.Detail+strings.Join(c.Lines, ""), "FAKE-TOKEN") {
+			t.Fatalf("a credential value leaked into %+v", c)
+		}
 	}
 }
 
 func TestDoctorPathDuplicatesNote(t *testing.T) {
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	a, b := t.TempDir(), t.TempDir()
 	t.Setenv("PATH", strings.Join([]string{a, b, a, b + string(filepath.Separator), a}, string(os.PathListSeparator)))
@@ -504,7 +688,7 @@ func TestDoctorUnverifiedClaude(t *testing.T) {
 		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
 	}
 	noClaude(t)
-	root := t.TempDir()
+	root := isolatedRoot(t)
 	t.Setenv("CWM_HOME", root)
 	bin := stubBin(t, map[string]string{"claude": "#!/bin/sh\necho 'Claude Desktop'\n"})
 	t.Setenv("PATH", bin)
@@ -543,3 +727,59 @@ func TestOptionalCheckCounts(t *testing.T) {
 		t.Errorf("no skipped checks: the summary keeps the bash-kit format:\n%s", out.String())
 	}
 }
+
+// isolatedRoot is a $CWM_HOME whose config.toml selects isolated mode, so
+// root/workspace is the workspace root these v0.7-shaped fixtures build
+// (D76: capture mode would resolve ~/.claude instead).
+func isolatedRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "config.toml"), "mode = \"isolated\"\n")
+	return root
+}
+
+// A service-started agent may not have cwm on its PATH. The bare
+// `cwm hook …` entries then give ONE warning, not a failure per hook.
+func TestDoctorBareCwmHookNotOnPath(t *testing.T) {
+	noClaude(t)
+	root := isolatedRoot(t)
+	t.Setenv("CWM_HOME", root)
+	t.Setenv("PATH", t.TempDir())
+	old := selfExe
+	selfExe = func() string { return filepath.Join("/opt/x", "cwm") }
+	t.Cleanup(func() { selfExe = old })
+	writeFile(t, filepath.Join(root, "workspace", "settings.json"),
+		`{"hooks":{"SessionStart":[{"hooks":[{"command":"cwm hook session-start"}]}],"SessionEnd":[{"hooks":[{"command":"cwm hook session-end"}]}]}}`)
+	var n, fails int
+	for _, c := range Checks(root, false) {
+		if c.Name == "hook-wired" {
+			fails++
+		}
+		if c.Name == "cwm-path" {
+			n++
+			if c.Status != "warn" || !strings.Contains(c.Detail, "fix: `"+cwmPathFix(hostOS, selfExe())+"`") {
+				fails++
+			}
+		}
+	}
+	if n != 1 || fails != 0 {
+		t.Errorf("cwm-path checks = %d (bad or hook-wired %d), want exactly one warning with the fix", n, fails)
+	}
+}
+
+func TestCwmPathFix(t *testing.T) {
+	for _, c := range [][3]string{
+		{"linux", "/home/jane/.local/bin/cwm", "cwm service install && systemctl --user restart cwm-agent"},
+		{"darwin", "/Users/jane/my bin/cwm", "cwm service install"},
+		{"linux", "", "cwm service install && systemctl --user restart cwm-agent"},
+		{"windows", `C:\cwm\cwm.exe`, claudebinPathHint},
+	} {
+		if got := cwmPathFix(c[0], c[1]); c[2] != claudebinPathHint && got != c[2] {
+			t.Errorf("cwmPathFix(%s, %q) = %q, want %q", c[0], c[1], got, c[2])
+		} else if c[2] == claudebinPathHint && !strings.Contains(got, `SetEnvironmentVariable("Path"`) {
+			t.Errorf("windows fix = %q", got)
+		}
+	}
+}
+
+const claudebinPathHint = "<PathHint>"

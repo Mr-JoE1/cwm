@@ -103,6 +103,10 @@ type Session struct {
 	Messages    int    `json:"messages"`
 	Branch      string `json:"branch"`
 	Modified    string `json:"modified"`
+	// Copies and Devices (v0.8, D91): a session mirrored for another
+	// clone path is listed once.
+	Copies  int      `json:"copies"`
+	Devices []string `json:"devices"`
 }
 
 // FromSession converts a discovered session to its snapshot row.
@@ -115,6 +119,8 @@ func FromSession(s sessions.Session) Session {
 		Messages:    s.Messages,
 		Branch:      s.Branch,
 		Modified:    s.Modified.Format(time.RFC3339),
+		Copies:      max(s.Copies, 1),
+		Devices:     append([]string{}, s.Devices...),
 	}
 }
 

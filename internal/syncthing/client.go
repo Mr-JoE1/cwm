@@ -298,3 +298,52 @@ func readCapped(r io.Reader) string {
 	b, _ := io.ReadAll(io.LimitReader(r, 4096))
 	return strings.TrimSpace(string(b))
 }
+
+// Option returns the raw value of one key of the config's "options"
+// object; ok is false when the config has no such key.
+func (c *Config) Option(key string) (json.RawMessage, bool) {
+	opts, err := c.options()
+	if err != nil {
+		return nil, false
+	}
+	v, ok := opts[key]
+	return v, ok
+}
+
+// SetOption sets one key of the "options" object, keeping every other
+// option as it was. It reports whether the stored value changed.
+func (c *Config) SetOption(key string, value interface{}) (bool, error) {
+	opts, err := c.options()
+	if err != nil {
+		return false, err
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false, fmt.Errorf("syncthing: encode option %s: %w", key, err)
+	}
+	if old, ok := opts[key]; ok && bytes.Equal(bytes.TrimSpace(old), raw) {
+		return false, nil
+	}
+	opts[key] = raw
+	enc, err := json.Marshal(opts)
+	if err != nil {
+		return false, fmt.Errorf("syncthing: encode options: %w", err)
+	}
+	if c.extra == nil {
+		c.extra = map[string]json.RawMessage{}
+	}
+	c.extra["options"] = enc
+	return true, nil
+}
+
+func (c *Config) options() (map[string]json.RawMessage, error) {
+	opts := map[string]json.RawMessage{}
+	raw, ok := c.extra["options"]
+	if !ok || len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return opts, nil
+	}
+	if err := json.Unmarshal(raw, &opts); err != nil {
+		return nil, fmt.Errorf("syncthing: decode options: %w", err)
+	}
+	return opts, nil
+}

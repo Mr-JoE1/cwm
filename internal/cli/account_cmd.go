@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
@@ -41,7 +43,7 @@ func cmdAccount(e *Env, args []string) error {
 	}
 	dryRun = dryRun || e.DryRun
 
-	layout, err := storage.NewLayout()
+	layout, err := claudepaths.NewLayout()
 	if err != nil {
 		return err
 	}
@@ -76,7 +78,7 @@ func cmdAccount(e *Env, args []string) error {
 			return err
 		}
 		accounts.MarkLogin(layout, name, accounts.LoginDone, "cli", nil)
-		return nil
+		return e.installDefaultLogin(layout, cfg, name, false)
 
 	case "login":
 		if len(pos) != 1 {
@@ -100,7 +102,7 @@ func cmdAccount(e *Env, args []string) error {
 			return err
 		}
 		accounts.MarkLogin(layout, name, accounts.LoginDone, "cli", nil)
-		return nil
+		return e.installDefaultLogin(layout, cfg, name, true)
 
 	case "list":
 		if len(pos) != 0 {
@@ -112,13 +114,24 @@ func cmdAccount(e *Env, args []string) error {
 		if len(pos) != 1 {
 			return fmt.Errorf("usage: cwm account use <name>")
 		}
-		if err := accounts.Use(cfg, pos[0]); err != nil {
+		if dryRun {
+			fmt.Fprintf(e.Stdout, "would save the live login back into %q, then swap %q's credentials and identity into the live files\n", cfg.DefaultAccount, pos[0])
+			return nil
+		}
+		res, err := accountSwitcher.Use(layout, cfg, pos[0])
+		if err != nil {
 			return err
 		}
 		if err := config.Save(layout.ConfigPath(), cfg); err != nil {
 			return err
 		}
 		fmt.Fprintf(e.Stdout, "✓ default account: %s\n", pos[0])
+		if res.Backup != "" {
+			fmt.Fprintf(e.Stdout, "  replaced files backed up to %s\n", res.Backup)
+		}
+		if w := res.Warning(); w != "" {
+			fmt.Fprintf(e.Stdout, "! %s\n", w)
+		}
 		return nil
 
 	case "remove", "rm":
@@ -166,7 +179,7 @@ func cmdAccount(e *Env, args []string) error {
 				deleteDir = del
 			}
 		}
-		res, err := accounts.RemoveWith(layout, cfg, name, accounts.RemoveOptions{DeleteDir: deleteDir})
+		res, err := accounts.RemoveWith(layout, cfg, name, accounts.RemoveOptions{DeleteDir: deleteDir, Switch: accountSwitcher.SwitchFunc(layout), Store: accountSwitcher.CredStore()})
 		if err != nil {
 			return err
 		}
@@ -255,4 +268,27 @@ func readLine(r io.Reader) (string, error) {
 			return b.String(), err
 		}
 	}
+}
+
+// accountSwitcher performs `cwm account use` (D79); tests swap in a fake
+// credential store and process finder.
+var accountSwitcher = accounts.Switcher{}
+
+// installDefaultLogin makes a fresh login of the default account the live
+// one (accounts.InstallDefault): after `account add` only when there is
+// no live login yet (the first account on a machine), after `account
+// login` always, so plain claude and cwm's default launches use it.
+func (e *Env) installDefaultLogin(layout *storage.Layout, cfg *config.Config, name string, force bool) error {
+	ok, err := accounts.InstallDefault(layout, cfg, name, accountSwitcher.CredStore(), force, time.Now())
+	if err != nil {
+		return err
+	}
+	if ok {
+		live, err := claudepaths.LiveFor(layout, cfg, "")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(e.Stdout, "✓ %s is the live login now (%s): plain claude uses it\n", name, accountSwitcher.CredStore().Location(live))
+	}
+	return nil
 }

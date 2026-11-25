@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
+	"github.com/Mr-JoE1/cwm/internal/workspace"
 )
 
 // -update rewrites testdata/golden/*.txt. The committed goldens were
@@ -51,7 +52,7 @@ func goldenCases() []goldenCase {
 			return root, nil
 		}},
 		{name: "missing_workspace", setup: func(t *testing.T) (string, map[string]string) {
-			root := t.TempDir()
+			root := isolatedRoot(t)
 			t.Setenv("CWM_HOME", root)
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("PATH", t.TempDir())
@@ -61,10 +62,10 @@ func goldenCases() []goldenCase {
 		// D58: what `cwm init` leaves behind: no settings.json and no
 		// hooks dir, neither of which the Go kit uses.
 		{name: "fresh_init", setup: func(t *testing.T) (string, map[string]string) {
-			root := t.TempDir()
+			root := isolatedRoot(t)
 			t.Setenv("CWM_HOME", root)
 			t.Setenv("HOME", t.TempDir())
-			writeFile(t, filepath.Join(root, "workspace", ".stignore"), "(?d)settings.json\n")
+			writeFile(t, filepath.Join(root, "workspace", ".stignore"), workspace.StIgnoreContent())
 			unreachableSyncthing(t)
 			stubBin(t, map[string]string{"claude": "#!/bin/sh\necho '2.1.319 (Claude Code)'\n"})
 			return root, nil
