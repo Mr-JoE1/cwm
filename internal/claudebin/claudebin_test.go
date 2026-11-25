@@ -137,7 +137,7 @@ func TestResolveOrder(t *testing.T) {
 	// Nothing on PATH: the native-installer folder is found, off PATH.
 	w.vars["PATH"] = filepath.Join(w.root, "empty")
 	res, err = Resolve(env, "")
-	if err != nil || res.Path != known || res.Source != SourceDiscovered || res.OnPath {
+	if err != nil || res.Path != known || res.Source != SourceStandalone || res.OnPath {
 		t.Fatalf("known: got %+v, %v; want %s (known, off PATH)", res, err, known)
 	}
 	// A PATH entry with a trailing slash still counts as on PATH.
@@ -180,8 +180,8 @@ func TestResolveNotFoundListsSearchAndInstall(t *testing.T) {
 	}
 	msg := err.Error()
 	for _, want := range []string{
-		filepath.Join(w.root, "home", ".local", "bin", "claude"),
-		"/usr/local/bin/claude",
+		filepath.FromSlash("~/.local/bin"), filepath.FromSlash("/usr/local/bin"), filepath.FromSlash("~/.vscode, ~/.vscode-insiders, ~/.cursor"),
+		"do not put `claude` on PATH",
 		"curl -fsSL https://claude.ai/install.sh | bash",
 		EnvClaude, "claude_path",
 	} {
@@ -234,7 +234,7 @@ func TestResolveNpmPrefix(t *testing.T) {
 	w.npm = filepath.Join(w.root, "npm-prefix")
 	cmd := w.file(t, "npm-prefix/claude.cmd", false)
 	res, err := Resolve(w.env("windows"), "")
-	if err != nil || res.Path != cmd || res.Source != SourceDiscovered {
+	if err != nil || res.Path != cmd || res.Source != SourceStandalone {
 		t.Fatalf("windows npm prefix: got %+v, %v; want %s", res, err, cmd)
 	}
 	if runtime.GOOS == "windows" {
@@ -340,7 +340,7 @@ func TestFindPersistsOffPathHit(t *testing.T) {
 	if c.ClaudePath != "" {
 		t.Error("Remember must not pin a PATH hit")
 	}
-	Remember(c, Result{Path: "/x/claude", Source: SourceDiscovered})
+	Remember(c, Result{Path: "/x/claude", Source: SourceStandalone})
 	if c.ClaudePath != "/x/claude" {
 		t.Error("Remember must pin an off-PATH hit")
 	}

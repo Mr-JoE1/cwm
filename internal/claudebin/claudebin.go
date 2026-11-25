@@ -12,13 +12,17 @@
 //  2. config.toml `claude_path` (skipped when missing, dropped when it no
 //     longer verifies);
 //  3. every `claude` on PATH, in PATH order;
-//  4. well-known install locations per OS, then `npm prefix -g` (3 s cap).
+//  4. well-known install locations per OS, then `npm prefix -g` (3 s cap);
+//  5. the copy bundled with the Claude desktop app, then the one bundled
+//     with the Claude Code editor extension (D98, bundled.go): highest
+//     version per family, never pinned (the folders change on every
+//     app update).
 //
 // A candidate counts only when it verifies by behaviour: `<file>
 // --version` exits 0 and prints a Claude Code version line (D54). Where a
 // file lives is never a reason to accept or to reject it.
 //
-// $CWM_CLAUDE_NO_SEARCH=1 turns step 4 off (tests; users who want PATH only).
+// $CWM_CLAUDE_NO_SEARCH=1 turns steps 4 and 5 off (tests; users who want PATH only).
 package claudebin
 
 import (
@@ -46,10 +50,15 @@ const (
 type Source string
 
 const (
-	SourceEnv        Source = "env"        // $CWM_CLAUDE
-	SourceConfig     Source = "config"     // config.toml claude_path
-	SourcePath       Source = "path"       // PATH lookup
-	SourceDiscovered Source = "discovered" // well-known install location / npm prefix
+	SourceEnv    Source = "env"    // $CWM_CLAUDE
+	SourceConfig Source = "config" // config.toml claude_path
+	SourcePath   Source = "path"   // PATH lookup
+	// SourceStandalone is a standalone install found off PATH (a
+	// well-known install folder or the npm prefix). v0.8.0 called it
+	// "discovered".
+	SourceStandalone Source = "standalone"
+	SourceDesktop    Source = "desktop-app"      // bundled with the Claude desktop app (D98)
+	SourceExtension  Source = "vscode-extension" // bundled with the editor extension (D98)
 )
 
 // Result is a resolved, verified claude executable.
@@ -69,6 +78,9 @@ type Result struct {
 	// Cleared is set when config.toml's claude_path pointed at a file
 	// that failed verification; find() removes it from the config.
 	Cleared *Cleared `json:"cleared,omitempty"`
+	// Bundle names the app a bundled copy ships with ("the VS Code
+	// extension"; "" unless Source.Bundled()).
+	Bundle string `json:"bundle,omitempty"`
 }
 
 // Candidate is one probed file: what the resolver tried and why it did
@@ -95,8 +107,14 @@ func (r Result) Dir() string { return filepath.Dir(r.Path) }
 // NotFoundError lists every place the resolver looked and every file it
 // found there that was not Claude Code.
 type NotFoundError struct {
-	GOOS     string
+	GOOS string
+	// Searched are the standalone install files probed for.
 	Searched []string
+	// Desktop and Editors are the bundled-copy folders (D98).
+	Desktop []string
+	Editors []string
+	// Home shortens the paths in the message to ~.
+	Home string
 	// Rejected are existing candidates that failed verification.
 	Rejected []Candidate
 	// Cleared: as Result.Cleared (a failed claude_path was dropped).
@@ -107,20 +125,62 @@ type NotFoundError struct {
 var ErrNotFound = errors.New("claude not found")
 
 func (e *NotFoundError) Error() string {
-	where := "on PATH"
-	if len(e.Searched) > 0 {
-		where = "on PATH or in " + strings.Join(e.Searched, ", ")
+	return fmt.Sprintf("claude (Claude Code) not found. %s — install it with: %s  (or point cwm at it: set %s or claude_path in config.toml)",
+		e.Explain(), InstallCommand(e.GOOS), EnvClaude)
+}
+
+// Explain is the why-and-where part of the message, without the fix
+// (doctor and the dashboard add their own): the desktop app and the
+// editor extension do not put claude on PATH, then where cwm looked,
+// grouped and with ~ for the home folder, then any file it found there
+// that was not Claude Code.
+func (e *NotFoundError) Explain() string {
+	short := func(list []string) string {
+		out := make([]string, 0, len(list))
+		for _, p := range list {
+			out = append(out, ShortPath(e.Home, p))
+		}
+		return strings.Join(out, ", ")
 	}
-	rejected := ""
+	var b strings.Builder
+	b.WriteString("The Claude desktop app and the VS Code extension do not put `claude` on PATH. cwm looked on PATH")
+	if len(e.Searched) > 0 {
+		dirs := make([]string, 0, len(e.Searched))
+		for _, p := range e.Searched {
+			dirs = append(dirs, filepath.Dir(p))
+		}
+		fmt.Fprintf(&b, "; in install folders (%s)", short(dedupe(dirs)))
+	}
+	if len(e.Desktop) > 0 {
+		fmt.Fprintf(&b, "; in the desktop app (%s)", short(e.Desktop))
+	}
+	if len(e.Editors) > 0 {
+		fmt.Fprintf(&b, "; in editor extensions (%s)", short(e.Editors))
+	}
 	if n := len(e.Rejected); n > 0 {
 		parts := make([]string, 0, n)
 		for _, c := range e.Rejected {
-			parts = append(parts, c.Path+": "+c.Result)
+			parts = append(parts, ShortPath(e.Home, c.Path)+": "+c.Result)
 		}
-		rejected = fmt.Sprintf(" (%d candidate(s) found but not Claude Code: %s)", n, strings.Join(parts, "; "))
+		fmt.Fprintf(&b, ". %d candidate(s) found but not Claude Code: %s", n, strings.Join(parts, "; "))
 	}
-	return fmt.Sprintf("claude (Claude Code) not found %s%s — install it with: %s  (or point cwm at it: set %s or claude_path in config.toml)",
-		where, rejected, InstallCommand(e.GOOS), EnvClaude)
+	return b.String()
+}
+
+// ShortPath writes home as ~ at the start of p (reports only).
+func ShortPath(home, p string) string {
+	home = strings.TrimRight(home, `/\`)
+	if len(home) < 2 || len(p) < len(home) || !strings.EqualFold(p[:len(home)], home) {
+		return p
+	}
+	rest := p[len(home):]
+	if rest == "" {
+		return "~"
+	}
+	if rest[0] != '/' && rest[0] != '\\' {
+		return p
+	}
+	return "~" + rest
 }
 
 func (e *NotFoundError) Is(target error) bool { return target == ErrNotFound }
@@ -214,7 +274,8 @@ func (r *resolver) try(p string, src Source) bool {
 	pr := r.env.probe(p)
 	r.probed = append(r.probed, Candidate{Path: p, Source: src, OnPath: onPath, Verified: pr.Verified, Result: pr.Short()})
 	if pr.Verified && r.win == nil {
-		r.win = &Result{Path: p, Source: src, OnPath: onPath, Version: pr.Version, ProbeOutput: shorten(pr.Output, ProbeOutputShown)}
+		r.win = &Result{Path: p, Source: src, OnPath: onPath, Version: pr.Version, ProbeOutput: shorten(pr.Output, ProbeOutputShown),
+			Bundle: BundleName(src, p)}
 	}
 	if r.win == nil {
 		return false
@@ -264,11 +325,11 @@ func resolve(env Env, configured string, survey bool) (Result, error) {
 		if r.win != nil {
 			return r.result(cleared), nil
 		}
-		return Result{}, &NotFoundError{GOOS: env.GOOS, Rejected: r.probed, Cleared: cleared}
+		return Result{}, &NotFoundError{GOOS: env.GOOS, Home: env.searchHome(), Rejected: r.probed, Cleared: cleared}
 	}
 	cands := Candidates(env)
 	for _, p := range cands {
-		if r.try(p, SourceDiscovered) {
+		if r.try(p, SourceStandalone) {
 			return r.result(cleared), nil
 		}
 	}
@@ -276,16 +337,42 @@ func resolve(env Env, configured string, survey bool) (Result, error) {
 		if prefix := env.npmPrefix(); prefix != "" {
 			for _, p := range npmCandidates(env.GOOS, prefix) {
 				cands = append(cands, p)
-				if r.try(p, SourceDiscovered) {
+				if r.try(p, SourceStandalone) {
 					return r.result(cleared), nil
 				}
 			}
 		}
 	}
+	// Bundled copies come last (D98): a standalone CLI the user installed
+	// on purpose always wins over one that ships inside an app.
+	for _, c := range bundledCandidates(env) {
+		if r.try(c.path, c.src) {
+			return r.result(cleared), nil
+		}
+	}
 	if r.win != nil {
 		return r.result(cleared), nil
 	}
-	return Result{}, &NotFoundError{GOOS: env.GOOS, Searched: cands, Rejected: r.probed, Cleared: cleared}
+	desktop, editors := bundleSearched(env)
+	return Result{}, &NotFoundError{GOOS: env.GOOS, Searched: cands, Desktop: desktop, Editors: editors,
+		Home: env.searchHome(), Rejected: r.probed, Cleared: cleared}
+}
+
+// sourced is a candidate path with the lookup step it belongs to.
+type sourced struct {
+	path string
+	src  Source
+}
+
+// searchHome is the home dir reports shorten to ~ (USERPROFILE on
+// Windows, where the candidates are built from it).
+func (env Env) searchHome() string {
+	if env.GOOS == "windows" && env.Getenv != nil {
+		if p := env.Getenv("USERPROFILE"); p != "" {
+			return p
+		}
+	}
+	return env.Home
 }
 
 func (r *resolver) result(cleared *Cleared) Result {
@@ -532,8 +619,12 @@ func (s Source) Label() string {
 		return "config.toml claude_path"
 	case SourcePath:
 		return "PATH"
-	case SourceDiscovered:
-		return "found in a well-known install folder"
+	case SourceStandalone:
+		return "standalone install, found in a well-known install folder"
+	case SourceDesktop:
+		return "bundled with the Claude desktop app"
+	case SourceExtension:
+		return "bundled with the VS Code extension"
 	}
 	return string(s)
 }

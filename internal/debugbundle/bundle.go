@@ -232,11 +232,17 @@ func ClaudeSection(find func() (claudebin.Result, error), goos string, getenv fu
 			src += " (" + l + ")"
 		}
 		fmt.Fprintf(&b, "found:   yes\npath:    %s\nsource:  %s\non PATH: %t\n", res.Path, src, res.OnPath)
+		if res.Bundle != "" {
+			fmt.Fprintf(&b, "bundle:  %s (looked up afresh each time, never pinned)\n", res.Bundle)
+		}
 		fmt.Fprintf(&b, "verified: yes, version %s\n", res.Version)
 		if res.ProbeOutput != "" {
 			fmt.Fprintf(&b, "probe:   %s\n", strings.ReplaceAll(res.ProbeOutput, "\n", " | "))
 		}
-		if !res.OnPath {
+		switch {
+		case res.Source.Bundled():
+			fmt.Fprintf(&b, "fix:     only a bundled copy; standalone CLI: %s\n", claudebin.InstallCommand(goos))
+		case !res.OnPath:
 			fmt.Fprintf(&b, "fix:     %s\n", claudebin.PathHint(goos, res.Dir()))
 		}
 		cands = res.Candidates

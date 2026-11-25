@@ -14,12 +14,14 @@ import (
 )
 
 // Find resolves claude for a cwm command: config.toml's claude_path feeds
-// the lookup, and an off-PATH hit (SourceDiscovered) is written back to
+// the lookup, and an off-PATH standalone hit (SourceStandalone) is written back to
 // claude_path so later commands — and the agent, whose PATH is frozen at
 // login — skip the search. The write is best-effort and only happens when
 // config.toml already exists: creating it here would make an
 // uninitialised home look initialised to the installer. A saved
-// claude_path that fails verification is removed (D54).
+// claude_path that fails verification is removed (D54). A copy bundled
+// with the desktop app or the editor extension is never pinned: its
+// folder carries a version that changes on every app update (D98).
 func Find(layout *storage.Layout) (Result, error) {
 	return find(layout, SystemEnv(), true, false)
 }
@@ -57,7 +59,7 @@ func find(layout *storage.Layout, env Env, persist, survey bool) (Result, error)
 		dirty = true
 		writeClearedNote(layout, *cleared)
 	}
-	if err == nil && persist && res.Source == SourceDiscovered && cfg != nil && cfg.ClaudePath != res.Path {
+	if err == nil && persist && res.Source == SourceStandalone && cfg != nil && cfg.ClaudePath != res.Path {
 		cfg.ClaudePath = res.Path
 		dirty = true
 	}
@@ -120,7 +122,7 @@ func Remember(cfg *config.Config, res Result) {
 	if res.Cleared != nil && cfg.ClaudePath == res.Cleared.Path {
 		cfg.ClaudePath = ""
 	}
-	if res.Source == SourceDiscovered {
+	if res.Source == SourceStandalone {
 		cfg.ClaudePath = res.Path
 	}
 }
@@ -131,6 +133,18 @@ func Hint(w io.Writer, goos string, res Result) {
 	if res.OnPath || w == nil {
 		return
 	}
+	if res.Source.Bundled() {
+		fmt.Fprintf(w, "note: using the claude bundled with %s at %s (cwm looks it up afresh each time: it changes with app updates)\n", orApp(res.Bundle), res.Path)
+		fmt.Fprintf(w, "      for a claude that does not change with the app, install the standalone CLI:\n      %s\n", InstallCommand(goos))
+		return
+	}
 	fmt.Fprintf(w, "note: using claude at %s (its folder is not on PATH; cwm remembers it as claude_path in config.toml)\n", res.Path)
 	fmt.Fprintf(w, "      to run claude yourself in new terminals, add the folder to PATH:\n      %s\n", PathHint(goos, res.Dir()))
+}
+
+func orApp(name string) string {
+	if name == "" {
+		return "an app"
+	}
+	return name
 }

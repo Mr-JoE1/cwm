@@ -85,7 +85,7 @@ dir = "~/.cwm/accounts/home"
 			return []service.Item{{Name: "systemd unit", State: "installed", Detail: filepath.Join(home, ".config", "systemd", "user", "cwm-agent.service")}}
 		},
 		Claude: func() (claudebin.Result, error) {
-			return claudebin.Result{Path: filepath.Join(home, ".local", "bin", "claude"), Source: claudebin.SourceDiscovered}, nil
+			return claudebin.Result{Path: filepath.Join(home, ".local", "bin", "claude"), Source: claudebin.SourceStandalone}, nil
 		},
 		Doctor: func() []doctor.Check {
 			return []doctor.Check{{Name: "workspace", Status: doctor.StatusOK, Detail: "workspace dir exists (" + home + ")"}}
@@ -115,7 +115,7 @@ func TestBuildSectionsAndRedaction(t *testing.T) {
 		"== version ==", "cwm:     v0.6.1 (commit abc1234)", "system:  Test OS 1.0", "go:      go",
 		"== agent ==", "pid:     4242", "port:    47800", "bind:    127.0.0.1", "uptime:  1h30m0s",
 		"== service ==", "systemd unit", tilde(".config/systemd/user/cwm-agent.service"),
-		"== claude ==", "path:    " + tilde(".local/bin/claude"), "source:  discovered", "on PATH: false", "fix:     ",
+		"== claude ==", "path:    " + tilde(".local/bin/claude"), "source:  standalone", "on PATH: false", "fix:     ",
 		"PATH of this process:", "  " + tilde("bin"),
 		"== config.toml ==", `default_account = work`, "link_mode = auto", "api_token = <set, not shown>",
 		"account[0].login.email = <set, not shown>", "account[0].login.plan = max", "account[1].name = home",
@@ -219,5 +219,26 @@ func TestBundleNeverReadsVaultOrLiveCredentials(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("bundle lacks %q:\n%s", want, Extract(got, "workspace"))
 		}
+	}
+}
+
+// D98: the claude section names the bundle and gives the standalone
+// install command instead of a PATH line.
+func TestClaudeSectionBundled(t *testing.T) {
+	p := filepath.Join("h", "AppData", "Roaming", "Claude", "claude-code", "2.1.319", "claude.exe")
+	got := ClaudeSection(func() (claudebin.Result, error) {
+		return claudebin.Result{Path: p, Source: claudebin.SourceDesktop, Bundle: "the Claude desktop app", Version: "2.1.319"}, nil
+	}, "windows", nil, "")
+	for _, want := range []string{
+		"source:  desktop-app (bundled with the Claude desktop app)",
+		"bundle:  the Claude desktop app (looked up afresh each time, never pinned)",
+		"fix:     only a bundled copy; standalone CLI: irm https://claude.ai/install.ps1 | iex",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("section missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "SetEnvironmentVariable") {
+		t.Errorf("no PATH advice for a bundled copy:\n%s", got)
 	}
 }

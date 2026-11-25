@@ -46,8 +46,10 @@ func (s *Server) claudeState() *status.Claude {
 		c.Error = err.Error()
 		return c
 	}
-	c.Found, c.Path, c.OnPath = true, res.Path, res.OnPath
-	if !res.OnPath {
+	c.Found, c.Path, c.OnPath, c.Bundle = true, res.Path, res.OnPath, res.Bundle
+	// A bundled copy's folder carries the app version: putting it on
+	// PATH would break on the next app update (D98).
+	if !res.OnPath && !res.Source.Bundled() {
 		c.PathHint = claudebin.PathHint(goos, res.Dir())
 	}
 	return c
@@ -77,7 +79,7 @@ func (s *Server) claudePrecheck() (claudebin.Result, int, error) {
 // dashboard can show the PATH command next to "terminal opened".
 func (s *Server) withClaudeHint(body any, res claudebin.Result) any {
 	lr, ok := body.(launchResult)
-	if !ok || res.Path == "" || res.OnPath {
+	if !ok || res.Path == "" || res.OnPath || res.Source.Bundled() {
 		return body
 	}
 	lr.ClaudePath = res.Path
@@ -105,6 +107,11 @@ type claudeInfo struct {
 	ProbeOutput string            `json:"probe_output,omitempty"`
 	Candidates  []claudeCandidate `json:"candidates"`
 	Cleared     string            `json:"cleared,omitempty"`
+	// v0.8.1 (D98): a copy bundled with the desktop app or the editor
+	// extension (source desktop-app / vscode-extension). cwm uses it,
+	// resolved afresh each time and never pinned.
+	Bundled bool   `json:"bundled"`
+	Bundle  string `json:"bundle,omitempty"`
 }
 
 // claudeCandidate is one probed file in /api/claude.
@@ -150,7 +157,7 @@ func (s *Server) apiClaude(*http.Request) (any, int, error) {
 		out.Hint = "cwm found a claude, but it is not Claude Code (it did not answer `--version` with a Claude Code version). Install Claude Code with the official command below, or point cwm at the right file (" + claudebin.EnvClaude + " or claude_path in config.toml)."
 	case err != nil && errors.Is(err, claudebin.ErrNotFound):
 		out.Error = err.Error()
-		out.Hint = "Claude Code is not installed, or cwm cannot find it. Install it with the official command below, then try again."
+		out.Hint = "Claude Code is not installed, or cwm cannot find it. The Claude desktop app and the VS Code extension do not put `claude` on PATH. Install the standalone CLI with the official command below, then try again."
 	case err != nil:
 		out.Error = err.Error()
 		out.Hint = "The claude setting points at something that is not Claude Code. Fix " + claudebin.EnvClaude + " (or claude_path in config.toml), or unset it."
@@ -159,7 +166,10 @@ func (s *Server) apiClaude(*http.Request) (any, int, error) {
 		out.Verified, out.Version = true, res.Version
 		out.ProbeOutput = shortText(res.ProbeOutput, claudebin.ProbeOutputShown)
 		out.Candidates = candidatesView(res.Candidates)
-		if res.OnPath {
+		out.Bundled, out.Bundle = res.Source.Bundled(), res.Bundle
+		if out.Bundled {
+			out.Hint = "cwm uses the claude bundled with " + res.Bundle + " at " + res.Path + ". It is looked up afresh each time (never saved), because the folder changes with every app update. For a claude that does not change with the app, install the standalone CLI with the command below."
+		} else if res.OnPath {
 			out.Hint = "claude is on PATH: cwm and your terminals use the same binary."
 		} else {
 			out.PathCommand = claudebin.PathHint(goos, res.Dir())

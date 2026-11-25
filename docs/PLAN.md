@@ -3,6 +3,38 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-25 (v0.8.1 — patch release, GitHub issue #1)
+
+- **D98: Claude Code bundled with the desktop app or the editor
+  extension counts as claude.** Neither the Claude desktop app nor the
+  Claude Code extension for VS Code (and its forks) puts `claude` on
+  PATH; each ships its own copy. A machine with only those reported
+  "claude not found" (issue #1). The resolver now looks there after
+  the standalone folders and the npm prefix. Order: `$CWM_CLAUDE`,
+  `claude_path`, PATH, standalone folders, desktop app, editor
+  extension. Families: the desktop app (Windows MSIX
+  `%APPDATA%\Claude\claude-code\<ver>\claude.exe`, also under the
+  package's virtualised `LocalCache\Roaming`; legacy Squirrel
+  `%LOCALAPPDATA%\AnthropicClaude\app-<ver>\…\claude.exe` one to three
+  levels down, never `app-<ver>\claude.exe` itself, which is the
+  desktop app and would open its window; macOS `~/Library/Application
+  Support/Claude/claude-code/<ver>/claude`, same shape as Windows, not
+  confirmed on hardware) and the extension
+  (`<editor>/extensions/anthropic.claude-code-<ver>[-<platform>]/resources/native-binary/claude`
+  for `.vscode`, `.vscode-insiders`, `.cursor`, `.windsurf`,
+  `.vscode-oss`, `.vscode-server`, `.vscode-server-insiders`). Each
+  family is globbed and sorted by a numeric version compare (a
+  platform suffix is not a pre-release), and at most two per family
+  are probed with the D54 `--version` check. Bundled hits are never
+  pinned into `claude_path`: their folder changes on every app update.
+  They get no PATH advice for the same reason. Doctor gives a WARN
+  (`claude-bundled`, exit 0) with the standalone install command. The
+  source is reported as `desktop-app` / `vscode-extension`, the old
+  `discovered` is renamed `standalone`, and `/api/claude` gains
+  `bundled` and `bundle`. The not-found message says that the desktop
+  app and the extension do not put claude on PATH, lists where cwm
+  looked (grouped, `~` for home) and ends with the install command.
+
 ## 2026-11-24 (v0.8 — one workspace, SPEC-V0.8)
 
 The owner-approved spec `SPEC-V0.8.md` is the input; its OWNER DECISIONS

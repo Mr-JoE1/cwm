@@ -249,22 +249,21 @@ func Checks(root string, netProbe bool) []Check {
 	if res, err := claudebin.LookupSurvey(layout); err != nil {
 		var nf *claudebin.NotFoundError
 		switch {
-		case errors.As(err, &nf) && len(nf.Rejected) > 0:
-			parts := make([]string, 0, len(nf.Rejected))
-			for _, c := range nf.Rejected {
-				parts = append(parts, c.Path+": "+c.Result)
-			}
-			r.fail("claude", "claude not found (%d candidate(s) found but not Claude Code: %s) — install Claude Code: %s",
-				len(nf.Rejected), strings.Join(parts, "; "), claudebin.InstallCommand(runtime.GOOS))
-		case errors.Is(err, claudebin.ErrNotFound):
-			r.fail("claude", "claude not found (PATH and the usual install folders) — install Claude Code: %s", claudebin.InstallCommand(runtime.GOOS))
+		case errors.As(err, &nf):
+			// D98: say why the apps the user has do not count, where cwm
+			// looked, and the one install command for this OS (last, so
+			// the dashboard can lift it out as the fix).
+			r.fail("claude", "claude not found. %s — install Claude Code: %s", nf.Explain(), claudebin.InstallCommand(runtime.GOOS))
 		default:
 			r.warn("claude", "%v", err)
 		}
 	} else {
 		ver := res.Version
 		where := "on PATH"
-		if !res.OnPath {
+		if res.Source.Bundled() {
+			home, _ := os.UserHomeDir()
+			where = "found — bundled with " + res.Bundle + ", " + claudebin.ShortPath(home, res.Path)
+		} else if !res.OnPath {
 			where = "at " + res.Path
 		}
 		switch {
@@ -284,9 +283,16 @@ func Checks(root string, netProbe bool) []Check {
 				line = strings.TrimPrefix(c.Result, "verified: ")
 			}
 		}
-		if res.OnPath {
+		switch {
+		case res.Source.Bundled():
+			// D98: works, but only while the app is installed, and it
+			// changes with every app update. No PATH advice: the folder
+			// carries a version, so it would break on the next update.
+			r.warn("claude-bundled", "only the claude bundled with %s was found (%s): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: %s",
+				res.Bundle, res.Source, claudebin.InstallCommand(runtime.GOOS))
+		case res.OnPath:
 			r.ok("claude-binary", "claude binary: %s (source: %s, verified: %s)", res.Path, res.Source.Label(), line)
-		} else {
+		default:
 			r.warn("claude-binary", "claude binary: %s (source: %s, verified: %s) — its folder is not on PATH, so your own terminals and IDEs will not find `claude` (cwm still does); fix: `%s`",
 				res.Path, res.Source.Label(), line, claudebin.PathHint(runtime.GOOS, res.Dir()))
 		}

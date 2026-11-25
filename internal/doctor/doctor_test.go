@@ -272,7 +272,7 @@ func TestDoctorClaudeNotOnPath(t *testing.T) {
 	if Run(&out, root, false) {
 		t.Errorf("no verified claude at all is a FAIL (D75), so Run must report unhealthy:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "FAIL: claude not found (PATH and the usual install folders) — install Claude Code: ") {
+	if !strings.Contains(out.String(), "FAIL: claude not found. The Claude desktop app and the VS Code extension do not put `claude` on PATH. cwm looked on PATH") {
 		t.Errorf("output missing claude-not-found FAIL:\n%s", out.String())
 	}
 }
@@ -300,9 +300,43 @@ func TestDoctorClaudeOffPath(t *testing.T) {
 		t.Errorf("output missing %q:\n%s", want, got)
 	}
 	hint := `echo 'export PATH="` + filepath.Join(home, ".local", "bin") + `:$PATH"' >> ~/`
-	bin := "warn: claude binary: " + filepath.Join(home, ".local", "bin", "claude") + " (source: found in a well-known install folder, verified: 2.1.300 (Claude Code)) — its folder is not on PATH"
+	bin := "warn: claude binary: " + filepath.Join(home, ".local", "bin", "claude") + " (source: standalone install, found in a well-known install folder, verified: 2.1.300 (Claude Code)) — its folder is not on PATH"
 	if !strings.Contains(got, bin) || !strings.Contains(got, hint) {
 		t.Errorf("output missing the PATH hint %q:\n%s", hint, got)
+	}
+}
+
+// D98: only the copy bundled with the VS Code extension is installed:
+// found, a WARN (never a FAIL) with the standalone install command, no
+// PATH advice (the folder carries the app version), nothing pinned.
+func TestDoctorClaudeBundledOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
+	root := healthyWorkspace(t)
+	t.Setenv("CWM_CLAUDE_NO_SEARCH", "")
+	home := os.Getenv("HOME")
+	exe := filepath.Join(home, ".vscode", "extensions", "anthropic.claude-code-2.1.319-linux-x64", "resources", "native-binary", "claude")
+	writeFile(t, exe, "#!/bin/sh\necho '2.1.319 (Claude Code)'\n")
+	if err := os.Chmod(exe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	var out strings.Builder
+	if !Run(&out, root, false) {
+		t.Errorf("a bundled-only claude must not FAIL:\n%s", out.String())
+	}
+	got := out.String()
+	for _, want := range []string{
+		"ok:   claude 2.1.319 found — bundled with the VS Code extension, ~/.vscode/extensions/anthropic.claude-code-2.1.319-linux-x64/resources/native-binary/claude",
+		"warn: only the claude bundled with the VS Code extension was found (vscode-extension): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: curl -fsSL https://claude.ai/install.sh | bash",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "export PATH=") || strings.Contains(got, "claude-binary") {
+		t.Errorf("no PATH advice for a bundled copy:\n%s", got)
 	}
 }
 
@@ -694,7 +728,7 @@ func TestDoctorUnverifiedClaude(t *testing.T) {
 	t.Setenv("PATH", bin)
 	var out strings.Builder
 	Run(&out, root, false)
-	want := "FAIL: claude not found (1 candidate(s) found but not Claude Code: " + filepath.Join(bin, "claude") + ": no Claude Code version line in its --version output)"
+	want := "FAIL: claude not found. The Claude desktop app and the VS Code extension do not put `claude` on PATH. cwm looked on PATH. 1 candidate(s) found but not Claude Code: " + filepath.Join(bin, "claude") + ": no Claude Code version line in its --version output — install Claude Code: "
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("output missing %q:\n%s", want, out.String())
 	}

@@ -533,7 +533,7 @@ func TestStateReportsClaude(t *testing.T) {
 	calls := 0
 	f.srv.opts.FindClaude = func() (claudebin.Result, error) {
 		calls++
-		return claudebin.Result{Path: "/home/u/.local/bin/claude", Source: claudebin.SourceDiscovered}, nil
+		return claudebin.Result{Path: "/home/u/.local/bin/claude", Source: claudebin.SourceStandalone}, nil
 	}
 	var st struct {
 		Claude struct {
