@@ -13,8 +13,10 @@ set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SANDBOX=$(mktemp -d)
 SERVER_PID=""
+FAKE_PID=""
 cleanup() {
     if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+    if [[ -n "$FAKE_PID" ]]; then kill "$FAKE_PID" 2>/dev/null || true; fi
     rm -rf "$SANDBOX"
 }
 trap cleanup EXIT
@@ -115,6 +117,18 @@ for _ in $(seq 50); do
     sleep 0.1
 done
 
+# A second server fakes the rate-limited API (403) and the github.com
+# releases/latest redirect (scripts/fake-release-web.py).
+FPORT=$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+python3 -I "$REPO/scripts/fake-release-web.py" "$FPORT" "$TAG" >"$SANDBOX/fake.log" 2>&1 &
+FAKE_PID=$!
+for _ in $(seq 50); do
+    if curl -fsS -o /dev/null "http://127.0.0.1:$FPORT/web/Mr-JoE1/cwm/releases/tag/$TAG" 2>/dev/null; then break; fi
+    sleep 0.1
+done
+RATE_LIMITED=(CWM_INSTALL_API="http://127.0.0.1:$FPORT/api403" CWM_INSTALL_WEB="http://127.0.0.1:$FPORT/web")
+BOTH_FAIL=(CWM_INSTALL_API="http://127.0.0.1:$FPORT/api403" CWM_INSTALL_WEB="http://127.0.0.1:$FPORT/webnone")
+
 # run_install HOME_DIR ARGS... — install.sh in a clean environment, plus
 # whatever VAR=value pairs INSTALL_ENV holds.
 INSTALL_ENV=()
@@ -212,6 +226,28 @@ check "narrow fancy: PATH note wraps, continuations indented 6 spaces" 'wrap_ok 
 check "narrow fancy: child line wraps, continuations keep \"      │ \"" 'wrap_ok "$OUT" "      │ " "✓ cwm home initialized at" "✓ cwm home initialized at $NH/.cwm"'
 check "narrow fancy: dim colour starts and resets on every wrapped line" '! grep -a $'"'"'^      \033\[2m'"'"' <<<"$OUT" | grep -a -v -q $'"'"'\033\[0m$'"'"''
 check "narrow fancy: banner art still verbatim" '[[ "$(banner_of "$(plain_lines "$OUT")")" == "$(cat "$REPO/scripts/banner.txt")" ]]'
+INSTALL_ENV=()
+
+echo "== 1e. API rate-limited (403): the releases/latest redirect names the tag"
+HR="$SANDBOX/home-ratelimited"
+set +e
+INSTALL_ENV=("${RATE_LIMITED[@]}")
+OUT=$(run_install "$HR" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT" | sed 's/^/    | /'
+check "rate-limited: install exits 0" '[[ $CODE -eq 0 ]]'
+check "rate-limited: latest tag from the redirect" 'grep -q "release $TAG (latest)" <<<"$OUT"'
+check "rate-limited: that release is installed" '"$HR/.local/bin/cwm" --version | grep -q "$VER"'
+set +e
+INSTALL_ENV=("${BOTH_FAIL[@]}")
+OUT=$(run_install "$SANDBOX/home-bothfail" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT" | sed 's/^/    | /'
+check "API and redirect both fail: exits non-zero" '[[ $CODE -ne 0 ]]'
+check "both fail: error names --version and CWM_VERSION" 'grep -q "could not determine the latest release (pass --version vX.Y.Z)" <<<"$OUT" && grep -q "or set CWM_VERSION=vX.Y.Z first" <<<"$OUT"'
+check "both fail: nothing installed" '[[ ! -e "$SANDBOX/home-bothfail/.local/bin/cwm" ]]'
 INSTALL_ENV=()
 
 echo "== 2. re-run is idempotent (explicit --version)"
@@ -345,6 +381,21 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     set -e
     check "ps1 via Invoke-Expression: exits 0, no service step" '[[ $CODE -eq 0 ]] && [[ -x "$P2/AppData/Local/cwm/bin/cwm.exe" ]] && ! grep -q "cwm service install" <<<"$OUT"'
     check "ps1 via Invoke-Expression: banner art verbatim" 'banner_ok "$OUT"'
+    # API rate-limited (403): the releases/latest redirect names the tag.
+    P7="$SANDBOX/ps-home-ratelimited"
+    set +e
+    OUT=$(run_ps1 "$P7" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 "${RATE_LIMITED[@]}" "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    printf '%s\n' "$OUT" | sed 's/^/    | /'
+    check "ps1 rate-limited: exits 0, tag from the redirect, installed" '[[ $CODE -eq 0 ]] && grep -q "release $TAG (latest)" <<<"$OUT" && [[ -x "$P7/AppData/Local/cwm/bin/cwm.exe" ]] && "$P7/AppData/Local/cwm/bin/cwm.exe" --version | grep -q "$VER"'
+    P8="$SANDBOX/ps-home-bothfail"
+    set +e
+    OUT=$(run_ps1 "$P8" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 "${BOTH_FAIL[@]}" "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    printf '%s\n' "$OUT" | sed 's/^/    | /'
+    check "ps1 both fail: exits non-zero with both hints, nothing installed" '[[ $CODE -ne 0 ]] && grep -q "could not determine the latest release (.*403.*); pass -Version vX.Y.Z" <<<"$OUT" && grep -q "or set \$env:CWM_VERSION=.vX.Y.Z. first" <<<"$OUT" && [[ ! -e "$P8/AppData/Local/cwm/bin/cwm.exe" ]]'
     # Tampered checksum aborts.
     cp "$DL/checksums.txt" "$SANDBOX/checksums.ps1good"
     sed "s/^[0-9a-f]\{4\}\(.*$WZIP\)/0000\1/" "$SANDBOX/checksums.ps1good" >"$DL/checksums.txt"

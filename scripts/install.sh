@@ -16,8 +16,9 @@
 # Env:   CWM_VERSION, CWM_INSTALL_DIR (default ~/.local/bin),
 #        NO_COLOR (no colours), CWM_INSTALL_FANCY=1 (colours + glyphs even
 #        when stdout is not a terminal — test seam),
-#        CWM_INSTALL_API / CWM_INSTALL_BASE_URL (test seams: GitHub API and
-#        release download base).
+#        CWM_INSTALL_API / CWM_INSTALL_WEB / CWM_INSTALL_BASE_URL (test
+#        seams: GitHub API, releases/latest redirect host, release download
+#        base).
 #
 # The whole script is one function called on the last line, so a truncated
 # download never runs half an installer.
@@ -321,11 +322,15 @@ latest_tag() {
             return 0
         fi
     fi
-    # API rate-limited or unreachable: the releases/latest redirect names the tag.
-    if [ -z "${CWM_INSTALL_API:-}" ] && command -v curl >/dev/null 2>&1; then
-        url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null || true)
+    # API rate-limited or unreachable: the releases/latest redirect names the
+    # tag. Off when a test points CWM_INSTALL_API elsewhere, unless it also
+    # sets CWM_INSTALL_WEB.
+    if { [ -z "${CWM_INSTALL_API:-}" ] || [ -n "${CWM_INSTALL_WEB:-}" ]; } &&
+        command -v curl >/dev/null 2>&1; then
+        web="${CWM_INSTALL_WEB:-https://github.com}"
+        url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${web%/}/$REPO/releases/latest" 2>/dev/null || true)
         tag=${url##*/}
-        case "$tag" in v[0-9]*) printf '%s\n' "$tag"; return 0 ;; esac
+        case "$tag" in v[0-9]*.[0-9]*.[0-9]*) printf '%s\n' "$tag"; return 0 ;; esac
     fi
     return 1
 }
@@ -444,7 +449,8 @@ main() {
 
     which_tag="pinned"
     if [ -z "$VERSION" ]; then
-        VERSION=$(latest_tag) || die "could not determine the latest release (pass --version vX.Y.Z)"
+        VERSION=$(latest_tag) || die "could not determine the latest release (pass --version vX.Y.Z)
+         or set CWM_VERSION=vX.Y.Z first"
         which_tag="latest"
     fi
     case "$VERSION" in
