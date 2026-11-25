@@ -5,6 +5,20 @@ details. Decisions are binding until superseded by a newer entry.
 
 ## 2026-11-25 (v0.8.1 — patch release, GitHub issue #1)
 
+- **D100: a one-field bug form, and "report a bug" fills it.** The owner
+  found the old form asked too much. `bug_report.yml` now has one
+  required field ("What went wrong?"), an optional "Debug logs" and an
+  optional `cwm version` input (id `version`, prefilled by URL). The OS,
+  arch, install method and Claude Code version are gone because the
+  debug bundle carries them. The feature form has one required field and
+  one optional. The dashboard's "report a bug" (statusline, Health,
+  About) copies the bundle first, while the page still has focus for the
+  clipboard, then opens
+  `…/issues/new?template=bug_report.yml&version=<cwm version>&title=bug:%20`
+  in a new tab. It is the only external URL the page opens, and the CSP
+  is unchanged. A blocked clipboard leaves a toast with "copy debug logs";
+  a blocked pop-up leaves a link. The statusline's "copy debug logs" became
+  "report a bug"; copy stays on Health, the palette, the menus and `d`.
 - **D99: project folders are numbered in debug reports; the redactor
   knows the dash-encoded form.** A v0.8.0 bundle listed session folders
   such as `F--Home-<User>-Projects-…`. That is Claude Code's encoding of

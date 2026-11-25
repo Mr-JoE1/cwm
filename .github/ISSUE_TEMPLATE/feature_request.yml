@@ -6,51 +6,21 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the idea! Please check the [Roadmap](https://github.com/Mr-JoE1/cwm/wiki/Roadmap) and the [Decision Log](https://github.com/Mr-JoE1/cwm/wiki/Decision-Log) first, because it may already be planned (or deliberately ruled out).
-        Questions about using cwm are answered in the [FAQ](https://github.com/Mr-JoE1/cwm/wiki/FAQ).
+        It may already be planned (or ruled out): see the [Roadmap](https://github.com/Mr-JoE1/cwm/wiki/Roadmap).
+        Please search [existing issues](https://github.com/Mr-JoE1/cwm/issues?q=is%3Aissue) first.
 
   - type: textarea
-    id: problem
+    id: idea
     attributes:
-      label: Problem
-      description: What are you trying to do, and what gets in the way today?
-      placeholder: "When I switch devices I have to ..."
+      label: What would you like cwm to do?
+      placeholder: What you are trying to do and what gets in the way today, in 2–3 lines.
     validations:
       required: true
 
   - type: textarea
-    id: solution
+    id: more
     attributes:
-      label: Proposed solution
-      description: What should cwm do? Commands, flags, dashboard changes; whatever you have in mind.
+      label: Anything else
+      description: Ideas for how it could work, workarounds you use today, or links.
     validations:
-      required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives considered
-      description: Workarounds you use today, or other approaches.
-
-  - type: dropdown
-    id: area
-    attributes:
-      label: Area
-      multiple: true
-      options:
-        - CLI
-        - Web dashboard
-        - Accounts
-        - Device sync (Syncthing)
-        - Sessions / resume
-        - MCP
-        - Installer / autostart
-        - Docs
-        - Other
-
-  - type: checkboxes
-    id: contribute
-    attributes:
-      label: Contribution
-      options:
-        - label: I'd like to work on this myself (see CONTRIBUTING.md).
+      required: false

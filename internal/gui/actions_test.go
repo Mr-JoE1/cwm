@@ -486,13 +486,23 @@ func TestDashboardHasActions(t *testing.T) {
 			t.Errorf("index.html lacks %s", want)
 		}
 	}
-	for _, want := range []string{`data-debug-copy`, `id="debug-dialog"`, `id="debug-text"`, `id="debug-select"`, bugReportURL} {
+	for _, want := range []string{`data-debug-copy`, `id="debug-dialog"`, `id="debug-text"`, `id="debug-select"`, `id="debug-bug"`} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Errorf("index.html lacks %s", want)
 		}
 	}
 	if n := bytes.Count(html, []byte("data-debug-copy")); n < 2 {
-		t.Errorf("Copy debug logs must be in the header/footer and on the Health tab, found %d", n)
+		t.Errorf("Copy debug logs must be in the header menu and on the Health tab, found %d", n)
+	}
+	// v0.8.1: report a bug in the statusline, About and Health: copy the
+	// bundle, open the form prefilled with the version.
+	if n := bytes.Count(html, []byte("data-bug-report")); n < 3 {
+		t.Errorf("report a bug must be in the statusline, About and Health, found %d", n)
+	}
+	for _, want := range []string{bugReportURL + "&version=", "encodeURIComponent(verText)", `&title=bug:%20`, `window.open(bugURL(), "_blank")`, "debug logs copied — paste them into the form", `btn: ["copy debug logs"`} {
+		if !bytes.Contains(js, []byte(want)) {
+			t.Errorf("app.js lacks %s", want)
+		}
 	}
 	for _, want := range []string{"/api/debug", "navigator.clipboard.writeText", `execCommand("copy")`, "Debug logs copied (", "pathHint", "424"} {
 		if !bytes.Contains(js, []byte(want)) {

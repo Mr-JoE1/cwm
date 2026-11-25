@@ -13,10 +13,11 @@ security problems privately ([SECURITY.md](SECURITY.md)), never in public issues
 
 ## Before you start
 
-- **Bugs:** use the [bug report form](https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml)
-  and attach the debug report: **Copy debug logs** in the dashboard or `cwm debug --copy`
-  (redacted automatically; read it before posting)
-  ([how to redact](https://github.com/Mr-JoE1/cwm/wiki/Reporting-Issues)).
+- **Bugs:** in the dashboard click **report a bug**: it copies the redacted debug report
+  and opens the [bug report form](https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml).
+  The form asks one thing, "What went wrong?"; paste the debug logs below it (or run
+  `cwm debug --copy`). Glance over them before posting
+  ([Reporting Issues](https://github.com/Mr-JoE1/cwm/wiki/Reporting-Issues)).
 - **Features:** check the [Roadmap](https://github.com/Mr-JoE1/cwm/wiki/Roadmap), then use the
   [feature request form](https://github.com/Mr-JoE1/cwm/issues/new?template=feature_request.yml).
 - **Bigger changes** (a new command, a dependency, the sync layout, the `/api`

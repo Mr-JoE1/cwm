@@ -159,6 +159,7 @@
 			detail ? el("div", { class: "detail" }, [richText(detail)]) : null,
 			opts.cmd ? commandBox(opts.cmd) : null,
 			opts.link ? el("a", { class: "toast-link", href: opts.link.href, target: "_blank", rel: "noopener noreferrer", text: opts.link.text }) : null,
+			opts.btn ? btnDo(opts.btn[0], opts.btn[1]) : null,
 		]);
 		let timer = 0;
 		const dismiss = () => {
@@ -213,9 +214,11 @@
 			". To run `claude` in your own terminals too, run this once and open a new terminal:", { cmd: d.pathHint, sticky: true });
 	}
 
-	// --- debug logs (D52)
+	// --- debug logs (D52) and report a bug (v0.8.1)
 
-	const BUG_URL = document.querySelector("a[href*='/issues/new']") ? document.querySelector("a[href*='/issues/new']").href : "";
+	let verText = ""; // `cwm version` style, prefilled into the form
+	const bugURL = () => "https://github.com/Mr-JoE1/cwm/issues/new?template=bug_report.yml&version=" + encodeURIComponent(verText) + "&title=bug:%20";
+	const nLines = (t) => t.replace(/\n+$/, "").split("\n").length;
 
 	async function copyQuiet(text) {
 		if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext !== false) {
@@ -244,6 +247,7 @@
 	}
 
 	function showDebugText(text) {
+		$("debug-bug").href = bugURL();
 		const pre = $("debug-text");
 		pre.textContent = text;
 		const dlg = $("debug-dialog");
@@ -252,10 +256,10 @@
 	}
 
 	let debugBusy = false;
-	async function copyDebugLogs() {
-		if (debugBusy) return;
+	async function fetchDebug() {
+		if (debugBusy) return null;
 		debugBusy = true;
-		const buttons = document.querySelectorAll("[data-debug-copy]");
+		const buttons = document.querySelectorAll("[data-debug-copy],[data-bug-report]");
 		buttons.forEach((b) => { b.disabled = true; });
 		const done = toast("info", "Collecting debug logs…", "runs the health checks and reads the recent logs", { sticky: true });
 		let res = null;
@@ -275,18 +279,41 @@
 			if (res) {
 				try { msg = JSON.parse(text).error || msg; } catch (err) { msg = "HTTP " + res.status; }
 			}
-			return toast("error", "Could not collect debug logs", msg + " In a terminal, `cwm debug --copy` does the same.", { cmd: "cwm debug --copy" });
+			toast("error", "Could not collect debug logs", msg + " In a terminal, `cwm debug --copy` does the same.", { cmd: "cwm debug --copy" });
+			return null;
 		}
-		const lines = text.replace(/\n+$/, "").split("\n").length;
+		return text;
+	}
+
+	async function copyDebugLogs() {
+		const text = await fetchDebug();
+		if (text === null) return;
 		if (await copyQuiet(text)) {
-			return toast("ok", "Debug logs copied (" + lines + " lines) — paste into a GitHub issue", "Redacted: no tokens, e-mails, keys or user names. Give it a quick read before posting.",
-				BUG_URL ? { link: { href: BUG_URL, text: "Report a bug →" } } : null);
+			return toast("ok", "Debug logs copied (" + nLines(text) + " lines)", "Redacted; glance over it before posting.",
+				{ link: { href: bugURL(), text: "report a bug →" } });
 		}
 		showDebugText(text);
 	}
 
+	// Copy first (the clipboard needs this page focused), then open the
+	// form in a new tab; a blocked pop-up leaves a link in the toast.
+	async function reportBug() {
+		const text = await fetchDebug();
+		const copied = text !== null && await copyQuiet(text);
+		const w = window.open(bugURL(), "_blank");
+		if (w) w.opener = null;
+		const link = w ? null : { href: bugURL(), text: "open the bug form →" };
+		if (copied) return toast("ok", "debug logs copied — paste them into the form", "Redacted; glance over it before posting.", { link: link, sticky: !w });
+		if (text === null) return;
+		toast("info", "the browser blocked the clipboard", "Copy the debug logs, then paste them into the form.", {
+			link: link, sticky: true,
+			btn: ["copy debug logs", async () => { if (await copyQuiet(text)) toast("ok", "debug logs copied — paste them into the form"); else showDebugText(text); }],
+		});
+	}
+
 	function wireDebug() {
 		document.querySelectorAll("[data-debug-copy]").forEach((b) => b.addEventListener("click", copyDebugLogs));
+		document.querySelectorAll("[data-bug-report]").forEach((b) => b.addEventListener("click", reportBug));
 		const dlg = $("debug-dialog");
 		$("debug-close").addEventListener("click", () => dlg.close());
 		$("debug-select").addEventListener("click", () => {
@@ -294,7 +321,7 @@
 			selectAll(pre);
 			let ok = false;
 			try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
-			if (ok) toast("ok", "Debug logs copied (" + pre.textContent.replace(/\n+$/, "").split("\n").length + " lines) — paste into a GitHub issue");
+			if (ok) toast("ok", "Debug logs copied (" + nLines(pre.textContent) + " lines) — paste them into the bug form");
 		});
 	}
 
@@ -700,7 +727,7 @@
 		const r = await api("/api/claude");
 		const d = r.ok ? r.data : {};
 		if (!d.bundled) return load("health");
-		toast("ok", "cwm uses the claude bundled with " + d.bundle, d.path + " — found afresh each time, nothing is saved. For a claude that does not change with app updates, install the standalone CLI:",
+		toast("ok", "cwm uses the claude bundled with " + d.bundle, d.path + " — found afresh each time, nothing saved. More stable: the standalone CLI.",
 			{ cmd: d.install[0].command, sticky: true });
 	}
 
@@ -2049,7 +2076,6 @@
 	const METRICS = { sessions: "sessions", messages: "messages", tokens: "tokens" };
 	const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 	const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-	const KINDS = [["input", "input"], ["output", "output"], ["cache_write", "cache write"], ["cache_read", "cache read"]];
 	let statsData = null;
 	let statsTZ = "";
 	try { statsTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (err) { statsTZ = ""; }
@@ -2467,6 +2493,7 @@
 		const [v, a] = await Promise.all([api("/api/version"), api("/api/agent")]);
 		if (v.ok && v.data) {
 			$("sl-version").textContent = "[cwm " + versionLabel(v.data) + "]";
+			verText = "cwm " + v.data.version + " (" + v.data.os + "/" + v.data.arch + ", " + (v.data.commit || "unknown") + ")";
 			$("sl-os").textContent = v.data.os + "/" + v.data.arch;
 		}
 		if (a.ok && a.data) {
