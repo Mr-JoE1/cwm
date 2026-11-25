@@ -1,3 +1,5 @@
+ok:   claude 2.1.234 on PATH (>= 2.1.234: project-name pinning supported)
+ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.234 (Claude Code))
 ok:   workspace dir exists (<ROOT>/workspace)
 ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_CONFIG_DIR; plain claude keeps ~/.claude
       workspace root: <ROOT>/workspace
@@ -8,8 +10,6 @@ FAIL: hook wired but missing: /nonexistent/cwm — re-run the cwm bootstrap or `
 ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
 ok:   .stignore matches the [sync] switches (12 of 12 items sync)
-ok:   claude 2.1.234 on PATH (>= 2.1.234: project-name pinning supported)
-ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.234 (Claude Code))
 ok:   repos.tsv readable, 1 repo(s) recorded
 ok:   no unpinned (dash-prefixed) session folders
 ok:   no sync conflict copies

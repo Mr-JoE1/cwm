@@ -1,3 +1,5 @@
+warn: claude 2.1.100 < 2.1.234 — project-name pinning unsupported; upgrade to >= 2.1.234
+ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.100 (Claude Code))
 ok:   workspace dir exists (<ROOT>/workspace)
 ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_CONFIG_DIR; plain claude keeps ~/.claude
       workspace root: <ROOT>/workspace
@@ -8,8 +10,6 @@ warn: hook not executable: <NOEXEC> (chmod +x)
 ok:   wired hook scripts exist and are executable
 ok:   hook scripts present in <ROOT>/workspace/hooks (1 file(s))
 ok:   .stignore matches the [sync] switches (12 of 12 items sync)
-warn: claude 2.1.100 < 2.1.234 — project-name pinning unsupported; upgrade to >= 2.1.234
-ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.100 (Claude Code))
 warn: repos.tsv has 1 malformed line(s) (expected: name<TAB>url)
 warn: unpinned session folders (resume via cwm to keep sessions cross-OS; these were created by plain claude): -Users-x-legacy
 ok:   no sync conflict copies

@@ -432,6 +432,7 @@ tbody tr.day-row:hover { background:none;box-shadow:none }
 .check-title { font:600 var(--fs-base)/1.5 var(--font-mono);color:var(--text-strong) }
 .check-ok .check-title { font-weight:500;color:var(--text) }
 .check-why { color:var(--muted) }
+.check-body>.btn { justify-self:start;margin-top:4px }
 .check-why code { background:var(--accent-soft);padding:0 4px;border-radius:var(--r-xs) }
 .check-details { margin-top:2px }
 .check-details summary { cursor:pointer;width:max-content;color:var(--faint);font:var(--fs-sm)/1.6 var(--font-mono) }

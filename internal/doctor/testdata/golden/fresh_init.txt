@@ -1,3 +1,5 @@
+ok:   claude 2.1.319 on PATH (>= 2.1.234: project-name pinning supported)
+ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.319 (Claude Code))
 ok:   workspace dir exists (<ROOT>/workspace)
 ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_CONFIG_DIR; plain claude keeps ~/.claude
       workspace root: <ROOT>/workspace
@@ -6,8 +8,6 @@ ok:   isolated mode: cwm-launched sessions read <ROOT>/workspace through CLAUDE_
 ok:   no workspace settings.json yet (cwm adds its hooks to it on the next agent tick; now: cwm doctor --fix)
 ok:   no bash-kit hook scripts (not needed: the Go kit runs hooks as `cwm hook …`)
 ok:   .stignore matches the [sync] switches (12 of 12 items sync)
-ok:   claude 2.1.319 on PATH (>= 2.1.234: project-name pinning supported)
-ok:   claude binary: <BIN>/claude (source: PATH, verified: 2.1.319 (Claude Code))
 ok:   no repos.tsv yet (created on first launch)
 ok:   no session folders yet (<ROOT>/workspace/projects absent — created on first launch)
 ok:   no sync conflict copies

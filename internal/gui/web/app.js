@@ -686,12 +686,22 @@
 				el("span", { class: "check-title" }, [el("span", { class: "sr-only", text: SR_STATUS[st] + " " }), title]),
 				plain ? el("span", { class: "check-why" }, [richText(plain[1])]) : null,
 				cmd ? commandBox(cmd) : null,
+				c.name === "claude-bundled" && st !== "ok" ? btnDo("use this", useBundled) : null,
 				el("details", { class: "check-details" }, [el("summary", { text: "details" }),
 					el("pre", { class: "check-raw" }, [el("span", { class: "check-id", text: c.name + ": " }), raw])]),
 			]),
 		]);
 		if (animate) li.style.setProperty("--i", String(Math.min(i, 18)));
 		return li;
+	}
+
+	// D98: nothing to save; cwm already uses the bundled copy. Say which one.
+	async function useBundled() {
+		const r = await api("/api/claude");
+		const d = r.ok ? r.data : {};
+		if (!d.bundled) return load("health");
+		toast("ok", "cwm uses the claude bundled with " + d.bundle, d.path + " — found afresh each time, nothing is saved. For a claude that does not change with app updates, install the standalone CLI:",
+			{ cmd: d.install[0].command, sticky: true });
 	}
 
 	function healthView(list, animate) {

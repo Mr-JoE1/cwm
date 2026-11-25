@@ -52,6 +52,11 @@ details. Decisions are binding until superseded by a newer entry.
   `bundled` and `bundle`. The not-found message says that the desktop
   app and the extension do not put claude on PATH, lists where cwm
   looked (grouped, `~` for home) and ends with the install command.
+  The claude check is now doctor's first row (`--json` order changes:
+  `claude` before `workspace`), so a missing claude is the first thing
+  Health shows. A bundled copy's Health row offers "use this", which
+  saves nothing: it says which copy cwm uses (from `/api/claude`) and
+  repeats the standalone install command.
 
 ## 2026-11-24 (v0.8 — one workspace, SPEC-V0.8)
 
