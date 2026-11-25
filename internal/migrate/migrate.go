@@ -98,6 +98,8 @@ type Options struct {
 	// nil = Syncthing not managed here).
 	SyncFolder func(root string) error
 	Progress   io.Writer
+
+	accountGiven bool // Account came from the caller (--account), not the default
 }
 
 func (o *Options) defaults() {
@@ -112,6 +114,8 @@ func (o *Options) defaults() {
 	}
 	if o.Account == "" {
 		o.Account = "default"
+	} else if o.Account != "default" {
+		o.accountGiven = true
 	}
 	if o.Progress == nil {
 		o.Progress = io.Discard
@@ -592,13 +596,21 @@ func planLogins(l *storage.Layout, cfg *config.Config, p *Plan, launchDirs []str
 	if _, err := st.Read(to); err == nil {
 		name := matchAccount(l, cfg, to.ClaudeJSON, p.ToMode)
 		if name == "" {
-			name = uniqueName(cfg, o.Account)
+			target, why, warn := adoptTarget(l, cfg, p, to, o)
+			if warn != "" {
+				p.Warnings = append(p.Warnings, warn)
+			}
+			name = target
+			if name == "" {
+				name = uniqueName(cfg, o.Account)
+				why = "the live login becomes account " + name
+			}
 			v, err := vault(name)
 			if err != nil {
 				return err
 			}
 			p.Actions = append(p.Actions, Action{Kind: ActImport, Account: name, Src: st.Location(to), Dst: st.Location(v),
-				Detail: "the live login becomes account " + name, from: to, to: v})
+				Detail: why, from: to, to: v})
 		} else if fromLive != nil && name == def && config.ValidMode(cfg.Mode) {
 			// The same login live in both roots: the mode in use holds the
 			// fresher tokens.
@@ -638,12 +650,7 @@ func matchAccount(l *storage.Layout, cfg *config.Config, claudeJSON, mode string
 	if err != nil || (id.AccountUUID == "" && id.Email == "") {
 		return ""
 	}
-	same := func(x accounts.Identity) bool {
-		if id.AccountUUID != "" && x.AccountUUID != "" {
-			return id.AccountUUID == x.AccountUUID
-		}
-		return id.Email != "" && strings.EqualFold(id.Email, x.Email)
-	}
+	same := func(x accounts.Identity) bool { return sameIdentity(id, x) }
 	for _, a := range cfg.Accounts {
 		if a.Login != nil && same(accounts.Identity{Email: a.Login.Email, AccountUUID: a.Login.AccountUUID}) {
 			return a.Name
@@ -657,6 +664,89 @@ func matchAccount(l *storage.Layout, cfg *config.Config, claudeJSON, mode string
 		}
 	}
 	return ""
+}
+
+// adoptTarget picks the existing account a live login no account
+// matches belongs to (D102), so a migration never invents "default" next
+// to the account the user already has. "" = import it as a new account.
+//   - no accounts: new account;
+//   - --account <name> of an existing account: that one;
+//   - one account, or else the default account, with no saved login: it
+//     is that account's login;
+//   - that account has a saved login of a provably different identity
+//     (accountUuid, else email): new account, with a warning;
+//   - it has one that cannot be compared: still that account's, with a
+//     warning (the saved copy stays in the backup).
+func adoptTarget(l *storage.Layout, cfg *config.Config, p *Plan, live claudepaths.Paths, o Options) (name, why, warn string) {
+	if len(cfg.Accounts) == 0 {
+		return "", "", ""
+	}
+	cand, reason := "", ""
+	switch {
+	case o.accountGiven:
+		if _, ok := cfg.Account(o.Account); !ok {
+			return "", "", ""
+		}
+		cand, reason = o.Account, "named with --account"
+	case len(cfg.Accounts) == 1:
+		cand, reason = cfg.Accounts[0].Name, "the only account"
+	case cfg.DefaultAccount != "":
+		if _, ok := cfg.Account(cfg.DefaultAccount); !ok {
+			return "", "", ""
+		}
+		cand, reason = cfg.DefaultAccount, "the default account"
+	default:
+		return "", "", ""
+	}
+	saved, savedID := savedLogin(l, cfg, p, cand, o.Store)
+	if !saved {
+		return cand, "the live login is " + cand + "'s (" + reason + ", no saved login yet)", ""
+	}
+	liveID, _ := accounts.ReadIdentity(live.ClaudeJSON)
+	known := func(x accounts.Identity) bool { return x.AccountUUID != "" || x.Email != "" }
+	if known(liveID) && known(savedID) {
+		if sameIdentity(liveID, savedID) {
+			return cand, "the live login is " + cand + "'s (" + reason + ", same Claude account as its saved login)", ""
+		}
+		return "", "", "the live login is a different Claude account than " + cand + "'s saved login: it is imported as a new account (rename it later: cwm account)"
+	}
+	return cand, "the live login is taken as " + cand + "'s (" + reason + ")",
+		"the live login could not be compared with " + cand + "'s saved login (no recorded identity): it replaces it in the vault; the saved copy stays in the backup"
+}
+
+// savedLogin reports whether account name has a login saved in the vault
+// (or one this plan saves there from a v0.7 launch dir), and its identity.
+func savedLogin(l *storage.Layout, cfg *config.Config, p *Plan, name string, st accounts.CredStore) (bool, accounts.Identity) {
+	var id accounts.Identity
+	if a, ok := cfg.Account(name); ok && a.Login != nil {
+		id = accounts.Identity{Email: a.Login.Email, AccountUUID: a.Login.AccountUUID}
+	}
+	for _, a := range p.Actions {
+		if a.Kind == ActVault && a.Account == name {
+			if x, err := accounts.ReadIdentity(a.from.ClaudeJSON); err == nil && (x.AccountUUID != "" || x.Email != "") {
+				id = x
+			}
+			return true, id
+		}
+	}
+	v, err := accounts.VaultPaths(l, p.ToMode, name)
+	if err != nil {
+		return false, id
+	}
+	if _, err := st.Read(v); err != nil {
+		return false, id
+	}
+	if x, err := accounts.ReadIdentity(v.ClaudeJSON); err == nil && (x.AccountUUID != "" || x.Email != "") {
+		id = x
+	}
+	return true, id
+}
+
+func sameIdentity(a, b accounts.Identity) bool {
+	if a.AccountUUID != "" && b.AccountUUID != "" {
+		return a.AccountUUID == b.AccountUUID
+	}
+	return a.Email != "" && strings.EqualFold(a.Email, b.Email)
 }
 
 func uniqueName(cfg *config.Config, base string) string {

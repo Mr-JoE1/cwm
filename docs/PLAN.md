@@ -5,6 +5,28 @@ details. Decisions are binding until superseded by a newer entry.
 
 ## 2026-11-25 (v0.8.3 — patch release, the first real Windows migration)
 
+- **D102: a migration adopts the live login into the account the user
+  already has.** The owner's config named one account, `tat`
+  (`default_account = tat`), with an empty vault; the live
+  `~/.claude/.credentials.json` was tat's, yet the plan imported it as a
+  new account `default`. When no account's recorded identity matches the
+  live login (accountUuid, else email, from the live `.claude.json`), the
+  plan now picks a target: the account named with `--account` if it
+  exists; else the only account; else `default_account`. A target with no
+  saved login (in the vault, or saved by this plan from a v0.7 launch
+  dir) receives the live login and stays the default. A target whose
+  saved login has a provably different identity leaves the live login
+  to a new account (`default`, or `--account`'s new name) with a plan
+  warning; one whose saved login cannot be compared still receives it,
+  with a warning (the saved copy stays in the backup). No accounts at
+  all: `default`, as before. The plan line says who receives the login
+  and why: `import tat (~/.claude/.credentials.json -> ~/.cwm/accounts/tat/.credentials.json)
+  — the live login is tat's (the only account, no saved login yet)`;
+  login lines use `~` paths, warnings are printed, and neither carries
+  a credential value or an email. `cwm doctor --fix` on a pre-v0.8
+  config now saves the live login into the default account's empty
+  vault entry (the doctor's own suggestion; the vault path is the same
+  in both layouts) and leaves everything else for the migration.
 - **D101: a migration pauses the running agent; the backup skips what
   the agent or claude holds open.** The first real Windows migration
   (0.8.1) failed in the backup: the running agent holds

@@ -235,7 +235,7 @@ func printMigrationPlan(w io.Writer, p *migrate.Plan, dry bool) {
 		line := ""
 		switch {
 		case a.Account != "":
-			line = fmt.Sprintf("%s (%s -> %s)", a.Account, a.Src, a.Dst)
+			line = fmt.Sprintf("%s (%s -> %s)", a.Account, claudepaths.Tilde(a.Src), claudepaths.Tilde(a.Dst))
 		case a.Src != "" && a.Dst != "":
 			line = claudepaths.Tilde(a.Src) + " -> " + claudepaths.Tilde(a.Dst)
 		case a.Src != "":
@@ -253,6 +253,9 @@ func printMigrationPlan(w io.Writer, p *migrate.Plan, dry bool) {
 	}
 	if p.Default != "" {
 		fmt.Fprintf(w, "  default account: %s\n", p.Default)
+	}
+	for _, warn := range p.Warnings {
+		fmt.Fprintf(w, "  warning: %s\n", warn)
 	}
 }
 

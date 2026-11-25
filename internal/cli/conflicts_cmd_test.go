@@ -105,3 +105,43 @@ func TestDoctorFix(t *testing.T) {
 		t.Errorf("vault entry: %v %s", err, data)
 	}
 }
+
+// D102: before the migration, `cwm doctor --fix` still saves the live
+// login into the default account's empty vault entry (the doctor's own
+// suggestion), and touches nothing else.
+func TestDoctorFixPreV08SavesVault(t *testing.T) {
+	root := isolateHome(t)
+	home, _ := os.UserHomeDir()
+	ws := filepath.Join(home, ".claude")
+	for p, body := range map[string]string{
+		filepath.Join(ws, ".stignore"):                "stale\n",
+		filepath.Join(ws, ".credentials.json"):        `{"fake":"FAKE-LIVE"}`,
+		filepath.Join(root, "workspace", "CLAUDE.md"): "# v07\n",
+		filepath.Join(root, "config.toml"):            "version = 1\ndefault_account = \"tat\"\n\n[[account]]\nname = \"tat\"\ndir = \"x\"\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := runCLI(t, "doctor", "--fix")
+	if !strings.Contains(got.out, "saved the live login into tat's vault entry") || !strings.Contains(got.out, "cwm migrate --dry-run") {
+		t.Fatalf("fix output: %q %q", got.out, got.err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "accounts", "tat", ".credentials.json")); string(data) != `{"fake":"FAKE-LIVE"}` {
+		t.Fatalf("vault = %q", data)
+	}
+	if data, _ := os.ReadFile(filepath.Join(ws, ".stignore")); string(data) != "stale\n" {
+		t.Error("the maintenance pass ran on a pre-v0.8 config")
+	}
+	if strings.Contains(got.out, "FAKE-LIVE") {
+		t.Error("a credential value was printed")
+	}
+	// The migration then finds tat's login in the vault: no "default".
+	got = runCLI(t, "migrate", "--dry-run")
+	if strings.Contains(got.out, "account default") || !strings.Contains(got.out, "default account: tat") {
+		t.Fatalf("plan: %s %s", got.out, got.err)
+	}
+}
