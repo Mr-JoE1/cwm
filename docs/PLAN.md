@@ -3,6 +3,50 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-25 (v0.8.3 — patch release, the first real Windows migration)
+
+- **D101: a migration pauses the running agent; the backup skips what
+  the agent or claude holds open.** The first real Windows migration
+  (0.8.1) failed in the backup: the running agent holds
+  `~/.cwm/state/agent.lock` with share mode 0, so reading it is a
+  sharing violation, and the run left a partial `backups/migrate-<id>`
+  behind. Changes: (1) never backed up and never rolled back: in
+  `~/.cwm` the backups, logs, `cache/` (the rebuildable stats cache),
+  `state/migrations.json`, `state/agent.lock`, `state/*.pid`,
+  `state/*.sock`, `server.toml` (the dashboard token and port must
+  outlive a rollback), every `*.lock`, and claude's `session-env` /
+  `shell-snapshots` inside the isolated root, login-only dirs and v0.7
+  launch dirs; in `~/.claude` every `*.lock`, `session-env` and
+  `shell-snapshots`. The plan's backup size uses the same rules.
+  (2) A source file that stays locked (sharing or lock violation)
+  through four retries (about 2 s) is recorded in the manifest as
+  `skipped: locked`, reported as a warning and left alone by a
+  rollback, unless the plan reads or writes it: then the backup fails
+  with the file and its likely holder named. (3) The manifest is
+  written first with `incomplete: true` and the pid, and rewritten at
+  the end; a backup that fails before the apply is removed. A
+  `migrate-*` dir with no manifest (a pre-0.8.3 failure, older than
+  10 minutes) or with an incomplete one whose process is gone is never
+  a rollback target; every migration removes such dirs before it
+  starts, `cwm migrate list` shows them, and `cwm migrate clean`
+  removes them. (4) Coordination: option (a), pause over the local
+  API, because the agent API made it small and the dashboard's own
+  apply needs the same pause. `POST /api/agent/pause {holder, why,
+  seconds}` takes a lease on the maintenance tick (mirror, MCP bridge,
+  conflict watcher, `.stignore`) and returns once no tick is running;
+  the CLI renews it every 30 s, the lease lasts 2 min, so a killed
+  `cwm migrate` never leaves the agent paused. `POST
+  /api/agent/resume` ends it. Both skip the action lock, so a pause
+  during a dashboard migration answers 409 at once; a dashboard apply
+  during a CLI pause answers 409 too. `cwm migrate` and `cwm migrate
+  rollback` pause after the confirmation, plan again, and stop if the
+  plan changed. With no agent running they hold `agent.lock`
+  themselves, so none starts half-way. An agent that holds the lock
+  but does not answer, or one older than v0.8.3 (no pause endpoint),
+  gets option (b): "the cwm agent is running — stop it first: cwm
+  service stop (start it again afterwards: cwm service start)".
+  `GET /api/agent` gains `paused_by`.
+
 ## 2026-11-25 (v0.8.1 — patch release, GitHub issue #1)
 
 - **D100: a one-field bug form, and "report a bug" fills it.** The owner

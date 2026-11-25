@@ -143,6 +143,7 @@ Each item has an on/off switch, `sync.<key>`. Everything NOT on this list stays 
   4. **Verify.** Session count before and after (every session from both sources is present), and a Syncthing folder path check.
   5. **Record.** Write `~/.cwm/state/migrations.json`.
 - **Rollback** restores from the backup manifest exactly, and is tested.
+- **v0.8.3 (D101):** runtime files (`*.lock`, `state/agent.lock`, `server.toml`, `cache/`, claude's `session-env` / `shell-snapshots`) are neither backed up nor rolled back; a file another process keeps locked is `skipped: locked` unless the plan needs it; a running agent pauses its maintenance through `POST /api/agent/pause` for the run; incomplete backups are never rollback targets and are cleaned up (`cwm migrate clean`).
 - **The agent shows a dashboard banner** when an un-migrated v0.7.x layout is detected: "cwm now captures all Claude Code activity — review migration". It never migrates silently.
 - **Fresh install with an existing `~/.claude`:** capture mode adopts it in place. Nothing is moved, the `.stignore` is written, and the default account is imported from the live credentials as `default` (or as a name the user gives).
 

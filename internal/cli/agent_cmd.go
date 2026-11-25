@@ -188,6 +188,7 @@ func runAgent(e *Env, o agentOpts) error {
 		_ = ln.Close()
 		return err
 	}
+	pauser := &agent.Pauser{}
 	srv, err := gui.New(gui.Options{
 		Version:   versionInfo(),
 		Layout:    layout,
@@ -207,6 +208,7 @@ func runAgent(e *Env, o agentOpts) error {
 			return configEffects(&Env{Stdout: out, Stderr: out, Stdin: strings.NewReader("")}, layout, c, key, dry)
 		},
 		Migrate: &migrate.Options{SyncFolder: migrateSync},
+		Pauser:  pauser,
 	}, port, cfg.Token)
 	if err != nil {
 		_ = ln.Close()
@@ -250,9 +252,20 @@ func runAgent(e *Env, o agentOpts) error {
 	go func() {
 		defer close(maintainDone)
 		last := 0
+		wasPaused := false
 		tick := func() {
-			rep, err := maintainOnce(time.Now())
-			logMaintain(e.Stdout, name, rep, err, &last)
+			// D101: a migration (dashboard or `cwm migrate`) holds the tick.
+			ran := pauser.RunTick(func() {
+				rep, err := maintainOnce(time.Now())
+				logMaintain(e.Stdout, name, rep, err, &last)
+			})
+			if !ran && !wasPaused {
+				_, why := pauser.Paused()
+				fmt.Fprintf(e.Stdout, "%s: maintenance paused for %s\n", name, why)
+			} else if ran && wasPaused {
+				fmt.Fprintf(e.Stdout, "%s: maintenance resumed\n", name)
+			}
+			wasPaused = !ran
 		}
 		tick()
 		t := time.NewTicker(agentMaintainEvery)

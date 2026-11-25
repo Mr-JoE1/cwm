@@ -79,6 +79,9 @@ type Plan struct {
 	BackupRoots []string `json:"backup_roots"`
 	BackupBytes int64    `json:"backup_bytes"`
 	Warnings    []string `json:"warnings,omitempty"`
+	// Leftovers are backups an earlier run never finished (D101): the
+	// apply removes them before it starts its own.
+	Leftovers []string `json:"leftover_backups,omitempty"`
 
 	roots     []Root
 	newConfig *config.Config
@@ -254,7 +257,7 @@ func BuildPlan(l *storage.Layout, cfg *config.Config, o Options) (*Plan, error) 
 	if err != nil {
 		return nil, err
 	}
-	cwmRoot := Root{Path: l.Root, Exclude: []string{"backups", "logs", "state/migrations.json"}}
+	cwmRoot := Root{Path: l.Root, Exclude: CwmExcludes}
 	if kind == KindAdopt || kind == KindFresh {
 		p.roots = []Root{
 			cwmRoot,
@@ -263,17 +266,20 @@ func BuildPlan(l *storage.Layout, cfg *config.Config, o Options) (*Plan, error) 
 			{Path: filepath.Join(claude, ".credentials.json")},
 		}
 		if kind == KindFresh {
-			p.roots = append(p.roots, Root{Path: claude})
+			p.roots = append(p.roots, Root{Path: claude, Exclude: ClaudeExcludes})
 		}
 	} else {
-		p.roots = []Root{{Path: claude}, {Path: hj}, cwmRoot}
+		p.roots = []Root{{Path: claude, Exclude: ClaudeExcludes}, {Path: hj}, cwmRoot}
 		if !strings.HasPrefix(root, l.Root+string(filepath.Separator)) && root != claude {
-			p.roots = append(p.roots, Root{Path: root})
+			p.roots = append(p.roots, Root{Path: root, Exclude: ClaudeExcludes})
 		}
 	}
 	for _, r := range p.roots {
 		p.BackupRoots = append(p.BackupRoots, claudepaths.Tilde(r.Path))
 		p.BackupBytes += treeSize(r)
+	}
+	for _, d := range IncompleteBackups(l) {
+		p.Leftovers = append(p.Leftovers, claudepaths.Tilde(d))
 	}
 	nc.Mode = to
 	return p, nil
@@ -301,6 +307,24 @@ func treeSize(r Root) int64 {
 	})
 	return n
 }
+
+// What a backup never copies and a rollback never touches (D101): files
+// the running agent or a running claude holds open (on Windows an
+// exclusive handle fails every read with a sharing violation), runtime
+// state that must outlive a rollback (server.toml: the dashboard token
+// and port), and what is rebuilt on demand (cache/: the stats cache).
+var (
+	CwmExcludes = []string{
+		"backups", "logs", "cache", "state/migrations.json",
+		"state/agent.lock", "state/*.pid", "state/*.sock", "server.toml", "*.lock",
+		// claude's per-process runtime dirs inside an isolated root or a
+		// login-only dir
+		"workspace/session-env", "workspace/shell-snapshots",
+		"accounts/*/session-env", "accounts/*/shell-snapshots",
+		"launch/*/session-env", "launch/*/shell-snapshots",
+	}
+	ClaudeExcludes = []string{"*.lock", "session-env", "shell-snapshots"}
+)
 
 // v07LaunchDirs lists ~/.cwm/launch/<account> dirs.
 func v07LaunchDirs(l *storage.Layout) []string {

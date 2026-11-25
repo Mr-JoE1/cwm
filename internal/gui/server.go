@@ -125,6 +125,11 @@ type Options struct {
 	// with the Syncthing folder re-pointed through SyncClient).
 	SettingEffects func(cfg *config.Config, key string, dry bool, out io.Writer) error
 	Migrate        *migrate.Options
+
+	// v0.8.3 (D101): Pauser is the agent's maintenance-tick pause, shared
+	// with the tick loop; a migration (the dashboard's, or `cwm migrate`
+	// through /api/agent/pause) holds it. nil = a private one.
+	Pauser *agent.Pauser
 }
 
 // Server is the dashboard http.Handler bound to one port and one token.
@@ -183,6 +188,9 @@ func New(opts Options, port int, token string) (*Server, error) {
 	}
 	if opts.Layout == nil {
 		return nil, errors.New("gui: options need a layout")
+	}
+	if opts.Pauser == nil {
+		opts.Pauser = &agent.Pauser{}
 	}
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -429,6 +437,9 @@ type route struct {
 	// put is a settings write (v0.8 PUT /api/settings): same CSRF, JSON
 	// and serialisation rules as post.
 	put endpoint
+	// unlocked: the POST skips actionMu (the pause endpoints must answer
+	// "busy" while a dashboard migration holds actionMu, not wait for it).
+	unlocked bool
 }
 
 func (s *Server) routes() map[string]route {
@@ -450,6 +461,8 @@ func (s *Server) routes() map[string]route {
 		"/api/sessions/resume":      {post: s.apiResume},
 		"/api/pair":                 {post: s.apiPair},
 		"/api/agent":                {get: s.apiAgent},
+		"/api/agent/pause":          {post: s.apiAgentPause, unlocked: true},
+		"/api/agent/resume":         {post: s.apiAgentResume, unlocked: true},
 		"/api/claude":               {get: s.apiClaude},
 		"/api/debug":                {get: s.apiDebug},
 		"/api/stats":                {get: s.apiStats},
@@ -521,8 +534,10 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-		s.actionMu.Lock()
-		defer s.actionMu.Unlock()
+		if !rt.unlocked {
+			s.actionMu.Lock()
+			defer s.actionMu.Unlock()
+		}
 	}
 	body, code, err := ep(r)
 	if err != nil {
@@ -569,12 +584,13 @@ func (s *Server) apiAgent(*http.Request) (any, int, error) {
 		bind = agent.DefaultBind
 	}
 	return agent.Info{
-		Agent:   true,
-		PID:     os.Getpid(),
-		Port:    s.port,
-		Bind:    bind,
-		Started: s.started,
-		Version: s.opts.Version.Version,
+		Agent:    true,
+		PID:      os.Getpid(),
+		Port:     s.port,
+		Bind:     bind,
+		Started:  s.started,
+		Version:  s.opts.Version.Version,
+		PausedBy: func() string { _, why := s.opts.Pauser.Paused(); return why }(),
 	}, http.StatusOK, nil
 }
 
