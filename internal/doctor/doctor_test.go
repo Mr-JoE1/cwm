@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 	"github.com/Mr-JoE1/cwm/internal/testsafe"
@@ -397,7 +398,7 @@ func TestDoctorClaudeBundledOnly(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"ok:   claude 2.1.319 found — bundled with the VS Code extension, ~/.vscode/extensions/anthropic.claude-code-2.1.319-linux-x64/resources/native-binary/claude",
-		"warn: only the claude bundled with the VS Code extension was found (vscode-extension): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: curl -fsSL https://claude.ai/install.sh | bash",
+		"ok:   no standalone claude CLI — using the copy bundled with the VS Code extension (2.1.319). Works; bundled copies update with their app. For a claude command in terminals: curl -fsSL https://claude.ai/install.sh | bash",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q:\n%s", want, got)
@@ -405,6 +406,39 @@ func TestDoctorClaudeBundledOnly(t *testing.T) {
 	}
 	if strings.Contains(got, "export PATH=") || strings.Contains(got, "claude-binary") {
 		t.Errorf("no PATH advice for a bundled copy:\n%s", got)
+	}
+}
+
+// TestBundledNote: the owner's Windows case (D104) — two verified bundled
+// copies, the newest used, the other listed; one copy names only itself.
+// The note is an ok, optional check: nothing to fix.
+func TestBundledNote(t *testing.T) {
+	ext := `C:\Users\u\.vscode\extensions\anthropic.claude-code-2.1.332-win32-x64\resources\native-binary\claude.exe`
+	desk := `C:\Users\u\AppData\Roaming\Claude\claude-code\2.1.330\claude.exe`
+	res := claudebin.Result{Path: ext, Source: claudebin.SourceExtension, Version: "2.1.332", Bundle: "the VS Code extension",
+		Candidates: []claudebin.Candidate{
+			{Path: desk, Source: claudebin.SourceDesktop, Verified: true, Result: "verified: 2.1.330 (Claude Code)"},
+			{Path: ext, Source: claudebin.SourceExtension, Verified: true, Result: "verified: 2.1.332 (Claude Code)"},
+			{Path: `C:\x\claude.exe`, Source: claudebin.SourceDesktop, Verified: false, Result: "not Claude Code"},
+		}}
+	want := "no standalone claude CLI — using the copy bundled with the VS Code extension (2.1.332, newest); also found: Claude desktop app 2.1.330. Works; bundled copies update with their app. For a claude command in terminals: irm https://claude.ai/install.ps1 | iex"
+	if got := bundledNote(res, "windows"); got != want {
+		t.Errorf("several copies:\n got %q\nwant %q", got, want)
+	}
+	res.Candidates = res.Candidates[1:2]
+	want = "no standalone claude CLI — using the copy bundled with the VS Code extension (2.1.332). Works; bundled copies update with their app. For a claude command in terminals: irm https://claude.ai/install.ps1 | iex"
+	if got := bundledNote(res, "windows"); got != want {
+		t.Errorf("one copy:\n got %q\nwant %q", got, want)
+	}
+
+	var r checkList
+	r.ok("claude-bundled", "%s", bundledNote(res, "windows"))
+	r.optional()
+	if c := r[0]; c.Skipped() || textPrefix(c) != "ok:   " {
+		t.Errorf("claude-bundled must print as ok, got %q skipped=%v", textPrefix(c), c.Skipped())
+	}
+	if _, nWarn, nFail := Counts(r); nWarn != 0 || nFail != 0 {
+		t.Errorf("claude-bundled counted as a problem: warn=%d fail=%d", nWarn, nFail)
 	}
 }
 

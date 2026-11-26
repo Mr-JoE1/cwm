@@ -522,6 +522,31 @@ func firstLine(s string) string {
 	return s
 }
 
+// bundledNote is the claude-bundled line (D104): which bundled copy cwm
+// uses, the other verified copies the survey found, and the standalone
+// install command (last, after "terminals: ").
+func bundledNote(res claudebin.Result, goos string) string {
+	ver := res.Version
+	if ver == "" {
+		ver = "version unknown"
+	}
+	used := ver
+	others, newest := res.OtherBundled()
+	if len(others) > 0 && newest {
+		used += ", newest"
+	}
+	also := ""
+	if len(others) > 0 {
+		also = "; also found: " + strings.Join(others, ", ")
+	}
+	app := res.Bundle
+	if app == "" {
+		app = "an app"
+	}
+	return fmt.Sprintf("no standalone claude CLI — using the copy bundled with %s (%s)%s. Works; bundled copies update with their app. For a claude command in terminals: %s",
+		app, used, also, claudebin.InstallCommand(goos))
+}
+
 // checkClaude is check 0: the claude lookup (D49, D54, D98).
 func checkClaude(r *checkList, root string) {
 	layout := storage.NewLayoutAt(root)
@@ -567,12 +592,9 @@ func checkClaude(r *checkList, root string) {
 			// D98: works, but only while the app is installed, and it
 			// changes with every app update. No PATH advice: the folder
 			// carries a version, so it would break on the next update.
-			why := ""
-			if res.Why != "" {
-				why = " — " + res.Why // D103: which bundled copy, and why
-			}
-			r.warn("claude-bundled", "only the claude bundled with %s was found (%s%s): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: %s",
-				res.Bundle, res.Source, why, claudebin.InstallCommand(runtime.GOOS))
+			// D104: everything works, so it is a note, not a thing to fix.
+			r.ok("claude-bundled", "%s", bundledNote(res, runtime.GOOS))
+			r.optional()
 		case res.OnPath:
 			r.ok("claude-binary", "claude binary: %s (source: %s, verified: %s)", res.Path, res.Source.Label(), line)
 		default:
