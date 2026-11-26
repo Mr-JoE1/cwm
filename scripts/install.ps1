@@ -57,18 +57,18 @@ function Initialize-Ui {
     $script:Unicode = $script:Fancy -and $modern
     if ($script:Unicode) {
         $script:G = @{ Ok = [string][char]0x2713; Warn = [string][char]0x26A0; Fail = [string][char]0x2717
-            Bar = [string][char]0x2502; Dots = [string][char]0x2026
+            Bar = [string][char]0x2502; Dots = [string][char]0x2026; Dash = [string][char]0x2014
             TL = [string][char]0x256D; TR = [string][char]0x256E; BL = [string][char]0x2570; BR = [string][char]0x256F
             H = [string][char]0x2500; V = [string][char]0x2502 }
     } elseif ($script:Fancy) {
         # Legacy console: square root as the check mark, single-line box
         # drawing - all present in Consolas, Lucida Console and CP437.
         $script:G = @{ Ok = [string][char]0x221A; Warn = '!'; Fail = 'x'
-            Bar = [string][char]0x2502; Dots = '...'
+            Bar = [string][char]0x2502; Dots = '...'; Dash = '-'
             TL = [string][char]0x250C; TR = [string][char]0x2510; BL = [string][char]0x2514; BR = [string][char]0x2518
             H = [string][char]0x2500; V = [string][char]0x2502 }
     } else {
-        $script:G = @{ Ok = 'ok'; Warn = '!!'; Fail = 'xx'; Bar = '|'; Dots = '...'
+        $script:G = @{ Ok = 'ok'; Warn = '!!'; Fail = 'xx'; Bar = '|'; Dots = '...'; Dash = '-'
             TL = '+'; TR = '+'; BL = '+'; BR = '+'; H = '-'; V = '|' }
     }
     $script:StepN = 0
@@ -269,32 +269,61 @@ function Get-CwmHome {
     return (Join-Path $HOME '.cwm')
 }
 
-function Get-LatestTag {
+# Find-LatestTag: the newest release tag from the API, else the
+# releases/latest redirect; $null when both fail ($script:LatestWhy says
+# why). $quick (the best-effort check behind a CWM_VERSION pin) caps each
+# request at a few seconds.
+function Find-LatestTag([bool]$quick) {
     $api = 'https://api.github.com'
     if ($env:CWM_INSTALL_API) { $api = $env:CWM_INSTALL_API }
-    $why = ''
+    $script:LatestWhy = ''
     try {
-        $rel = Invoke-RestMethod -UseBasicParsing -Uri "$api/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'cwm-installer' }
+        $p = @{ UseBasicParsing = $true; Uri = "$api/repos/$Repo/releases/latest"; Headers = @{ 'User-Agent' = 'cwm-installer' } }
+        if ($quick) { $p.TimeoutSec = 8 }
+        $rel = Invoke-RestMethod @p
         if ($rel.tag_name) { return [string]$rel.tag_name }
-        $why = 'the release API returned no tag_name'
+        $script:LatestWhy = 'the release API returned no tag_name'
     } catch {
-        $why = $_.Exception.Message
+        $script:LatestWhy = $_.Exception.Message
     }
     # API rate-limited (403, 60 requests/hour per IP) or unreachable: the
     # releases/latest page redirects to /releases/tag/<tag>. Off when a test
     # points CWM_INSTALL_API elsewhere, unless it also sets CWM_INSTALL_WEB.
     if ((-not $env:CWM_INSTALL_API) -or $env:CWM_INSTALL_WEB) {
-        $tag = Get-LatestTagFromRedirect
+        $tag = Get-LatestTagFromRedirect $quick
         if ($tag) { return $tag }
     }
-    Fail ("could not determine the latest release ($why); pass -Version vX.Y.Z`n" +
+    return $null
+}
+
+function Get-LatestTag {
+    $tag = Find-LatestTag $false
+    if ($tag) { return $tag }
+    Fail ("could not determine the latest release ($($script:LatestWhy)); pass -Version vX.Y.Z`n" +
         "         or set `$env:CWM_VERSION='vX.Y.Z' first")
+}
+
+# Test-VersionOlder: release $a is older than release $b (numeric x.y.z,
+# then a pre-release before its release; build metadata is ignored).
+function Test-VersionOlder([string]$a, [string]$b) {
+    $a = ($a -replace '^v', '') -replace '\+.*$', ''
+    $b = ($b -replace '^v', '') -replace '\+.*$', ''
+    $x = @(($a -replace '-.*$', '').Split('.'))
+    $y = @(($b -replace '-.*$', '').Split('.'))
+    for ($i = 0; $i -lt 3; $i++) {
+        $p = 0; $q = 0
+        if ($i -lt $x.Count) { [void][int]::TryParse($x[$i], [ref]$p) }
+        if ($i -lt $y.Count) { [void][int]::TryParse($y[$i], [ref]$q) }
+        if ($p -lt $q) { return $true }
+        if ($p -gt $q) { return $false }
+    }
+    return ($a.Contains('-') -and -not $b.Contains('-'))
 }
 
 # Get-LatestTagFromRedirect: the tag named by the redirect of
 # <web>/<repo>/releases/latest, or $null. HEAD without following the
 # redirect first; then a followed GET, reading the final URI.
-function Get-LatestTagFromRedirect {
+function Get-LatestTagFromRedirect([bool]$quick = $false) {
     $web = 'https://github.com'
     if ($env:CWM_INSTALL_WEB) { $web = $env:CWM_INSTALL_WEB }
     $url = "$($web.TrimEnd('/'))/$Repo/releases/latest"
@@ -314,7 +343,9 @@ function Get-LatestTagFromRedirect {
     } catch { }
     if (-not ($found | Where-Object { Test-ReleaseTag (Get-UrlTag $_) })) {
         try {
-            $r = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{ 'User-Agent' = 'cwm-installer' }
+            $p = @{ UseBasicParsing = $true; Uri = $url; Headers = @{ 'User-Agent' = 'cwm-installer' } }
+            if ($quick) { $p.TimeoutSec = 8 }
+            $r = Invoke-WebRequest @p
             $br = $r.BaseResponse
             if ($br.PSObject.Properties['ResponseUri'] -and $br.ResponseUri) {
                 $found += [string]$br.ResponseUri.AbsoluteUri # Windows PowerShell 5.1
@@ -439,7 +470,7 @@ function Uninstall-Cwm {
     Write-Summary @('cwm was uninstalled', '', "Your workspace ($(Get-CwmHome)) was kept -", 'delete it yourself if you want it gone.')
 }
 
-function Install-Cwm([string]$tag, [bool]$skipService, [bool]$skipOpen) {
+function Install-Cwm([string]$tag, [bool]$skipService, [bool]$skipOpen, [bool]$pinEnv) {
     # Windows PowerShell 5.1 may still default to TLS 1.0; GitHub needs 1.2.
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -450,6 +481,19 @@ function Install-Cwm([string]$tag, [bool]$skipService, [bool]$skipOpen) {
     if (-not $tag) { $tag = Get-LatestTag; $which = 'latest' }
     if (-not $tag.StartsWith('v')) { $tag = "v$tag" }
     if ($tag -notmatch '^v[A-Za-z0-9._+-]+$') { Fail "invalid version '$tag'" }
+    # A CWM_VERSION left set from an earlier run used to pin silently: say so,
+    # with the newest release when a quick lookup finds it (best-effort).
+    $pinOlder = ''
+    if ($pinEnv) {
+        $newest = $null
+        try { $newest = Find-LatestTag $true } catch { }
+        if ($newest -and (Test-ReleaseTag $newest)) {
+            $which = "pinned by CWM_VERSION $($script:G.Dash) newest is $newest; clear it: Remove-Item Env:CWM_VERSION"
+            if (Test-VersionOlder $tag $newest) { $pinOlder = $newest }
+        } else {
+            $which = 'pinned by CWM_VERSION; clear it: Remove-Item Env:CWM_VERSION'
+        }
+    }
     $num = $tag.Substring(1)
     $archive = "cwm_${num}_windows_${arch}.zip"
     $base = "https://github.com/$Repo/releases/download"
@@ -569,6 +613,10 @@ function Install-Cwm([string]$tag, [bool]$skipService, [bool]$skipOpen) {
         'Uninstall',
         ('$env:CWM_UNINSTALL=''1''; irm ' + $Pages + '/install.ps1 | iex')
     )
+    if ($pinOlder) {
+        Write-Part $script:G.Warn 'Yellow'
+        Write-Host " CWM_VERSION pinned $tag, older than the newest release $pinOlder $($script:G.Dash) clear it (Remove-Item Env:CWM_VERSION) and re-run the installer"
+    }
 }
 
 Initialize-Ui
@@ -579,7 +627,10 @@ try {
     } else {
         $skipService = $NoService.IsPresent -or ($env:CWM_NO_SERVICE -eq '1')
         $skipOpen = $NoOpen.IsPresent -or ($env:CWM_NO_OPEN -eq '1')
-        Install-Cwm $Version $skipService $skipOpen
+        # -Version defaults to $env:CWM_VERSION; the same value means the
+        # pin came from the environment (or says the same thing).
+        $pinEnv = [bool]$env:CWM_VERSION -and ($Version -eq $env:CWM_VERSION)
+        Install-Cwm $Version $skipService $skipOpen $pinEnv
     }
 } catch {
     Write-Failure ([string]$_.Exception.Message)

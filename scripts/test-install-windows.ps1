@@ -68,6 +68,10 @@ try {
     $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $dl 'checksums.txt'), "$sum  $zipName`n")
     [IO.File]::WriteAllText((Join-Path $api 'latest'), "{`"tag_name`": `"$tag`"}")
+    # A second fake API whose latest release is newer (a CWM_VERSION pin left behind).
+    $newerApi = Join-Path $sandbox 'srv\newer\repos\Mr-JoE1\cwm\releases'
+    New-Item -ItemType Directory -Force -Path $newerApi | Out-Null
+    [IO.File]::WriteAllText((Join-Path $newerApi 'latest'), '{"tag_name": "v9.9.9"}')
 
     $port = Get-Random -Minimum 20000 -Maximum 40000
     $py = 'python'
@@ -164,6 +168,36 @@ try {
     Check 'both fail: error has -Version and $env:CWM_VERSION hints' (($bf -match 'could not determine the latest release \(.*403.*\); pass -Version vX\.Y\.Z') -and ($bf -match [regex]::Escape("or set `$env:CWM_VERSION='vX.Y.Z' first")))
     $env:CWM_INSTALL_API = "http://127.0.0.1:$port"
     Remove-Item Env:\CWM_INSTALL_WEB -ErrorAction SilentlyContinue
+    Remove-Item Env:\CWM_NO_SERVICE -ErrorAction SilentlyContinue
+    $env:CWM_INSTALL_DIR = $binMain
+
+    Write-Host '== 1f. CWM_VERSION pin left set, newer release available (irm | iex)'
+    $env:CWM_NO_SERVICE = '1'
+    $env:CWM_VERSION = $tag
+    $env:CWM_INSTALL_API = "http://127.0.0.1:$port/newer"
+    $env:CWM_INSTALL_DIR = Join-Path $sandbox 'bin-pinned'
+    $ErrorActionPreference = 'Continue'
+    $pn = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "irm http://127.0.0.1:$port/install.ps1 | iex" 2>&1 | Out-String)
+    $ErrorActionPreference = $prev
+    $pn -split "`n" | Where-Object { $_ -match 'release|CWM_VERSION|error' } | ForEach-Object { Write-Host "    | $_" }
+    $flat = $pn -replace '\s+', ' '
+    Check 'pinned: installed' (Test-Path -LiteralPath (Join-Path $env:CWM_INSTALL_DIR 'cwm.exe'))
+    Check 'pinned: step 1 names CWM_VERSION, the newest release and how to clear it' ($flat.Contains("release $tag (pinned by CWM_VERSION - newest is v9.9.9; clear it: Remove-Item Env:CWM_VERSION)"))
+    $lines = @($pn -split "`r?`n" | Where-Object { $_.Trim() -ne '' })
+    Check 'pinned older: one warning line after the box' (($lines[-1] -replace '\s+', ' ').Contains("CWM_VERSION pinned $tag, older than the newest release v9.9.9 - clear it (Remove-Item Env:CWM_VERSION) and re-run the installer"))
+
+    Write-Host '== 1g. CWM_VERSION pin, newest unknown (API and redirect fail)'
+    $env:CWM_INSTALL_API = "http://127.0.0.1:$fport/api403"
+    $env:CWM_INSTALL_WEB = "http://127.0.0.1:$fport/webnone"
+    $env:CWM_INSTALL_DIR = Join-Path $sandbox 'bin-pinned-offline'
+    $ErrorActionPreference = 'Continue'
+    $po = (& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\install.ps1') 2>&1 | Out-String)
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    Check 'pinned, lookup fails: exit 0, installed, no newest named' (($code -eq 0) -and (Test-Path -LiteralPath (Join-Path $env:CWM_INSTALL_DIR 'cwm.exe')) -and ($po -replace '\s+', ' ').Contains("release $tag (pinned by CWM_VERSION; clear it: Remove-Item Env:CWM_VERSION)") -and -not ($po -match 'newest'))
+    $env:CWM_INSTALL_API = "http://127.0.0.1:$port"
+    Remove-Item Env:\CWM_INSTALL_WEB -ErrorAction SilentlyContinue
+    Remove-Item Env:\CWM_VERSION -ErrorAction SilentlyContinue
     Remove-Item Env:\CWM_NO_SERVICE -ErrorAction SilentlyContinue
     $env:CWM_INSTALL_DIR = $binMain
 

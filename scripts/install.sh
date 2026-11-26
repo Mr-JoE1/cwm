@@ -52,10 +52,10 @@ ui_init() {
         *) utf=0 ;;
     esac
     if [ "$FANCY" = 1 ] && [ "$utf" = 1 ]; then
-        G_OK='✓' G_WARN='⚠' G_FAIL='✗' G_BAR='│' G_DOTS='…'
+        G_OK='✓' G_WARN='⚠' G_FAIL='✗' G_BAR='│' G_DOTS='…' G_DASH='—'
         B_TL='╭' B_TR='╮' B_BL='╰' B_BR='╯' B_H='─' B_V='│'
     else
-        G_OK='ok' G_WARN='!!' G_FAIL='xx' G_BAR='|' G_DOTS='...'
+        G_OK='ok' G_WARN='!!' G_FAIL='xx' G_BAR='|' G_DOTS='...' G_DASH='-'
         B_TL='+' B_TR='+' B_BL='+' B_BR='+' B_H='-' B_V='|'
         # cwm's own glyphs follow the installer's choice (D50).
         CWM_GLYPHS=ascii
@@ -312,10 +312,27 @@ detect_platform() {
     fi
 }
 
+# latest_json URL FILE — fetch, or with $quick set one capped attempt.
+latest_json() {
+    if [ -z "$quick" ]; then
+        fetch "$1" "$2" 2>/dev/null
+    elif command -v curl >/dev/null 2>&1; then
+        curl -fsSL --max-time 8 -o "$2" "$1" 2>/dev/null
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -T 8 -t 1 -O "$2" "$1" 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+# latest_tag [quick] — the newest release tag, from the API, else the
+# releases/latest redirect. "quick" (the best-effort check behind a
+# CWM_VERSION pin) caps each request at a few seconds and never retries.
 latest_tag() {
     api="${CWM_INSTALL_API:-https://api.github.com}"
     json="$TMP/latest.json"
-    if fetch "$api/repos/$REPO/releases/latest" "$json" 2>/dev/null; then
+    quick=${1:-}
+    if latest_json "$api/repos/$REPO/releases/latest" "$json"; then
         tag=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$json" | head -n 1)
         if [ -n "$tag" ]; then
             printf '%s\n' "$tag"
@@ -328,11 +345,27 @@ latest_tag() {
     if { [ -z "${CWM_INSTALL_API:-}" ] || [ -n "${CWM_INSTALL_WEB:-}" ]; } &&
         command -v curl >/dev/null 2>&1; then
         web="${CWM_INSTALL_WEB:-https://github.com}"
-        url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${web%/}/$REPO/releases/latest" 2>/dev/null || true)
+        url=$(curl -fsSLI ${quick:+--max-time 8} -o /dev/null -w '%{url_effective}' "${web%/}/$REPO/releases/latest" 2>/dev/null || true)
         tag=${url##*/}
         case "$tag" in v[0-9]*.[0-9]*.[0-9]*) printf '%s\n' "$tag"; return 0 ;; esac
     fi
     return 1
+}
+
+# ver_older A B — succeeds when release A is older than release B
+# (numeric x.y.z, then a pre-release before its release; build metadata
+# is ignored).
+ver_older() {
+    awk -v a="${1#v}" -v b="${2#v}" 'BEGIN {
+        sub(/\+.*/, "", a); sub(/\+.*/, "", b)
+        pa = a; sub(/-.*/, "", pa); pb = b; sub(/-.*/, "", pb)
+        split(pa, x, "."); split(pb, y, ".")
+        for (i = 1; i <= 3; i++) {
+            if ((x[i] + 0) < (y[i] + 0)) exit 0
+            if ((x[i] + 0) > (y[i] + 0)) exit 1
+        }
+        exit !(a ~ /-/ && b !~ /-/)
+    }'
 }
 
 profile_files() {
@@ -419,13 +452,14 @@ do_uninstall() {
 
 main() {
     VERSION="${CWM_VERSION:-}"
+    VERSION_FLAG=0
     NO_SERVICE=0
     NO_OPEN=0
     UNINSTALL=0
     while [ $# -gt 0 ]; do
         case "$1" in
-            --version) [ $# -ge 2 ] || { ui_init; die "--version needs a value"; }; VERSION=$2; shift ;;
-            --version=*) VERSION=${1#--version=} ;;
+            --version) [ $# -ge 2 ] || { ui_init; die "--version needs a value"; }; VERSION=$2; VERSION_FLAG=1; shift ;;
+            --version=*) VERSION=${1#--version=}; VERSION_FLAG=1 ;;
             --no-service) NO_SERVICE=1 ;;
             --no-open) NO_OPEN=1 ;;
             --uninstall) UNINSTALL=1 ;;
@@ -452,6 +486,19 @@ main() {
         VERSION=$(latest_tag) || die "could not determine the latest release (pass --version vX.Y.Z)
          or set CWM_VERSION=vX.Y.Z first"
         which_tag="latest"
+    fi
+    # A CWM_VERSION left set from an earlier run used to pin silently: say so,
+    # with the newest release when a quick lookup finds it (best-effort).
+    PIN_OLDER=""
+    if [ "$VERSION_FLAG" = 0 ] && [ -n "${CWM_VERSION:-}" ]; then
+        newest=$(latest_tag quick 2>/dev/null || true)
+        case "$newest" in
+            v[0-9]*.[0-9]*.[0-9]*)
+                which_tag="pinned by CWM_VERSION $G_DASH newest is $newest; clear it: unset CWM_VERSION"
+                if ver_older "$VERSION" "$newest"; then PIN_OLDER=$newest; fi
+                ;;
+            *) which_tag="pinned by CWM_VERSION; clear it: unset CWM_VERSION" ;;
+        esac
     fi
     case "$VERSION" in
         v*) TAG=$VERSION ;;
@@ -565,6 +612,10 @@ main() {
         "" \
         "Uninstall" \
         "curl -fsSL $PAGES/install.sh | sh -s -- --uninstall"
+    if [ -n "$PIN_OLDER" ]; then
+        printf '%s%s%s CWM_VERSION pinned %s, older than the newest release %s %s clear it (unset CWM_VERSION) and re-run the installer\n' \
+            "$C_YELLOW" "$G_WARN" "$C_RESET" "$TAG" "$PIN_OLDER" "$G_DASH"
+    fi
 }
 
 main "$@"
