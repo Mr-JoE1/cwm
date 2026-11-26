@@ -201,9 +201,9 @@ func writeSessionsTable(w io.Writer, list []sessions.Session, now time.Time) {
 	for i, s := range list {
 		rows = append(rows, []string{
 			strconv.Itoa(i + 1),
-			s.Project,
+			projectName(s),
 			sessionID8(s.ID),
-			clipPrompt(s.FirstPrompt),
+			clipPrompt(sessions.ListPrompt(s)),
 			strconv.Itoa(s.Messages),
 			s.Branch,
 			relativeTime(s.Modified, now),
@@ -293,4 +293,13 @@ func relativeTime(t, now time.Time) string {
 	default:
 		return t.Format("2006-01-02")
 	}
+}
+
+// projectName is the table's project column: the repo basename sessions.List
+// worked out, else the shortened folder name.
+func projectName(s sessions.Session) string {
+	if s.Label != "" {
+		return s.Label
+	}
+	return sessions.ProjectLabel(s.Project)
 }

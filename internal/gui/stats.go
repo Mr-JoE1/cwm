@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/sessions"
 	"github.com/Mr-JoE1/cwm/internal/stats"
+	"github.com/Mr-JoE1/cwm/internal/status"
 )
 
 // statsEngine is the server's one stats.Engine (D64), created on first
@@ -76,5 +78,22 @@ func (s *Server) apiStats(r *http.Request) (any, int, error) {
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
+	LabelTopProjects(snap, status.ProjectsDir(s.opts.Layout))
 	return snap, http.StatusOK, nil
+}
+
+// LabelTopProjects names the top projects the way session lists do (repo
+// basename, full cwd in Path); `cwm stats` calls it too.
+func LabelTopProjects(snap *stats.Snapshot, projectsDir string) {
+	if snap == nil || len(snap.TopProjects) == 0 {
+		return
+	}
+	labels := sessions.ProjectLabels(projectsDir)
+	for i, g := range snap.TopProjects {
+		l, ok := labels[g.Name]
+		if !ok {
+			l = sessions.Label{Text: sessions.ProjectLabel(g.Name)}
+		}
+		snap.TopProjects[i].Label, snap.TopProjects[i].Path = l.Text, l.Path
+	}
 }

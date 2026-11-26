@@ -87,7 +87,7 @@ func TestSettingsPut(t *testing.T) {
 	for body, want := range map[string]int{
 		`{"key":"nope","value":"on"}`:                       http.StatusNotFound,
 		`{"key":"features.stats","value":"maybe"}`:          http.StatusBadRequest,
-		`{"key":"display.hidden_tabs","value":"sessions"}`:  http.StatusBadRequest, // the default tab
+		`{"key":"display.hidden_tabs","value":"home"}`:      http.StatusBadRequest, // the default tab
 		`{"key":"mode","value":"capture"}`:                  http.StatusConflict,
 		`{"key":"features.stats","value":"on","extra":1}`:   http.StatusBadRequest,
 		`{"key":"display.default_tab","value":"settings2"}`: http.StatusBadRequest,

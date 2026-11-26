@@ -27,6 +27,9 @@
 <symbol id="i-ok" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="m5 8 2 2 4-4"/></symbol>
 <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="13" cy="8" r=".9"/></symbol>
 <symbol id="i-set" viewBox="0 0 16 16"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7M10.5 3v3M5.5 10v3"/></symbol>
+<symbol id="i-home" viewBox="0 0 16 16"><path d="M2.5 7.5 8 2.5l5.5 5M4 6.5v7h8v-7M6.5 13.5v-4h3v4"/></symbol>
+<symbol id="i-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.5" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></symbol>
+<symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 2 14.5 13.5h-13ZM8 6.5v3.5M8 11.75v.25"/></symbol>
 <symbol id="i-terminal" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="m4.5 6 2 2-2 2M8.5 10.5h3"/></symbol>
 </defs></svg>
 <div class="shell">
@@ -46,44 +49,38 @@
 		</div>
 	</div>
 	<div class="controls">
-		<button type="button" id="live" class="live" data-mode="init" title="Live updates">
-			<span class="live-dot" aria-hidden="true"></span><span id="live-text">connecting…</span>
-		</button>
-		<div class="hdr-full">
-			<div class="seg seg-text" role="group" aria-label="Theme">
-				<button type="button" class="seg-btn" data-theme-set="system" aria-pressed="false" title="Theme: follow the system">auto</button>
-				<button type="button" class="seg-btn" data-theme-set="dark" aria-pressed="false" title="Theme: dark">dark</button>
-				<button type="button" class="seg-btn" data-theme-set="light" aria-pressed="false" title="Theme: light">light</button>
-			</div>
-			<button type="button" class="btn btn-small toggle" data-motion-toggle aria-pressed="true" title="Animated background (b)"><span class="toggle-box" aria-hidden="true"></span>motion</button>
-		</div>
 		<button type="button" id="refresh" class="btn btn-small btn-refresh" title="Refresh (r)">
 			<svg class="i" aria-hidden="true" focusable="false"><use href="#i-refresh"/></svg>
-			<span class="btn-label">refresh</span><span class="sr-only">Refresh</span>
+			<span class="btn-label">Refresh</span><span class="sr-only">Refresh</span>
 		</button>
 		<button type="button" id="menu-btn" class="icon-btn menu-btn" aria-expanded="false" aria-controls="menu" aria-label="More options" title="More options">
 			<svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg>
 		</button>
 		<div id="menu" class="menu" hidden>
-			<p class="menu-label">theme</p>
-			<div data-theme-seg></div>
+			<p class="menu-label">Theme</p>
+			<div class="seg seg-text" role="group" aria-label="Theme" id="theme-seg">
+				<button type="button" class="seg-btn" data-theme-set="system" aria-pressed="false" title="Theme: follow the system">Auto</button>
+				<button type="button" class="seg-btn" data-theme-set="dark" aria-pressed="false" title="Theme: dark">Dark</button>
+				<button type="button" class="seg-btn" data-theme-set="light" aria-pressed="false" title="Theme: light">Light</button>
+			</div>
 			<button type="button" class="menu-item" data-motion-toggle aria-pressed="true"><span class="toggle-box" aria-hidden="true"></span>motion</button>
-			<button type="button" class="menu-item" data-debug-copy>copy debug logs</button>
-			<button type="button" class="menu-item" data-palette-open>command palette <kbd>ctrl k</kbd></button>
-			<button type="button" class="menu-item" data-keys-open>keyboard shortcuts <kbd>?</kbd></button>
-			<button type="button" class="menu-item" data-about-open>about cwm</button>
+			<button type="button" class="menu-item" data-debug-copy>Copy debug logs</button>
+			<button type="button" class="menu-item" data-bug-report>Report a bug</button>
+			<button type="button" class="menu-item" data-palette-open>Command palette <kbd>ctrl k</kbd></button>
+			<button type="button" class="menu-item" data-keys-open>Keyboard shortcuts <kbd>?</kbd></button>
+			<button type="button" class="menu-item" data-about-open>About cwm</button>
 		</div>
 	</div>
 </header>
 
 <div id="offline-banner" class="banner banner-warn" role="alert" hidden>
 	<span>cwm is not reachable. The agent may have stopped; start it with <code>cwm dashboard</code>.</span>
-	<button type="button" class="btn btn-small" id="offline-retry">retry</button>
+	<button type="button" class="btn btn-small" id="offline-retry">Retry</button>
 </div>
 
 <div id="migrate-banner" class="banner banner-warn" role="region" aria-label="Migration" hidden>
 	<span>cwm now captures all Claude Code activity — review migration. Nothing moves until you apply it.</span>
-	<button type="button" class="btn btn-small" id="migrate-review">review migration</button>
+	<button type="button" class="btn btn-small" id="migrate-review">Review migration</button>
 </div>
 
 <div id="auth-banner" class="banner banner-error" hidden>
@@ -93,57 +90,57 @@
 
 <section id="wizard" class="wizard" aria-labelledby="wizard-title" hidden>
 	<div class="wiz-rail-col">
-		<p class="eyebrow">first run</p>
+		<p class="eyebrow">First run</p>
 		<h1 id="wizard-title" class="path"><span class="path-pre">~/cwm/</span>setup</h1>
 		<p class="hint">Four short steps. Each one shows what it runs in the log.</p>
 		<ol class="steps" aria-label="Setup steps">
-			<li data-step="init"><span class="step-n">1</span><span><span class="step-l">initialize</span><span class="step-sub">workspace and config</span></span></li>
-			<li data-step="account"><span class="step-n">2</span><span><span class="step-l">add account</span><span class="step-sub">one Claude login</span></span></li>
-			<li data-step="pair"><span class="step-n">3</span><span><span class="step-l">pair <span class="opt">(optional)</span></span><span class="step-sub">sync with another device</span></span></li>
-			<li data-step="done"><span class="step-n">4</span><span><span class="step-l">done</span><span class="step-sub">open the dashboard</span></span></li>
+			<li data-step="init"><span class="step-n">1</span><span><span class="step-l">Initialize</span><span class="step-sub">workspace and config</span></span></li>
+			<li data-step="account"><span class="step-n">2</span><span><span class="step-l">Add account</span><span class="step-sub">one Claude login</span></span></li>
+			<li data-step="pair"><span class="step-n">3</span><span><span class="step-l">Pair <span class="opt">(optional)</span></span><span class="step-sub">sync with another device</span></span></li>
+			<li data-step="done"><span class="step-n">4</span><span><span class="step-l">Done</span><span class="step-sub">open the dashboard</span></span></li>
 		</ol>
-		<p class="wizard-foot"><button type="button" class="link" id="wiz-dismiss">skip setup and open the dashboard</button></p>
+		<p class="wizard-foot"><button type="button" class="link" id="wiz-dismiss">Skip setup and open the dashboard</button></p>
 	</div>
 
 	<div class="wiz-main">
 		<div class="step card" data-step="init" hidden>
-			<h3>initialize the workspace</h3>
+			<h2 class="card-title">Initialize the workspace</h2>
 			<p class="hint">Creates the cwm home and <code>config.toml</code>; an existing <code>~/.claude</code> is adopted in place. Safe to run again; existing data is kept.</p>
 			<div class="cmd-slot" data-cmd="cwm init"></div>
-			<div class="row"><button type="button" class="btn btn-primary" id="wiz-init">initialize workspace</button></div>
+			<div class="row"><button type="button" class="btn btn-primary" id="wiz-init">Initialize workspace</button></div>
 			<div class="result" id="wiz-init-result" aria-live="polite"></div>
 		</div>
 
 		<div class="step card" data-step="account" hidden>
-			<h3>add a Claude account</h3>
+			<h2 class="card-title">Add a Claude account</h2>
 			<p class="hint">Pick a short name for this login, for example <code>work</code>. A terminal window opens for the Claude login; this page notices when it is done.</p>
 			<div class="result" id="wiz-claude" aria-live="polite"></div>
 			<div class="cmd-slot" data-cmd="cwm account add &lt;name&gt;"></div>
 			<div class="row">
-				<label for="wiz-account-name">account name</label>
+				<label for="wiz-account-name">Account name</label>
 				<input type="text" id="wiz-account-name" class="input" maxlength="32" autocomplete="off" spellcheck="false" placeholder="work">
-				<button type="button" class="btn btn-primary" id="wiz-account-add">add account</button>
+				<button type="button" class="btn btn-primary" id="wiz-account-add">Add account</button>
 			</div>
 			<div class="result" id="wiz-account-result" aria-live="polite"></div>
 		</div>
 
 		<div class="step card" data-step="pair" hidden>
-			<h3>pair another device (optional)</h3>
+			<h2 class="card-title">Pair another device (optional)</h2>
 			<p class="hint">Syncs the workspace with another device over Syncthing, peer to peer. Run the same pairing on the other device with this device's ID.</p>
 			<div class="row">
-				<span class="label">this device</span>
+				<span class="label">This device</span>
 				<code id="wiz-own-id" class="device-id">…</code>
-				<button type="button" class="btn btn-small" id="wiz-own-id-copy">copy</button>
+				<button type="button" class="btn btn-small" id="wiz-own-id-copy">Copy</button>
 			</div>
 			<div class="row">
-				<label for="wiz-peer-id">other device ID</label>
+				<label for="wiz-peer-id">Other device ID</label>
 				<input type="text" id="wiz-peer-id" class="input input-wide" autocomplete="off" spellcheck="false" placeholder="ABCDEFG-HIJKLMN-…">
 			</div>
 			<div class="row">
-				<label for="wiz-peer-name">name (optional)</label>
+				<label for="wiz-peer-name">Name (optional)</label>
 				<input type="text" id="wiz-peer-name" class="input" maxlength="64" autocomplete="off" placeholder="laptop">
-				<button type="button" class="btn btn-primary" id="wiz-pair">pair</button>
-				<button type="button" class="btn" id="wiz-pair-skip">skip</button>
+				<button type="button" class="btn btn-primary" id="wiz-pair">Pair</button>
+				<button type="button" class="btn" id="wiz-pair-skip">Skip</button>
 			</div>
 			<div class="result" id="wiz-pair-result" aria-live="polite"></div>
 		</div>
@@ -155,20 +152,20 @@
 				<rect class="mark-cursor" x="33" y="37.5" width="12" height="5" rx="1"/>
 			</svg>
 			<div class="done-body">
-				<h3>cwm is ready</h3>
+				<h2 class="card-title">cwm is ready</h2>
 				<p class="hint">Your workspace is set up on this device. Next:</p>
 				<ul class="next-list">
-					<li><strong>open a repo</strong> in Claude Code<div class="cmd-slot" data-cmd="cwm open &lt;name&gt;"></div></li>
-					<li><strong>resume any session</strong> from the sessions tab, or press Enter on its row</li>
-					<li><strong>pair another device</strong> later from the devices tab<div class="cmd-slot" data-cmd="cwm pair --start"></div></li>
+					<li><strong>Open a repo</strong> in Claude Code<div class="cmd-slot" data-cmd="cwm open &lt;name&gt;"></div></li>
+					<li><strong>Resume any session</strong> from Home or Sessions, or press Enter on its row</li>
+					<li><strong>Pair another device</strong> later from the Devices tab<div class="cmd-slot" data-cmd="cwm pair --start"></div></li>
 				</ul>
 				<dl class="key-hints">
-					<dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>switch section</dd>
-					<dt><kbd>ctrl</kbd> <kbd>k</kbd></dt><dd>command palette</dd>
-					<dt><kbd>/</kbd></dt><dd>filter sessions</dd>
-					<dt><kbd>?</kbd></dt><dd>all shortcuts</dd>
+					<dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>Switch section</dd>
+					<dt><kbd>ctrl</kbd> <kbd>k</kbd></dt><dd>Command palette</dd>
+					<dt><kbd>/</kbd></dt><dd>Filter sessions</dd>
+					<dt><kbd>?</kbd></dt><dd>All shortcuts</dd>
 				</dl>
-				<button type="button" class="btn btn-primary" id="wiz-done">open the dashboard</button>
+				<button type="button" class="btn btn-primary" id="wiz-done">Open the dashboard</button>
 			</div>
 		</div>
 
@@ -181,30 +178,64 @@
 
 <div id="dashboard">
 <div class="tabbar">
-<span class="tmux-prefix" aria-hidden="true">[cwm]</span>
 <nav class="tabs" role="tablist" aria-label="Dashboard sections">
-	<button type="button" role="tab" class="tab" id="tab-sessions" data-tab="sessions" aria-controls="panel-sessions" aria-keyshortcuts="1"><span class="tk" aria-hidden="true">1:</span>sessions</button>
-	<button type="button" role="tab" class="tab" id="tab-projects" data-tab="projects" aria-controls="panel-projects" aria-keyshortcuts="2"><span class="tk" aria-hidden="true">2:</span>projects</button>
-	<button type="button" role="tab" class="tab" id="tab-devices" data-tab="devices" aria-controls="panel-devices" aria-keyshortcuts="3"><span class="tk" aria-hidden="true">3:</span>devices</button>
-	<button type="button" role="tab" class="tab" id="tab-handoff" data-tab="handoff" aria-controls="panel-handoff" aria-keyshortcuts="4"><span class="tk" aria-hidden="true">4:</span>handoff</button>
-	<button type="button" role="tab" class="tab" id="tab-health" data-tab="health" aria-controls="panel-health" aria-keyshortcuts="5"><span class="tk" aria-hidden="true">5:</span>health<span class="tab-badge" id="badge-health" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-accounts" data-tab="accounts" aria-controls="panel-accounts" aria-keyshortcuts="6"><span class="tk" aria-hidden="true">6:</span>accounts<span class="tab-badge" id="badge-accounts" hidden></span></button>
-	<button type="button" role="tab" class="tab" id="tab-stats" data-tab="stats" aria-controls="panel-stats" aria-keyshortcuts="7"><span class="tk" aria-hidden="true">7:</span>stats</button>
-	<button type="button" role="tab" class="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" aria-keyshortcuts="8"><span class="tk" aria-hidden="true">8:</span>settings</button>
+	<button type="button" role="tab" class="tab" id="tab-home" data-tab="home" aria-controls="panel-home" aria-keyshortcuts="1"><kbd class="tk" aria-hidden="true">1</kbd>Home</button>
+	<button type="button" role="tab" class="tab" id="tab-sessions" data-tab="sessions" aria-controls="panel-sessions" aria-keyshortcuts="2"><kbd class="tk" aria-hidden="true">2</kbd>Sessions</button>
+	<button type="button" role="tab" class="tab" id="tab-projects" data-tab="projects" aria-controls="panel-projects" aria-keyshortcuts="3"><kbd class="tk" aria-hidden="true">3</kbd>Projects</button>
+	<button type="button" role="tab" class="tab" id="tab-devices" data-tab="devices" aria-controls="panel-devices" aria-keyshortcuts="4"><kbd class="tk" aria-hidden="true">4</kbd>Devices</button>
+	<button type="button" role="tab" class="tab" id="tab-handoff" data-tab="handoff" aria-controls="panel-handoff" aria-keyshortcuts="5"><kbd class="tk" aria-hidden="true">5</kbd>Handoff</button>
+	<button type="button" role="tab" class="tab" id="tab-health" data-tab="health" aria-controls="panel-health" aria-keyshortcuts="6"><kbd class="tk" aria-hidden="true">6</kbd>Health<span class="tab-badge" id="badge-health" hidden></span></button>
+	<button type="button" role="tab" class="tab" id="tab-accounts" data-tab="accounts" aria-controls="panel-accounts" aria-keyshortcuts="7"><kbd class="tk" aria-hidden="true">7</kbd>Accounts<span class="tab-badge" id="badge-accounts" hidden></span></button>
+	<button type="button" role="tab" class="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" aria-keyshortcuts="8"><kbd class="tk" aria-hidden="true">8</kbd>Settings</button>
 </nav>
-<button type="button" class="tab-pal" data-palette-open title="Command palette (Ctrl-K)"><span aria-hidden="true">❯</span> <kbd>ctrl k</kbd><span class="sr-only">Open the command palette</span></button>
+<button type="button" class="tab-pal" data-palette-open title="Command palette (Ctrl-K)"><span aria-hidden="true">&gt;</span> <kbd>ctrl k</kbd><span class="sr-only">Open the command palette</span></button>
 </div>
 
 <main>
+	<section class="panel" role="tabpanel" id="panel-home" aria-labelledby="tab-home" hidden>
+		<div class="panel-head"><h1 class="path"><span class="path-pre">~/cwm/</span>home</h1></div>
+		<p class="hint">Is the workspace healthy, and what were you doing? Each part loads on its own.</p>
+		<div class="home-grid">
+			<section class="home-status" aria-label="System status" data-content="home-status"></section>
+			<section class="card home-card home-continue" aria-labelledby="h-continue">
+				<div class="card-head"><h2 id="h-continue" class="card-title">Continue where you left off</h2><a class="more-link" href="#sessions">All sessions →</a></div>
+				<div data-content="home-continue"></div>
+			</section>
+			<section class="card home-card home-attention" aria-labelledby="h-attention">
+				<div class="card-head"><h2 id="h-attention" class="card-title">Needs attention</h2><a class="more-link" href="#health">All checks →</a></div>
+				<div data-content="home-attention"></div>
+			</section>
+			<section class="card home-card home-wip" aria-labelledby="h-wip">
+				<div class="card-head"><h2 id="h-wip" class="card-title">Uncommitted work</h2><a class="more-link" href="#handoff">Handoff →</a></div>
+				<div data-content="home-wip"></div>
+			</section>
+			<section class="home-activity" id="home-activity" aria-labelledby="h-activity">
+				<div class="panel-head"><h2 id="h-activity" class="path"><span class="path-pre">~/cwm/</span>activity</h2></div>
+				<p class="hint">Derived from the session transcripts on this machine (same data as <code>cwm stats</code>). Computed locally — never sent anywhere.</p>
+				<div class="kpi-bar"><span class="kpi-bar-l" id="range-l">Totals for</span>
+					<div class="seg seg-text" role="group" aria-labelledby="range-l" id="stats-range">
+						<button type="button" class="seg-btn" data-range="7d" aria-pressed="false">7d</button>
+						<button type="button" class="seg-btn" data-range="30d" aria-pressed="false">30d</button>
+						<button type="button" class="seg-btn" data-range="90d" aria-pressed="false">90d</button>
+						<button type="button" class="seg-btn" data-range="365d" aria-pressed="false">1y</button>
+						<button type="button" class="seg-btn" data-range="all" aria-pressed="false">All</button>
+					</div>
+				</div>
+				<div class="stats-body" data-content="activity"></div>
+			</section>
+		</div>
+	</section>
+
 	<section class="panel" role="tabpanel" id="panel-sessions" aria-labelledby="tab-sessions" hidden>
 		<div class="panel-head">
 			<h1 class="path"><span class="path-pre">~/cwm/</span>sessions</h1>
+			<span id="sessions-count" class="count" aria-live="polite"></span>
 			<div class="filter-wrap">
-				<input type="search" id="sessions-filter" class="filter" placeholder="filter by project or prompt" aria-label="Filter sessions" aria-keyshortcuts="/">
+				<input type="search" id="sessions-filter" class="filter" placeholder="> filter by project or prompt" aria-label="Filter sessions" aria-keyshortcuts="/">
 				<kbd class="filter-key" aria-hidden="true">/</kbd>
 			</div>
 		</div>
-		<p class="hint">Every session in the synced workspace, newest first. <strong>resume</strong> (or Enter on a row) opens a terminal running it; the repo clones on demand.</p>
+		<p class="hint">Every session in the synced workspace, newest first. <strong>Resume</strong> (or Enter on a row) opens a terminal running it; the repo clones on demand.</p>
 		<div class="content" data-content="sessions"></div>
 	</section>
 
@@ -218,20 +249,20 @@
 		<div class="panel-head"><h1 class="path"><span class="path-pre">~/cwm/</span>devices</h1></div>
 		<p class="hint">Paired Syncthing peers and their workspace sync progress (same data as <code>cwm devices</code>).</p>
 		<div class="card pair-card" id="pair-form">
-			<h3>pair a device</h3>
+			<h2 class="card-title">Pair a device</h2>
 			<div class="row">
-				<span class="label">this device</span>
+				<span class="label">This device</span>
 				<code id="pair-own-id" class="device-id">…</code>
-				<button type="button" class="btn btn-small" id="pair-own-id-copy">copy</button>
+				<button type="button" class="btn btn-small" id="pair-own-id-copy">Copy</button>
 			</div>
 			<div class="row">
-				<label for="pair-device-id">other device ID</label>
+				<label for="pair-device-id">Other device ID</label>
 				<input type="text" id="pair-device-id" class="input input-wide" autocomplete="off" spellcheck="false" placeholder="ABCDEFG-HIJKLMN-…">
 			</div>
 			<div class="row">
-				<label for="pair-name">name (optional)</label>
+				<label for="pair-name">Name (optional)</label>
 				<input type="text" id="pair-name" class="input" maxlength="64" autocomplete="off" placeholder="laptop">
-				<button type="button" class="btn btn-primary" id="pair-submit">pair device</button>
+				<button type="button" class="btn btn-primary" id="pair-submit">Pair device</button>
 			</div>
 			<div class="result" id="pair-result" aria-live="polite"></div>
 		</div>
@@ -248,11 +279,11 @@
 		<div class="panel-head">
 			<h1 class="path"><span class="path-pre">~/cwm/</span>health</h1>
 			<div class="head-actions">
-				<button type="button" class="link" data-bug-report>report a bug</button>
-				<button type="button" class="btn btn-small" data-debug-copy>copy debug logs</button>
+				<button type="button" class="link" data-bug-report>Report a bug</button>
+				<button type="button" class="btn btn-small" data-debug-copy>Copy debug logs</button>
 			</div>
 		</div>
-		<p class="hint">What is wrong, why it matters and the fix (same checks as <code>cwm doctor</code>). Stuck? <strong>report a bug</strong> copies a redacted report and opens the form.</p>
+		<p class="hint">What is wrong, why it matters and the fix (same checks as <code>cwm doctor</code>). Stuck? <strong>Report a bug</strong> copies a redacted report and opens the form.</p>
 		<div class="content" data-content="health"></div>
 	</section>
 
@@ -262,61 +293,51 @@
 		<div id="acct-banner" class="first-banner" role="region" aria-label="First account" hidden></div>
 		<div class="acct-list" data-content="accounts"></div>
 		<div class="acct-card add-card" id="acct-add-card" hidden>
-			<button type="button" class="add-open" id="acct-add-open"><span aria-hidden="true">+</span> add account</button>
+			<button type="button" class="add-open" id="acct-add-open"><span aria-hidden="true">+</span> Add account</button>
 			<div id="acct-add-form" hidden>
-				<h3>add account</h3>
+				<h2 class="card-title">Add account</h2>
 				<p class="hint">A short name for one Claude login, for example <code>work</code>. A terminal window opens for the login; this page follows it.</p>
 				<div class="row">
-					<label for="acct-name" class="sr-only">account name</label>
+					<label for="acct-name" class="sr-only">Account name</label>
 					<input type="text" id="acct-name" class="input" maxlength="32" autocomplete="off" spellcheck="false" placeholder="work">
-					<button type="button" class="btn btn-primary" id="acct-add">add account</button>
+					<button type="button" class="btn btn-primary" id="acct-add">Add account</button>
 				</div>
 			</div>
 			<div class="result" id="acct-add-result" aria-live="polite"></div>
 		</div>
 	</section>
 
-	<section class="panel" role="tabpanel" id="panel-stats" aria-labelledby="tab-stats" hidden>
-		<div class="panel-head">
-			<h1 class="path"><span class="path-pre">~/cwm/</span>stats</h1>
-			<div class="seg seg-text" role="group" aria-label="Range" id="stats-range">
-				<button type="button" class="seg-btn" data-range="7d" aria-pressed="false">7d</button>
-				<button type="button" class="seg-btn" data-range="30d" aria-pressed="false">30d</button>
-				<button type="button" class="seg-btn" data-range="90d" aria-pressed="false">90d</button>
-				<button type="button" class="seg-btn" data-range="365d" aria-pressed="false">1y</button>
-				<button type="button" class="seg-btn" data-range="all" aria-pressed="false">all</button>
-			</div>
-		</div>
-		<p class="hint">Activity derived from the session transcripts on this machine (same data as <code>cwm stats</code>). Computed locally — never sent anywhere.</p>
-		<div class="stats-body" data-content="stats"></div>
-	</section>
-
 	<section class="panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
 		<div class="panel-head"><h1 class="path"><span class="path-pre">~/cwm/</span>settings</h1></div>
-		<p class="hint">Every switch is also a command: <code>cwm config list</code>, <code>cwm config set &lt;key&gt; &lt;value&gt;</code>, <code>cwm mode set</code>. Changes save at once.</p>
+		<p class="hint">Changes save at once to <code>config.toml</code> in the cwm home and apply on this machine; the switches that do more first show what they will change.</p>
+		<details class="cli-details"><summary>The same from a terminal</summary><p class="hint">Every switch is also a command: <code>cwm config list</code>, <code>cwm config set &lt;key&gt; &lt;value&gt;</code>, <code>cwm mode set</code>.</p></details>
 		<div data-content="settings"></div>
 	</section>
 </main>
 </div>
 
 <nav class="bottombar" aria-label="Sections">
-	<button type="button" class="bb-item" data-tab-go="sessions"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg><span>sessions</span></button>
-	<button type="button" class="bb-item" data-tab-go="projects"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-branch"/></svg><span>projects</span></button>
-	<button type="button" class="bb-item" data-tab-go="health"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-ok"/></svg><span>health</span><span class="tab-badge" id="bb-badge-health" hidden></span></button>
-	<button type="button" class="bb-item" data-tab-go="accounts"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-account"/></svg><span>accounts</span><span class="tab-badge" id="bb-badge-accounts" hidden></span></button>
-	<button type="button" class="bb-item" data-more-open aria-haspopup="dialog"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg><span>more</span></button>
+	<button type="button" class="bb-item" data-tab-go="home"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-home"/></svg><span>Home</span></button>
+	<button type="button" class="bb-item" data-tab-go="sessions"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg><span>Sessions</span></button>
+	<button type="button" class="bb-item" data-tab-go="projects"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-branch"/></svg><span>Projects</span></button>
+	<button type="button" class="bb-item" data-tab-go="health"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-ok"/></svg><span>Health</span><span class="tab-badge" id="bb-badge-health" hidden></span></button>
+	<button type="button" class="bb-item" data-more-open aria-haspopup="dialog"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg><span>More</span><span class="tab-dot" id="bb-more-dot" hidden></span></button>
 </nav>
-<footer class="statusline">
+<footer class="statusline" aria-label="Status">
 	<div class="sl-left">
-		<button type="button" class="sl-seg sl-ver" id="sl-version" data-about-open title="About cwm">[cwm]</button>
-		<span class="sl-seg sl-lo" id="sl-os"></span>
-		<span class="sl-seg sl-lo2" id="sl-agent"><span class="sl-dot" aria-hidden="true"></span><span id="sl-agent-text">agent</span></span>
-		<span class="sl-seg sl-lo" id="sl-listen"></span>
+		<button type="button" class="sl-seg sl-ver" id="sl-version" data-about-open aria-label="About cwm">cwm</button>
+		<span class="sl-seg sl-path sl-lo" id="sl-path">~/cwm</span>
+		<button type="button" class="sl-seg" id="sl-health" data-go="health" hidden></button>
+		<button type="button" class="sl-seg" id="sl-sync" data-go="devices" hidden></button>
+		<button type="button" class="sl-seg" id="sl-acct" data-go="accounts" hidden></button>
+		<button type="button" class="sl-seg sl-warnseg" id="sl-mig" hidden aria-label="Migration due: review it">migration due</button>
 	</div>
 	<div class="sl-right">
-		<button type="button" class="sl-seg sl-lo2" data-bug-report>report a bug</button>
-		<button type="button" class="sl-seg sl-lo" data-keys-open>? keys</button>
-		<button type="button" class="sl-seg" data-about-open title="About cwm">by maher</button>
+		<button type="button" id="live" class="sl-seg live" data-mode="init" title="Live updates"><span class="live-dot" aria-hidden="true"></span><span id="live-text">connecting…</span></button>
+		<span class="sl-seg sl-lo" id="sl-up"></span>
+		<span class="sl-seg" id="sl-listen"></span>
+		<span class="sl-seg sl-lo" id="sl-clock" aria-hidden="true"></span>
+		<button type="button" class="sl-seg" data-keys-open aria-label="Keyboard shortcuts">? keys</button>
 	</div>
 </footer>
 </div>
@@ -327,9 +348,9 @@
 <dialog id="keys" class="keys" aria-labelledby="keys-title">
 	<h2 id="keys-title">Keyboard shortcuts</h2>
 	<dl>
-		<dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>Switch tab (sessions, projects, devices, handoff, health, accounts, stats, settings)</dd>
+		<dt><kbd>1</kbd>–<kbd>8</kbd></dt><dd>Switch tab (Home, Sessions, Projects, Devices, Handoff, Health, Accounts, Settings)</dd>
 		<dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Command palette: jump to a section, run an action, resume a session</dd>
-		<dt><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between days in the Stats heatmap</dd>
+		<dt><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between days in the Activity heatmap</dd>
 		<dt><kbd>/</kbd></dt><dd>Filter sessions</dd>
 		<dt><kbd>t</kbd></dt><dd>Cycle theme (system → dark → light)</dd>
 		<dt><kbd>b</kbd></dt><dd>Motion (animated background) on/off</dd>
@@ -343,19 +364,19 @@
 
 <dialog id="more-sheet" class="sheet" tabindex="-1" aria-label="More sections and settings">
 	<div class="sheet-grip" aria-hidden="true"></div>
-	<p class="menu-label">sections</p>
+	<p class="menu-label">Sections</p>
 	<div class="sheet-grid">
-		<button type="button" class="sheet-item" data-tab-go="devices"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-device"/></svg>devices</button>
-		<button type="button" class="sheet-item" data-tab-go="handoff"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-sync"/></svg>handoff</button>
-		<button type="button" class="sheet-item" data-tab-go="stats"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-play"/></svg>stats</button>
-		<button type="button" class="sheet-item" data-tab-go="settings"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-set"/></svg>settings</button>
+		<button type="button" class="sheet-item" data-tab-go="devices"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-device"/></svg>Devices</button>
+		<button type="button" class="sheet-item" data-tab-go="handoff"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-sync"/></svg>Handoff</button>
+		<button type="button" class="sheet-item" data-tab-go="accounts"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-account"/></svg>Accounts<span class="tab-badge" id="sheet-badge-accounts" hidden></span></button>
+		<button type="button" class="sheet-item" data-tab-go="settings"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-set"/></svg>Settings</button>
 	</div>
 	<p class="menu-label">theme</p>
 	<div data-theme-seg></div>
 	<button type="button" class="menu-item" data-motion-toggle aria-pressed="true"><span class="toggle-box" aria-hidden="true"></span>motion</button>
-	<button type="button" class="menu-item" data-about-open>about cwm</button>
-	<button type="button" class="menu-item" data-debug-copy>copy debug logs</button>
-	<button type="button" class="menu-item" id="sheet-close">close</button>
+	<button type="button" class="menu-item" data-about-open>About cwm</button>
+	<button type="button" class="menu-item" data-debug-copy>Copy debug logs</button>
+	<button type="button" class="menu-item" id="sheet-close">Close</button>
 </dialog>
 
 <dialog id="about" class="about" aria-labelledby="about-title">
@@ -371,17 +392,17 @@
 			<dl id="about-kv" class="about-kv"></dl>
 			<div id="about-swatches" class="about-swatches" role="img" aria-label="Theme colours"></div>
 			<div class="about-actions">
-				<button type="button" class="btn btn-primary" id="about-copy" autofocus>copy version info</button>
-				<a class="btn" href="https://github.com/Mr-JoE1/cwm/releases" target="_blank" rel="noopener noreferrer">release notes</a>
-				<button type="button" class="btn" data-bug-report>report a bug</button>
-				<button type="button" class="btn" id="about-update">check for updates</button>
+				<button type="button" class="btn btn-primary" id="about-copy" autofocus>Copy version info</button>
+				<a class="btn" href="https://github.com/Mr-JoE1/cwm/releases" target="_blank" rel="noopener noreferrer">Release notes</a>
+				<button type="button" class="btn" data-bug-report>Report a bug</button>
+				<button type="button" class="btn" id="about-update">Check for updates</button>
 			</div>
 			<p id="about-update-result" class="about-update" aria-live="polite"></p>
 		</div>
 	</div>
-	<h3 class="about-h">releases</h3>
+	<h3 class="about-h">Releases</h3>
 	<ol id="about-releases" class="graph" aria-label="Release history"></ol>
-	<div class="about-foot"><button type="button" class="btn" id="about-close">close</button></div>
+	<div class="about-foot"><button type="button" class="btn" id="about-close">Close</button></div>
 </dialog>
 
 <dialog id="palette" class="palette" aria-label="Command palette">
@@ -394,35 +415,35 @@
 </dialog>
 
 <dialog id="acct-remove-dialog" class="keys remove-dialog" aria-labelledby="acct-remove-title">
-	<h2 id="acct-remove-title">remove account</h2>
+	<h2 id="acct-remove-title">Remove account</h2>
 	<p class="hint" id="acct-remove-text"></p>
 	<div id="acct-remove-form">
-		<label for="acct-remove-name" id="acct-remove-name-label" class="remove-label">type the account name to confirm</label>
+		<label for="acct-remove-name" id="acct-remove-name-label" class="remove-label">Type the account name to confirm</label>
 		<input type="text" id="acct-remove-name" class="input" autocomplete="off" spellcheck="false">
 	</div>
 	<div class="row">
-		<button type="button" class="btn btn-danger-fill" id="acct-remove-confirm" disabled>remove account</button>
-		<button type="button" class="btn" id="acct-remove-cancel">cancel</button>
+		<button type="button" class="btn btn-danger-fill" id="acct-remove-confirm" disabled>Remove account</button>
+		<button type="button" class="btn" id="acct-remove-cancel">Cancel</button>
 	</div>
 </dialog>
 
 <dialog id="confirm-dialog" class="keys remove-dialog" aria-labelledby="confirm-title">
-	<h2 id="confirm-title">confirm</h2>
+	<h2 id="confirm-title">Confirm</h2>
 	<p class="hint" id="confirm-text"></p>
 	<ol id="confirm-lines" class="wiz-log mig-log" aria-label="What changes"></ol>
 	<div class="row">
-		<button type="button" class="btn btn-primary" id="confirm-ok">apply</button>
-		<button type="button" class="btn" id="confirm-cancel">cancel</button>
+		<button type="button" class="btn btn-primary" id="confirm-ok">Apply</button>
+		<button type="button" class="btn" id="confirm-cancel">Cancel</button>
 	</div>
 </dialog>
 
 <dialog id="mig-dialog" class="keys mig-dialog" aria-labelledby="mig-title">
-	<h2 id="mig-title">migration</h2>
+	<h2 id="mig-title">Migration</h2>
 	<div id="mig-sum" aria-live="polite"></div>
 	<ol id="mig-log" class="wiz-log mig-log" aria-label="Migration log" aria-live="polite"></ol>
 	<div class="row">
-		<button type="button" class="btn btn-primary" id="mig-apply">apply migration</button>
-		<button type="button" class="btn" id="mig-cancel">cancel</button>
+		<button type="button" class="btn btn-primary" id="mig-apply">Apply migration</button>
+		<button type="button" class="btn" id="mig-cancel">Cancel</button>
 	</div>
 </dialog>
 

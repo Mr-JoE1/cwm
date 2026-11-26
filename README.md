@@ -59,9 +59,9 @@ Per user, with no sudo and no admin rights. Every download is SHA-256-checked ag
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/img/gui-sessions-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-sessions-light.png">
-    <img alt="The cwm dashboard: every workspace session from every device, newest first, with a Resume button per row" src="docs/img/gui-sessions-dark.png" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/gui-home-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-home-light.png">
+    <img alt="The cwm dashboard's Home tab: a status strip, the newest sessions with Resume, what needs attention with Copy and Run buttons, and uncommitted work, above the live status line" src="docs/img/gui-home-dark.png" width="100%">
   </picture>
 </p>
 
@@ -81,13 +81,13 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
   </tr>
   <tr>
     <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click, even when the repo sits at a different path on this machine; it clones if it's missing.</p></td>
-    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, make default, run in parallel, remove), Stats and Settings, in a tmux-style frame with a Ctrl-K command palette. Dark/light themes, live updates, phone layout with a bottom bar.</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Home (status, where you left off, what needs attention, activity), Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, make default, run in parallel, remove) and Settings, with a live status line and a Ctrl-K command palette. Dark/light themes, keys 1–8, phone layout with a bottom bar.</p></td>
     <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
   </tr>
   <tr>
     <td valign="top"><h4>🧩 MCP servers</h4><code>cwm mcp add</code> once, and the server is there on every device and every account.</td>
     <td valign="top"><h4>🌿 WIP handoff</h4><p>Uncommitted work is pushed to a <code>sync/&lt;host&gt;</code> branch when a session ends.</p></td>
-    <td valign="top"><h4>🩺 Health checks</h4><code>cwm doctor</code> and the Health tab check Claude Code, the workspace, Syncthing and SSH.</td>
+    <td valign="top"><h4>🩺 Health checks</h4><code>cwm doctor</code> and the Health tab check Claude Code, the workspace, Syncthing and SSH; what <code>cwm doctor --fix</code> repairs runs from the dashboard in one click.</td>
   </tr>
   <tr>
     <td valign="top"><h4>📦 One binary</h4><p>Linux, Windows and macOS on amd64 and arm64. No runtime, no Node, no CDN.</p></td>
@@ -95,7 +95,7 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
     <td valign="top"><h4>🛡️ Local only</h4><p>No telemetry, no cloud. The dashboard listens on localhost behind a token.</p></td>
   </tr>
   <tr>
-    <td valign="top" colspan="3"><h4>📊 Stats</h4><p>Sessions, messages, tokens, streaks and a year-long activity heatmap, counted from your local transcripts (<code>cwm stats</code> and the Stats tab); nothing is sent anywhere.</p></td>
+    <td valign="top" colspan="3"><h4>📊 Activity</h4><p>Sessions, messages, tokens, streaks and a year-long activity heatmap, counted from your local transcripts (<code>cwm stats</code> and Activity on the Home tab); nothing is sent anywhere.</p></td>
   </tr>
 </table>
 
@@ -105,19 +105,19 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
   <tr>
     <td colspan="2" valign="top" align="center">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-stats-light.png">
-        <img alt="Stats tab, dark theme: KPI cards, the 12-month activity heatmap, top projects, top models and the billed/cache token bars (generated demo data)" src="docs/img/gui-stats-dark.png" width="100%">
+        <source media="(prefers-color-scheme: light)" srcset="docs/img/gui-activity-light.png">
+        <img alt="Activity on the Home tab, dark theme: the range selector on the KPI row, KPI cards and the 12-month activity heatmap (generated demo data)" src="docs/img/gui-activity-dark.png" width="100%">
       </picture><br>
-      <sub><b>Stats</b>: activity from your local transcripts (demo data)</sub>
+      <sub><b>Activity</b>: on Home, counted from your local transcripts (demo data)</sub>
     </td>
   </tr>
   <tr>
     <td width="68%" valign="top" align="center">
-      <img alt="Health tab, dark theme: a boot log with the problems first, each with a plain why and a copyable fix command" src="docs/img/gui-health-dark.png" width="100%"><br>
-      <sub><b>Health</b>: what to fix first, and the command that fixes it</sub>
+      <img alt="Health tab, dark theme: a boot log with the problems first, each with a plain why, a copyable fix command, and a Run button where the dashboard can fix it" src="docs/img/gui-health-dark.png" width="100%"><br>
+      <sub><b>Health</b>: what to fix first; Copy the command, or Run it here</sub>
     </td>
     <td width="32%" valign="top" align="center" rowspan="2">
-      <img alt="Sessions tab on a phone: sessions grouped by day as cards with a full-width resume button, and the bottom bar" src="docs/img/gui-sessions-mobile-dark.png" width="100%"><br>
+      <img alt="Sessions tab on a phone: sessions grouped by day as cards with the first prompt, the project, the message count and a resume button, and the bottom bar" src="docs/img/gui-sessions-mobile-dark.png" width="100%"><br>
       <sub><b>Mobile</b>: session cards and a bottom bar</sub>
     </td>
   </tr>
@@ -210,7 +210,7 @@ Bug reports, ideas, docs fixes and pull requests are welcome. For a bug, click *
 
 ## License
 
-MIT, see [LICENSE](LICENSE). cwm is an unofficial community tool, not affiliated with or endorsed by Anthropic.
+MIT, see [LICENSE](LICENSE). The dashboard bundles [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (SIL Open Font License 1.1, see `internal/gui/web/fonts/OFL.txt`). cwm is an unofficial community tool, not affiliated with or endorsed by Anthropic.
 
 ---
 

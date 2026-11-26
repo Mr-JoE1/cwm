@@ -120,17 +120,51 @@ func DefaultFeatures() Features {
 	return Features{Hooks: true, HandoffPush: true, Stats: true, Autostart: true, UpdateCheck: UpdateCheckManual, PathMirror: true}
 }
 
-// Tabs are the dashboard tab ids, in order.
-var Tabs = []string{"sessions", "projects", "devices", "handoff", "health", "accounts", "stats", "settings"}
+// Tabs are the dashboard tab ids, in order. v0.9 (D105): Home replaced
+// Stats, whose content is Home's Activity section.
+var Tabs = []string{"home", "sessions", "projects", "devices", "handoff", "health", "accounts", "settings"}
+
+// DisplaySchema is the [display] layout version: 9 = the v0.9 tabs.
+const DisplaySchema = 9
 
 // Display is the [display] table.
 type Display struct {
 	HiddenTabs []string `toml:"hidden_tabs"`
 	DefaultTab string   `toml:"default_tab"`
+	// HomeActivity shows Home's Activity section (the former Stats tab).
+	HomeActivity bool `toml:"home_activity"`
+	// Schema records that the v0.9 migration ran (D105); 0 = an older file.
+	Schema int `toml:"schema,omitempty"`
 }
 
-// DefaultDisplay shows every tab and opens on sessions.
-func DefaultDisplay() Display { return Display{HiddenTabs: []string{}, DefaultTab: "sessions"} }
+// DefaultDisplay shows every tab and opens on Home.
+func DefaultDisplay() Display {
+	return Display{HiddenTabs: []string{}, DefaultTab: "home", HomeActivity: true, Schema: DisplaySchema}
+}
+
+// migrateDisplay maps a pre-v0.9 [display] table onto the v0.9 tabs (D105):
+// "stats" is no longer a tab, so hiding it now hides Home's Activity
+// section, and a default tab of "stats" (or "sessions", the v0.8 default
+// that every v0.8 init wrote) becomes "home". It runs once per file: Save
+// writes the schema marker, and a later explicit choice of "sessions"
+// sticks. It reports whether anything changed.
+func (d *Display) migrateDisplay() bool {
+	if d.Schema >= DisplaySchema {
+		return false
+	}
+	d.Schema = DisplaySchema
+	if i := slices.Index(d.HiddenTabs, "stats"); i >= 0 {
+		d.HiddenTabs = slices.Delete(slices.Clone(d.HiddenTabs), i, i+1)
+		d.HomeActivity = false
+	}
+	if d.DefaultTab == "stats" || d.DefaultTab == "sessions" || d.DefaultTab == "" {
+		d.DefaultTab = "home"
+	}
+	if slices.Contains(d.HiddenTabs, "home") && d.DefaultTab == "home" {
+		d.HiddenTabs = slices.DeleteFunc(slices.Clone(d.HiddenTabs), func(t string) bool { return t == "home" })
+	}
+	return true
+}
 
 // NeedsMigration reports a config written before v0.8 (no mode key):
 // it behaves as capture mode, but its data may still sit in the v0.7
@@ -175,6 +209,9 @@ func (c *Config) normalize() error {
 	if c.Display.HiddenTabs == nil {
 		c.Display.HiddenTabs = []string{}
 	}
+	if c.Display.migrateDisplay() {
+		c.displayMigrated = true
+	}
 	for _, t := range c.Display.HiddenTabs {
 		if !slices.Contains(Tabs, t) {
 			return fmt.Errorf("unknown display.hidden_tabs entry %q (want one of %s)", t, strings.Join(Tabs, ", "))
@@ -186,7 +223,7 @@ func (c *Config) normalize() error {
 		}
 	}
 	if c.Display.DefaultTab == "" {
-		c.Display.DefaultTab = "sessions"
+		c.Display.DefaultTab = "home"
 	}
 	if !slices.Contains(Tabs, c.Display.DefaultTab) {
 		return fmt.Errorf("unknown display.default_tab %q (want one of %s)", c.Display.DefaultTab, strings.Join(Tabs, ", "))
@@ -224,14 +261,15 @@ func Keys() []KeyInfo {
 	keys = append(keys,
 		KeyInfo{Name: "features.hooks", Kind: KindBool, Default: "true", Help: "cwm's session-start/end hooks in settings.json (repo manifest, handoff push)"},
 		KeyInfo{Name: "features.handoff_push", Kind: KindBool, Default: "true", Help: "the session-end hook pushes uncommitted work to sync/<host>"},
-		KeyInfo{Name: "features.stats", Kind: KindBool, Default: "true", Help: "scan transcripts for the stats tab; off hides the tab"},
+		KeyInfo{Name: "features.stats", Kind: KindBool, Default: "true", Help: "scan transcripts for Home's Activity section (the former Stats tab); off hides it and scans nothing"},
 		KeyInfo{Name: "features.autostart", Kind: KindBool, Default: "true", Help: "start the cwm agent at login (installs or removes the per-user service)"},
 		KeyInfo{Name: "features.open_dashboard_at_login", Kind: KindBool, Default: "false", Help: "open the dashboard in the browser when the agent starts at login"},
 		KeyInfo{Name: "features.private_sync", Kind: KindBool, Default: "false", Help: "Syncthing without global discovery or relays; pair devices by address"},
 		KeyInfo{Name: "features.update_check", Kind: KindEnum, Choices: []string{UpdateCheckManual, UpdateCheckOff}, Default: UpdateCheckManual, Help: "manual: a check-for-updates button in About; off: no button, never asks"},
 		KeyInfo{Name: "features.path_mirror", Kind: KindBool, Default: "true", Help: "capture mode: copy sessions from other devices under this machine's folder for the same repo, so plain claude --resume finds them"},
-		KeyInfo{Name: "display.hidden_tabs", Kind: KindList, Choices: tabsExceptSettings(), Default: "", Help: "comma-separated tabs to hide"},
-		KeyInfo{Name: "display.default_tab", Kind: KindEnum, Choices: Tabs, Default: "sessions", Help: "the tab the dashboard opens on"},
+		KeyInfo{Name: "display.hidden_tabs", Kind: KindList, Choices: tabsExceptSettings(), Default: "", Help: "tabs the dashboard hides (a comma-separated list from the CLI)"},
+		KeyInfo{Name: "display.default_tab", Kind: KindEnum, Choices: Tabs, Default: "home", Help: "the tab the dashboard opens on"},
+		KeyInfo{Name: "display.home_activity", Kind: KindBool, Default: "true", Help: "show the Activity section (sessions, tokens, heatmap) on Home"},
 		KeyInfo{Name: "link_mode", Kind: KindEnum, Choices: []string{LinkModeAuto, LinkModeSymlink, LinkModeJunction, LinkModeCopy}, Default: LinkModeAuto, Help: "how login-only account dirs link shared items"},
 	)
 	return keys
@@ -286,6 +324,8 @@ func (c *Config) Get(name string) (string, error) {
 		return strings.Join(c.Display.HiddenTabs, ","), nil
 	case "display.default_tab":
 		return c.Display.DefaultTab, nil
+	case "display.home_activity":
+		return strconv.FormatBool(c.Display.HomeActivity), nil
 	case "link_mode":
 		return c.LinkMode, nil
 	}
@@ -343,6 +383,8 @@ func (c *Config) Set(name, value string) error {
 		next.Display.HiddenTabs = splitList(value)
 	case "display.default_tab":
 		next.Display.DefaultTab = value
+	case "display.home_activity":
+		next.Display.HomeActivity = b
 	case "link_mode":
 		next.LinkMode = value
 	default:

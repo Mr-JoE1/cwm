@@ -8,7 +8,9 @@
 "use strict";
 
 (function () {
-	const TABS = ["sessions", "projects", "devices", "handoff", "health", "accounts", "stats", "settings"];
+	// v0.9 (D105): Home replaced Stats; its content is Home's Activity section.
+	const TABS = ["home", "sessions", "projects", "devices", "handoff", "health", "accounts", "settings"];
+	const TAB_LABEL = { home: "Home", sessions: "Sessions", projects: "Projects", devices: "Devices", handoff: "Handoff", health: "Health", accounts: "Accounts", settings: "Settings" };
 	const POLL_MS = 15000;
 	const root = document.documentElement;
 	const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -139,14 +141,21 @@
 
 	async function copyText(text, btn) {
 		const ok = await copyQuiet(text);
-		if (btn) flash(btn, ok ? "copied" : "copy failed");
+		if (btn) flash(btn, ok ? "Copied" : "Copy failed");
 		if (!ok) toast("error", "Copy failed", "Select the text and copy it with Ctrl/Cmd-C.");
 	}
 
+	// v0.9 polish: a command wraps only between words (each word is one
+	// unbreakable run), with a hanging "$"; Copy says where to run it.
+	function cmdWords(cmd) {
+		const out = [];
+		String(cmd).split(/( +)/).forEach((w) => { if (w) out.push(/^ +$/.test(w) ? w : el("span", { class: "cmd-w", text: w })); });
+		return out;
+	}
 	function commandBox(cmd) {
-		const btn = el("button", { type: "button", class: "cmd-copy", text: "copy", "aria-label": "copy command: " + cmd });
+		const btn = el("button", { type: "button", class: "cmd-copy", text: "Copy", title: "Copy, then run it in a terminal", "aria-label": "Copy command to run in a terminal: " + cmd });
 		btn.addEventListener("click", () => copyText(cmd, btn));
-		return el("div", { class: "cmd" }, [el("code", { class: "cmd-text", tabindex: "0" }, [el("span", { class: "cmd-ps", "aria-hidden": "true", text: "$ " }), cmd]), btn]);
+		return el("div", { class: "cmd" }, [el("code", { class: "cmd-text", tabindex: "0" }, [el("span", { class: "cmd-ps", "aria-hidden": "true", text: "$ " }), ...cmdWords(cmd)]), btn]);
 	}
 
 	function toast(kind, title, detail, opts) {
@@ -422,8 +431,12 @@
 		const diff = Math.round((day(new Date()) - day(t)) / 86400000);
 		if (diff <= 0) return "today";
 		if (diff === 1) return "yesterday";
-		if (diff < 7) return "this week";
 		return WD[t.getDay()] + ", " + t.getDate() + " " + MON[t.getMonth()] + (t.getFullYear() !== new Date().getFullYear() ? " " + t.getFullYear() : "");
+	}
+
+	function longStamp(iso) {
+		const t = new Date(iso);
+		return isNaN(t.getTime()) ? "" : t.toLocaleString();
 	}
 
 	function clockTime(iso) {
@@ -435,36 +448,39 @@
 		const input = $("sessions-filter");
 		const q = input.value.trim().toLowerCase();
 		if (sessionsCache.length === 0) {
-			return show("sessions", message("empty", "No sessions yet — open a repo with cwm open <name> to start one."));
+			$("sessions-count").textContent = "";
+			return show("sessions", emptyState("No sessions yet", "Open a repo with `cwm open <name>` to start one."));
 		}
-		const list = sessionsCache.filter((s) => !q || (s.project + " " + s.firstPrompt + " " + s.summary).toLowerCase().includes(q));
+		const list = sessionsCache.filter((s) => !q || (s.project + " " + projectLabel(s.project).text + " " + promptText(s) + " " + s.summary).toLowerCase().includes(q));
+		$("sessions-count").textContent = q ? list.length + " of " + plural(sessionsCache.length, "session") : plural(sessionsCache.length, "session");
 		if (!list.length) {
-			const clear = el("button", { type: "button", class: "btn btn-small", text: "clear filter" });
+			const clear = el("button", { type: "button", class: "btn btn-small", text: "Clear filter" });
 			clear.addEventListener("click", () => { input.value = ""; renderSessions(false); input.focus(); });
 			return show("sessions", el("div", { class: "empty-filter" }, [
-				el("p", { class: "empty-q", text: "no sessions match \u201c" + input.value.trim() + "\u201d" }), clear,
+				el("p", { class: "empty-q", text: "No sessions match \u201c" + input.value.trim() + "\u201d" }), clear,
 				el("p", { class: "hint", text: "Search covers the project name and the first prompt." }),
 			]));
 		}
-		const head = el("thead", null, [el("tr", null, ["prompt", "project", "branch", "msgs", "id", "when", ""].map((h, k) =>
-			el("th", { scope: "col", class: k === 3 || k === 5 ? "num" : null, text: h })))]);
+		// B3: no empty columns — branch and messages only when some row has them
+		const hasBranch = list.some((s) => s.branch), hasMsgs = list.some((s) => s.messages);
+		const cols = [["Prompt"], ["Project"], hasBranch && ["Branch"], hasMsgs && ["Msgs", "num"], ["ID"], ["When", "num"], [""]].filter(Boolean);
+		const head = el("thead", null, [el("tr", null, cols.map((c) => el("th", { scope: "col", class: c[1] || null, text: c[0] })))]);
 		const body = el("tbody");
 		let group = "";
 		list.forEach((s, i) => {
 			const g = dayGroup(s.modified);
 			if (g !== group) {
 				group = g;
-				body.appendChild(el("tr", { class: "day-row" }, [el("th", { colspan: "7", scope: "rowgroup", text: g })]));
+				body.appendChild(el("tr", { class: "day-row" }, [el("th", { colspan: String(cols.length), scope: "rowgroup", text: g })]));
 			}
-			const prompt = el("td", { class: "s-prompt" }, [s.firstPrompt || "(no prompt)"]);
-			if (s.summary) prompt.title = s.summary;
-			const tr = el("tr", { class: "s-row" + (animate ? " reveal" : ""), tabindex: "0", "aria-label": (s.firstPrompt || "(no prompt)") + ", " + s.project + ". Enter resumes." }, [
-				prompt,
-				el("td", { class: "s-proj", text: s.project }),
-				el("td", { class: "s-branch" }, [s.branch ? el("span", { class: "branch", title: s.branch, text: s.branch }) : ""]),
-				el("td", { class: "num s-msgs", text: s.messages ? nf.format(s.messages) : "" }),
+			const pl = projectLabel(s.project);
+			const tr = el("tr", { class: "s-row" + (animate ? " reveal" : ""), tabindex: "0", "aria-label": promptText(s) + ", " + pl.text + ". Enter resumes." }, [
+				el("td", { class: "s-prompt" }, [promptNode(s, "s-ptext", true)]),
+				el("td", { class: "s-proj", title: pl.title, text: pl.text }),
+				hasBranch ? el("td", { class: "s-branch" + (s.branch ? "" : " is-na") }, [s.branch ? el("span", { class: "branch", title: s.branch, text: s.branch }) : el("span", { class: "unknown", text: "–" })]) : null,
+				hasMsgs ? el("td", { class: "num s-msgs" + (s.messages ? "" : " is-na"), text: s.messages ? nf.format(s.messages) : "–" }) : null,
 				el("td", { class: "s-id", title: s.id, text: s.id.slice(0, 8) }),
-				el("td", { class: "num s-when", title: s.modified || "", text: g === "today" || g === "yesterday" ? clockTime(s.modified) : relTime(s.modified) }),
+				el("td", { class: "num s-when", title: longStamp(s.modified), text: clockTime(s.modified) }),
 				resumeCell(s),
 			]);
 			tr.addEventListener("keydown", (ev) => {
@@ -484,26 +500,27 @@
 	}
 
 	function resumeCell(s) {
-		const btn = el("button", { type: "button", class: "btn btn-small s-resume", text: "resume" });
+		// B6: the row is the tab stop (Enter resumes); the button stays clickable
+		const btn = el("button", { type: "button", class: "btn btn-small s-resume", tabindex: "-1" }, [svgUse("i-play"), el("span", { class: "s-resume-t", text: "Resume" })]);
 		btn.title = "Open a terminal window resuming this session";
-		btn.setAttribute("aria-label", "Resume session " + s.id.slice(0, 8) + " of " + s.project);
+		btn.setAttribute("aria-label", "Resume session " + s.id.slice(0, 8) + " of " + projectLabel(s.project).text);
 		btn.addEventListener("click", () => resumeSession(s, btn));
 		return el("td", { class: "actions" }, [btn]);
 	}
 
 	async function resumeSession(s, btn) {
-		let old = "";
+		let old = [];
 		if (btn) {
 			btn.disabled = true;
-			old = btn.textContent;
+			old = [...btn.childNodes];
 			btn.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "Opening…");
 		}
 		const r = await post("/api/sessions/resume", { project: s.project, id: s.id });
 		if (btn) {
 			btn.disabled = false;
-			btn.textContent = old;
+			btn.replaceChildren(...old);
 		}
-		toastLaunch(r, "Opened a terminal for " + s.project + " · " + s.id.slice(0, 8));
+		toastLaunch(r, "Opened a terminal for " + projectLabel(s.project).text + " · " + s.id.slice(0, 8));
 	}
 
 	function changed(name, data) {
@@ -523,14 +540,9 @@
 	}
 
 	const loaders = {
-		async stats(silent) {
-			const url = (tz) => "/api/stats?range=" + encodeURIComponent(statsRange) + (tz ? "&tz=" + encodeURIComponent(statsTZ) : "");
-			let r = await api(url(!!statsTZ));
-			if (!r.ok && r.status === 400 && statsTZ) r = await api(url(false));
-			if (!r.ok) return loadError("stats", r, silent, "Could not load stats.");
-			if (r.data.disabled) return show("stats", message("notice", r.data.reason));
-			if (!changed("stats", r.data)) return;
-			renderStats(r.data);
+		async home(silent) {
+			await Promise.allSettled([homeStatus(silent), homeContinue(silent), homeWip(silent)]);
+			scheduleActivity(silent);
 		},
 
 		async sessions(silent) {
@@ -547,15 +559,15 @@
 			const list = r.data || [];
 			if (!changed("projects", list)) return;
 			if (list.length === 0) {
-				return show("projects", message("empty", "No projects yet — open a repo via cwm open <name> new to create one."));
+				return show("projects", emptyState("No projects yet", "Open a repo with `cwm open <name> new` to create one."));
 			}
 			const most = Math.max(1, ...list.map((p) => p.sessions || 0));
-			show("projects", table([col("project", "lead"), col("sessions", "num"), col("activity"), col("last session", "when")],
+			show("projects", table([col("Project", "lead"), col("Sessions", "num"), col("Activity"), col("Last session", "when")],
 				list.map((p) => {
 					const fill = el("span");
 					fill.style.width = Math.round(((p.sessions || 0) / most) * 100) + "%";
 					return [
-						el("td", null, [el("span", { class: "proj", text: p.name })]),
+						el("td", null, [el("span", { class: "proj", title: p.name, text: projectLabel(p.name).text })]),
 						p.sessions,
 						el("td", { "aria-hidden": "true" }, [el("span", { class: "bar" }, [fill])]),
 						whenCell(p.modified),
@@ -566,11 +578,13 @@
 		async devices(silent) {
 			const r = await api("/api/devices");
 			if (!r.ok) {
+				slSync(r);
 				const text = r.status === 503
 					? "Syncthing is not reachable on this machine (optional — run cwm pair to set up sync)."
 					: "Could not load devices.";
 				return loadError("devices", r, silent, text);
 			}
+			slSync(r);
 			const setup = r.data && !Array.isArray(r.data) && r.data.status === "not_configured";
 			$("pair-form").hidden = setup;
 			if (setup) {
@@ -580,20 +594,20 @@
 			const list = r.data || [];
 			if (!changed("devices", list)) return;
 			if (list.length === 0) {
-				return show("devices", message("empty", "No paired devices yet. Pair one with the form above, or run cwm pair on both devices."));
+				return show("devices", emptyState("No paired devices yet", "Pair one with the form above, or run `cwm pair` on both devices."));
 			}
 			show("devices", table([
-				col("device", "lead"), col("state", "status"), col("id", "mono"), col("address", "mono"),
-				col("in", "num"), col("out", "num"),
+				col("Device", "lead"), col("State", "status"), col("ID", "mono"), col("Address", "mono"),
+				col("In", "num"), col("Out", "num"),
 			], list.map((d) => {
 				const pct = Math.max(0, Math.min(100, Number(d.completion) || 0));
 				let state;
-				if (!d.connected) state = el("span", { class: "dev-state dev-off", text: "offline" });
+				if (!d.connected) state = el("span", { class: "dev-state dev-off" }, [tag("skip"), " offline"]);
 				else if (pct < 100) {
 					const fill = el("span");
 					fill.style.width = pct + "%";
-					state = el("span", { class: "dev-state dev-sync" }, ["syncing " + Math.floor(pct) + "%", el("span", { class: "bar", "aria-hidden": "true" }, [fill])]);
-				} else state = el("span", { class: "dev-state dev-on", text: "online" });
+					state = el("span", { class: "dev-state dev-sync" }, [tag("warn"), " syncing " + Math.floor(pct) + "%", el("span", { class: "bar", "aria-hidden": "true" }, [fill])]);
+				} else state = el("span", { class: "dev-state dev-on" }, [tag("ok"), " online"]);
 				return [
 					el("td", null, [el("span", { class: "proj", text: d.name || d.id.slice(0, 7) })]),
 					el("td", null, [state]),
@@ -611,9 +625,9 @@
 			const list = r.data || [];
 			if (!changed("handoff", list)) return;
 			if (list.length === 0) {
-				return show("handoff", message("empty", "Nothing to hand off: every local clone is committed."));
+				return show("handoff", emptyState("Nothing to hand off", "Every local clone is committed.", "#devices", "Pair a second device so unpushed work shows up there →"));
 			}
-			show("handoff", table([col("repo", "lead"), col("changed", "status"), col("last commit", "muted wide")], list.map((d) => [
+			show("handoff", table([col("Repo", "lead"), col("Changed", "status"), col("Last commit", "muted wide")], list.map((d) => [
 				el("td", null, [el("span", { class: "proj", text: d.name })]),
 				el("td", null, [badge("warn", d.changed + " file" + (d.changed === 1 ? "" : "s"))]),
 				d.lastCommit,
@@ -652,6 +666,210 @@
 		},
 	};
 
+	// --- home (v0.9, D105): every widget loads on its own, Activity last
+
+	async function loadActivity(silent) {
+		const box = $("home-activity");
+		box.hidden = !display.activity;
+		if (box.hidden) return;
+		if (!silent) { delete lastJSON.activity; show("activity", skeleton(4)); }
+		loaded.activity = true;
+		const url = (tz) => "/api/stats?range=" + encodeURIComponent(statsRange) + (tz ? "&tz=" + encodeURIComponent(statsTZ) : "");
+		let r = await api(url(!!statsTZ));
+		if (!r.ok && r.status === 400 && statsTZ) r = await api(url(false));
+		if (!r.ok) return loadError("activity", r, silent, "Could not load the activity.");
+		if (r.data.disabled) return show("activity", message("notice", r.data.reason));
+		if (!changed("activity", r.data)) return;
+		renderStats(r.data);
+	}
+
+	// The stats scan can be slow on a big workspace: Activity starts once it
+	// scrolls near the viewport or the summary widgets have settled.
+	let activityObs = null;
+	function scheduleActivity(silent) {
+		if (!display.activity) { $("home-activity").hidden = true; return; }
+		if (loaded.activity) { if (!silent) loadActivity(true); return; }
+		if (!content("activity").firstChild) show("activity", skeleton(4));
+		const go = () => { if (activityObs) { activityObs.disconnect(); activityObs = null; } if (!loaded.activity) loadActivity(false); };
+		if ("IntersectionObserver" in window && !activityObs) {
+			activityObs = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) go(); }, { rootMargin: "200px" });
+			activityObs.observe($("home-activity"));
+		}
+		setTimeout(go, 600);
+	}
+
+	function tag(lvl) {
+		return el("span", { class: "boot boot-" + lvl, "aria-hidden": "true", text: BOOT[lvl] });
+	}
+
+	function tile(lvl, label, value, sub, go) {
+		const kids = [el("span", { class: "tile-head" }, [tag(lvl), el("span", { class: "tile-label", text: label })]),
+			el("span", { class: "tile-value", text: value }), sub ? el("span", { class: "tile-sub", text: sub }) : null];
+		const aria = label + ": " + SR_STATUS[lvl] + " " + value + (sub ? ", " + sub : "");
+		const fn = typeof go === "function";
+		const node = el(fn ? "button" : "a", fn ? { type: "button", class: "tile tile-" + lvl, "aria-label": aria } : { class: "tile tile-" + lvl, href: "#" + go, "aria-label": aria }, kids);
+		if (fn) node.addEventListener("click", go);
+		return node;
+	}
+
+	async function homeStatus(silent) {
+		if (!silent) { delete lastJSON["home-status"]; delete lastJSON["home-attention"]; show("home-status", skeleton(1)); show("home-attention", skeleton(3)); }
+		const [doc, ag, dev, acc] = await Promise.all([api("/api/doctor"), api("/api/agent"), api("/api/devices"), api("/api/accounts")]);
+		slSync(dev);
+		if (silent && doc.status === 0 && ag.status === 0) return setLive("offline");
+		const tiles = [];
+		if (doc.ok && Array.isArray(doc.data)) {
+			healthBadge(doc.data);
+			const h = healthSum(doc.data);
+			tiles.push(tile(h.lvl, "Health", h.bad ? h.text : "all checks passed", h.sub, "health"));
+		} else tiles.push(tile("warn", "Health", "unknown", doc.error, "health"));
+		if (dev.ok && dev.data && !Array.isArray(dev.data)) tiles.push(tile("skip", "Sync", "not set up", "optional · pair a device", "devices"));
+		else if (dev.ok) {
+			const list = dev.data || [];
+			const on = list.filter((d) => d.connected).length;
+			const syncing = list.find((d) => d.connected && Number(d.completion) < 100);
+			tiles.push(list.length
+				? tile(on ? "ok" : "skip", "Sync", syncing ? "syncing " + Math.floor(Number(syncing.completion) || 0) + "%" : on + " of " + plural(list.length, "device") + " online", "Syncthing", "devices")
+				: tile("skip", "Sync", "no device paired", "pair one on Devices", "devices"));
+		} else tiles.push(tile(dev.status === 503 ? "warn" : "skip", "Sync", dev.status === 503 ? "Syncthing not reachable" : "unknown", dev.status === 503 ? "start Syncthing" : dev.error, "devices"));
+		if (acc.ok && Array.isArray(acc.data)) {
+			renderAccountsDot(acc.data);
+			const d = acc.data.find((a) => a.is_default);
+			if (!d) tiles.push(tile("warn", "Account", "no account yet", "add one on Accounts", "accounts"));
+			else {
+				const st = d.login_status || "never";
+				tiles.push(tile(st === "done" ? "ok" : st === "failed" ? "fail" : "warn", "Account", d.name, (LOGIN_PILL[st] || ["", st])[1], "accounts"));
+			}
+		} else tiles.push(tile("warn", "Account", "unknown", acc.error, "accounts"));
+		if (ag.ok && ag.data) {
+			agentInfo = ag.data;
+			const bind = ag.data.bind || "127.0.0.1";
+			const local = bind === "127.0.0.1" || bind === "localhost" || bind === "::1";
+			tiles.push(tile(local ? "ok" : "warn", "Agent", "up " + uptime(ag.data.started), (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + ag.data.port + (local ? " · localhost only" : " · network"), openAbout));
+		} else tiles.push(tile("warn", "Agent", "unknown", ag.error, openAbout));
+		if (changed("home-status", tiles.map((t) => t.getAttribute("aria-label")))) show("home-status", el("div", { class: "tiles" }, tiles));
+		if (!doc.ok) return loadError("home-attention", doc, silent, "Could not run the health checks.");
+		renderAttention(doc.data);
+	}
+
+	function renderAttention(list) {
+		const rank = { fail: 0, warn: 1, skip: 2 };
+		const items = list.filter((c) => level(c) !== "ok").sort((a, b) => rank[level(a)] - rank[level(b)]).map((c) => {
+			const plain = HEALTH[c.name];
+			return { level: level(c), title: plain ? plain[0] : String(c.detail || c.name).split(" — ")[0], cmd: fixCommand(c, plain ? plain[2] : ""), names: [c.name] };
+		});
+		const groups = [];
+		for (const it of items) {
+			const g = it.cmd && groups.find((x) => x.cmd === it.cmd);
+			if (g) { g.names.push(...it.names); g.n++; } else groups.push(Object.assign({ n: 1 }, it));
+		}
+		if (settings && settings.needs_migration) groups.unshift({ level: "warn", title: "cwm now captures all Claude Code activity — review the migration", migrate: true, n: 1 });
+		if (!changed("home-attention", groups.map((g) => [g.level, g.title, g.cmd, g.names, fixState[g.cmd]]))) return;
+		if (!groups.length) return show("home-attention", emptyState("Nothing needs attention", "Every health check passed."));
+		const h = healthSum(list);
+		const copyOnly = groups.slice(0, 3).some((g) => g.cmd && !(g.cmd === "cwm doctor --fix" && g.names.every((x) => FIXABLE.has(x))));
+		show("home-attention", el("div", null, [h.bad ? el("p", { class: "attn-sum" }, [tag(h.lvl), " ", h.text]) : null, el("ul", { class: "attn" }, [...groups.slice(0, 3).map((g) => el("li", { class: "attn-item attn-" + g.level }, [
+			tag(g.level),
+			el("div", { class: "attn-body" }, [
+				el("span", { class: "attn-title" }, [el("span", { class: "sr-only", text: SR_STATUS[g.level] + " " }), g.title]),
+				g.migrate ? el("div", { class: "attn-do" }, [btnDo("Review migration", () => openMigration(settings ? settings.mode : "capture"), "btn-primary")]) : g.cmd ? fixAction(g.cmd, g.names) : null,
+			]),
+		])), groups.length > 3 ? el("li", { class: "attn-more", text: "+ " + plural(groups.length - 3, "more item") + " on Health" }) : null]),
+		copyOnly ? el("p", { class: "fix-note", text: "Copy a command and run it in a terminal." }) : null]));
+	}
+
+	function emptyState(title, next, href, link) {
+		return el("div", { class: "empty-state" }, [
+			el("p", { class: "empty-title" }, [el("span", { class: "empty-ok", "aria-hidden": "true", text: "✓ " }), title]),
+			next ? el("p", { class: "empty-next" }, [richText(next), href ? " " : null, href ? el("a", { href: href, text: link }) : null]) : null,
+		]);
+	}
+
+	async function homeContinue(silent) {
+		if (!silent) { delete lastJSON["home-continue"]; show("home-continue", skeleton(3)); }
+		const r = await api("/api/sessions");
+		if (!r.ok) return loadError("home-continue", r, silent, "Could not load sessions.");
+		sessionsCache = r.data || [];
+		const top = sessionsCache.slice(0, 5);
+		if (!changed("home-continue", top)) return;
+		if (!top.length) return show("home-continue", emptyState("No sessions yet", "Open a repo with `cwm open <name>` to start one."));
+		show("home-continue", el("ul", { class: "cont" }, top.map((s) => {
+			const pl = projectLabel(s.project);
+			const btn = el("button", { type: "button", class: "btn btn-small btn-primary", text: "Resume", "aria-label": "Resume " + promptText(s) + " in " + pl.text });
+			btn.addEventListener("click", () => resumeSession(s, btn));
+			return el("li", { class: "cont-item" }, [
+				el("div", { class: "cont-body" }, [promptNode(s, "cont-prompt"),
+					el("span", { class: "cont-meta" }, [el("span", { class: "cont-proj", title: pl.title, text: midCut(pl.text, 28) }), " · ", el("span", { title: longStamp(s.modified), text: relTime(s.modified) })])]),
+				btn,
+			]);
+		})));
+	}
+
+	async function homeWip(silent) {
+		if (!silent) { delete lastJSON["home-wip"]; show("home-wip", skeleton(2)); }
+		const r = await api("/api/wip");
+		if (!r.ok) return loadError("home-wip", r, silent, "Could not scan repos.");
+		const list = r.data || [];
+		if (!changed("home-wip", list)) return;
+		if (!list.length) return show("home-wip", emptyState("Nothing to hand off", "Every local clone is committed.", "#devices", "Pair a second device so unpushed work shows up there →"));
+		show("home-wip", el("ul", { class: "wip-list" }, list.slice(0, 6).map((d) => el("li", null, [
+			el("span", { class: "proj", text: d.name }), badge("warn", d.changed + " file" + (d.changed === 1 ? "" : "s")),
+			el("span", { class: "wip-commit", text: d.lastCommit || "" }),
+		]))));
+	}
+
+	// --- session labels (v0.9 B1/B2): the server strips command envelopes
+	// too; the client repeats it for older agents and the palette.
+
+	function cleanPrompt(t) {
+		const s = String(t || "");
+		const cmd = /<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/.exec(s) || /<command-message>\s*([^<\s]+)\s*<\/command-message>/.exec(s);
+		const rest = s.replace(/<(command-message|command-name|command-args|skill-format|local-command-stdout)>[\s\S]*?<\/\1>/g, " ").replace(/\s+/g, " ").trim();
+		if (cmd) return "/" + cmd[1] + (rest ? " " + rest : "");
+		return rest === "(no prompt)" ? "" : rest;
+	}
+
+	function promptText(s) {
+		return cleanPrompt(s.firstPrompt) || cleanPrompt(s.summary) || "untitled · " + String(s.id || "").slice(0, 8);
+	}
+
+	function promptNode(s, cls, idCol) {
+		const real = cleanPrompt(s.firstPrompt) || cleanPrompt(s.summary);
+		if (!real && idCol) return el("span", { class: cls + " is-untitled is-untitled-row" }, ["untitled", el("span", { class: "untitled-id", text: " · " + String(s.id || "").slice(0, 8) })]);
+		return el("span", { class: cls + (real ? "" : " is-untitled"), title: s.firstPrompt || s.summary || "", text: promptText(s) });
+	}
+
+	// A project folder name is the session's cwd with every separator as
+	// "-". Shorten the home prefix (any user name) and the OneDrive and WSL
+	// roots; the whole folder name stays in the title.
+	let labelSrc = null, labelMap = {};
+	const statsLabels = {};
+	function projectLabel(slug) {
+		if (labelSrc !== sessionsCache) {
+			labelSrc = sessionsCache;
+			labelMap = {};
+			for (const x of sessionsCache) if (x.label) labelMap[x.project] = { text: x.label, title: x.projectPath || x.project };
+		}
+		const known = labelMap[slug] || statsLabels[slug];
+		if (known) return known;
+		const s = String(slug || "");
+		let m = /^[a-zA-Z]--Users-[^-]+-OneDrive---?(.+)$/.exec(s);
+		if (m) return { text: "…/" + m[1], title: s };
+		m = /^--wsl(?:-localhost|\$)?-([^-]+)-(?:home-[^-]+-)?(.+)$/.exec(s);
+		if (m) return { text: "WSL/" + m[2], title: s };
+		m = /^[a-zA-Z]--Users-[^-]+-(.+)$/.exec(s) || /^-(?:home|Users)-[^-]+-(.+)$/.exec(s);
+		if (m) return { text: "~/" + m[1], title: s };
+		return { text: s, title: s };
+	}
+
+	// a name that must be shortened loses its middle, never its end
+	function midCut(t, n) {
+		const a = [...String(t)];
+		if (a.length <= n) return String(t);
+		const head = Math.ceil((n - 1) / 2);
+		return a.slice(0, head).join("") + "…" + a.slice(a.length - (n - 1 - head)).join("");
+	}
+
 	// --- health: a boot log, problems first (D72)
 
 	const HEALTH = {
@@ -689,12 +907,23 @@
 	const SR_STATUS = { ok: "passed:", warn: "warning:", fail: "failed:", skip: "optional, not set up:" };
 	const level = (c) => c.optional && c.status !== "ok" ? "skip" : BOOT[c.status] ? c.status : "warn";
 	const isProblem = (c) => /^(warn|fail)$/.test(level(c));
+	// v0.9 polish: the footer, the Home tile, the tab badge, Needs attention
+	// and the Health summary all read this. The tag is the worst level; a
+	// skipped optional check never counts.
+	function healthSum(list) {
+		const n = { ok: 0, warn: 0, fail: 0 };
+		for (const c of list) { const l = level(c); if (l in n) n[l]++; }
+		const bad = n.fail + n.warn, counted = bad + n.ok;
+		const parts = [n.fail ? n.fail + " failed" : "", n.warn ? plural(n.warn, "warning") : ""].filter(Boolean);
+		return { lvl: n.fail ? "fail" : n.warn ? "warn" : "ok", bad: bad, counted: counted, passed: n.ok,
+			text: bad ? parts.join(" \u00b7\u00a0") : "all " + counted + " checks passed", sub: n.ok + " of " + counted + " checks passed" };
+	}
 
 	function fixCommand(c, fallback) {
 		const d = String(c.detail || "");
 		let m = /(?:install Claude Code|terminals): (.+)$/.exec(d);
 		if (m) return m[1].trim();
-		m = /fix: `([^`]+)`/.exec(d) || /fix: (cwm [\w -]+)/.exec(d);
+		m = /fix: `([^`]+)`/.exec(d) || /(?:fix|again|first|pick one): (cwm [\w <>-]+)/.exec(d);
 		if (m) return m[1].trim();
 		m = /hook not executable: (\S+) \(chmod \+x\)/.exec(d);
 		if (m) return "chmod +x " + m[1];
@@ -702,21 +931,28 @@
 		return fallback || "";
 	}
 
-	function checkRow(c, i, animate) {
+	function rowCmd(c) {
+		const st = level(c);
+		const note = st === "ok" && NOTE[c.name];
+		const plain = note || (st === "ok" ? null : HEALTH[c.name]);
+		return st === "ok" && !note ? "" : fixCommand(c, plain ? plain[2] : "");
+	}
+
+	function checkRow(c, i, animate, fix) {
 		const st = level(c);
 		const note = st === "ok" && NOTE[c.name];
 		const plain = note || (st === "ok" ? null : HEALTH[c.name]);
 		const app = (/bundled with (.+?) \(/.exec(c.detail) || [0, "an app"])[1];
 		const title = plain ? plain[0].replace("$", app) : st === "ok" ? (PASSED[c.name] || c.name) : String(c.detail || c.name).split(" — ")[0];
-		const cmd = st === "ok" && !note ? "" : fixCommand(c, plain ? plain[2] : "");
+		const cmd = rowCmd(c);
 		const raw = [c.detail, ...(c.lines || [])].filter(Boolean).join("\n");
 		const li = el("li", { class: "check check-" + st + (animate ? " reveal" : "") }, [
 			el("span", { class: "boot boot-" + st, "aria-hidden": "true", text: BOOT[st] }),
 			el("div", { class: "check-body" }, [
 				el("span", { class: "check-title" }, [el("span", { class: "sr-only", text: SR_STATUS[st] + " " }), title]),
 				plain ? el("span", { class: "check-why" }, [richText(plain[1])]) : null,
-				cmd ? commandBox(cmd) : null,
-				el("details", { class: "check-details" }, [el("summary", { text: "details" }),
+				fix !== undefined ? fix : cmd ? commandBox(cmd) : null,
+				el("details", { class: "check-details" }, [el("summary", { "aria-label": "Details for " + title }, ["Details", el("span", { class: "sr-only", text: " for " + title })]),
 					el("pre", { class: "check-raw" }, [el("span", { class: "check-id", text: c.name + ": " }), raw])]),
 			]),
 		]);
@@ -730,13 +966,24 @@
 		const bad = sorted.filter(isProblem);
 		const rows = sorted.filter((c) => level(c) !== "ok");
 		const good = sorted.filter((c) => level(c) === "ok");
-		const counted = list.length - rows.length + bad.length; // skipped optional checks count for nothing
-		const summary = bad.length
-			? el("div", { class: "health-sum health-sum-warn", role: "status" }, [el("strong", { text: plural(bad.length, "thing") + " to fix" }),
-				el("span", { class: "health-sum-sub", text: good.length + " of " + counted + " checks passed" })])
-			: el("div", { class: "health-sum health-sum-ok", role: "status" }, [el("strong", { text: "all " + counted + " checks passed" })]);
+		const h = healthSum(list);
+		const summary = h.bad
+			? el("div", { class: "health-sum health-sum-" + h.lvl, role: "status" }, [tag(h.lvl), el("strong", { text: h.text }),
+				el("span", { class: "health-sum-sub", text: h.sub })])
+			: el("div", { class: "health-sum health-sum-ok", role: "status" }, [el("strong", { text: h.text })]);
 		const box = el("div", { class: "health" }, [summary]);
-		if (rows.length) box.appendChild(el("ul", { class: "checks" }, rows.map((c, i) => checkRow(c, i, animate))));
+		// G2: checks that share a command get one action, on the first of them
+		const byCmd = {};
+		rows.forEach((c) => { const k = rowCmd(c); if (k) (byCmd[k] = byCmd[k] || []).push(c.name); });
+		const fixFor = (c) => {
+			const k = rowCmd(c);
+			if (!k) return null;
+			const names = byCmd[k];
+			const first = HEALTH[names[0]];
+			return names[0] === c.name ? fixAction(k, names) : el("p", { class: "fix-same", text: first ? "Fixed by the same command as “" + first[0] + "” above." : "Fixed by the same command above." });
+		};
+		if (rows.length) box.appendChild(el("ul", { class: "checks" }, rows.map((c, i) => checkRow(c, i, animate, fixFor(c)))));
+		if (Object.keys(byCmd).some((k) => !(k === "cwm doctor --fix" && byCmd[k].every((x) => FIXABLE.has(x))))) box.appendChild(el("p", { class: "fix-note health-note", text: "Copy a command and run it in a terminal; Run fixes it from here." }));
 		if (good.length) {
 			const det = el("details", { class: "passed" }, [el("summary", { class: "passed-sum", text: plural(good.length, "check") + " passed" }),
 				el("ul", { class: "checks" }, good.map((c, i) => checkRow(c, i, false)))]);
@@ -744,6 +991,79 @@
 			box.appendChild(det);
 		}
 		return box;
+	}
+
+	// --- run fixes from the dashboard (G2a, D110): only the checks the
+	// server's allow-list repairs (`cwm doctor --fix`); everything else is
+	// a command to copy and run in a terminal.
+	const FIXABLE = new Set(["stignore", "mcp-bridge", "cwm-hooks", "settings", "vault"]);
+	const fixState = {};
+	const isOffline = () => $("live").dataset.mode === "offline";
+
+	function fixPaint(box, st) {
+		box.querySelectorAll(".fix-state, .fix-detail").forEach((n) => n.remove());
+		if (!st) return;
+		box.appendChild(el("span", { class: "fix-state boot boot-" + st.st, text: BOOT[st.st] }));
+		if (st.detail) box.appendChild(el("span", { class: "fix-detail", text: st.detail }));
+	}
+
+	function fixAction(cmd, names) {
+		const runnable = cmd === "cwm doctor --fix" && names.every((n) => FIXABLE.has(n));
+		const n = names.length;
+		const box = el("div", { class: "fix" }, [n > 1 ? el("span", { class: "fix-n", text: "Fixes " + n + " issues" }) : null, commandBox(cmd)]);
+		if (runnable) {
+			const b = btnDo("Run", () => runFix(cmd, names, b, box), "btn-primary fix-run");
+			b.setAttribute("aria-label", "Run " + cmd + (n > 1 ? ", fixes " + n + " issues" : ""));
+			b.disabled = isOffline();
+			box.appendChild(b);
+		}
+		fixPaint(box, fixState[cmd]);
+		return box;
+	}
+
+	async function runFix(cmd, names, b, box) {
+		if (isOffline()) return;
+		const label = b.getAttribute("aria-label");
+		const busy = (text) => { b.disabled = true; b.setAttribute("aria-busy", "true"); b.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), text); };
+		const idle = () => { b.removeAttribute("aria-busy"); b.textContent = "Run"; b.disabled = isOffline(); };
+		const fail = (detail) => {
+			fixState[cmd] = { st: "fail", detail: detail };
+			idle();
+			fixPaint(box, fixState[cmd]);
+			announce("Fix failed: " + detail);
+		};
+		const what = (x) => (names.length > 1 ? (HEALTH[x.name] ? HEALTH[x.name][0] : x.name) + ": " : "") + x.detail;
+		delete fixState[cmd];
+		fixPaint(box, null);
+		busy("Checking");
+		const p = await post("/api/doctor/fix?dry_run=1", { checks: names });
+		if (!p.ok) return fail(p.error);
+		const plan = p.data.results || [];
+		if (!plan.some((x) => x.status === "planned")) return fail(plan.map(what).join("; ") || "nothing to run");
+		idle();
+		if (!await confirmBox("Run " + cmd, "This is what the fix does on this machine (the agent runs the same pass every minute):", plan.map(what), "Run")) return idle();
+		busy("Running");
+		const r = await post("/api/doctor/fix", { checks: names });
+		if (!r.ok) return fail(r.error);
+		if (Array.isArray(r.data.checks)) healthBadge(r.data.checks);
+		const bad = (r.data.results || []).filter((x) => x.status !== "ok");
+		if (bad.length) fail(bad.map(what).join("; "));
+		else {
+			idle();
+			fixPaint(box, { st: "ok", detail: "" });
+			announce("Fixed " + plural(names.length, "issue"));
+			await new Promise((res) => setTimeout(res, 900));
+		}
+		stale.health = stale.home = true;
+		await load(current(), true);
+		const f = document.activeElement;
+		const panel = $("panel-" + current());
+		if (panel && (!f || f === document.body)) {
+			const again = [...panel.querySelectorAll(".fix-run")].find((x) => x.getAttribute("aria-label") === label);
+			const to = again || panel.querySelector("h1");
+			if (to && !again) to.setAttribute("tabindex", "-1");
+			if (to) to.focus();
+		}
 	}
 
 	function conflictsCard(cs) {
@@ -754,7 +1074,7 @@
 			else toast("error", "Could not resolve " + c.path, r.error);
 			load("health", true);
 		};
-		return el("div", { class: "card conflicts" }, [el("h3", { text: "pick a version" }), ...cs.map((c) => el("div", { class: "set-row" }, [
+		return el("div", { class: "card conflicts" }, [el("h2", { class: "card-title", text: "Pick a version" }), ...cs.map((c) => el("div", { class: "set-row" }, [
 			el("div", { class: "set-text" }, [el("span", { class: "set-key", text: (c.copies.length + (c.exists ? 1 : 0)) + " versions of " + c.path + " — pick one" }),
 				el("span", { class: "set-help", text: "The versions you do not keep are moved to backups, never deleted." })]),
 			el("div", { class: "acct-actions" }, [
@@ -783,14 +1103,14 @@
 		const step = (n, title, body) => el("li", { class: "onb-step" }, [el("span", { class: "onb-n", "aria-hidden": "true", text: String(n) }),
 			el("div", { class: "onb-body" }, [el("strong", { text: title }), ...body])]);
 		return el("div", { class: "setup-card" }, [
-			el("h3", { text: "Keep this workspace in sync across your devices" }),
+			el("h2", { class: "card-title", text: "Keep this workspace in sync across your devices" }),
 			el("p", { class: "hint" }, ["Optional. Syncthing copies the workspace peer to peer between your own devices; nothing goes through a server."]),
 			el("ol", { class: "onb" }, [
 				step(1, "install Syncthing", [commandBox(syncthingInstall()), el("p", { class: "hint onb-hint", text: "Any install works; on Linux a distribution package or the official one." })]),
 				step(2, "start sync for cwm", [commandBox("cwm pair --start"), el("p", { class: "hint onb-hint", text: "Sets up the shared workspace folder and prints this device's ID." })]),
 				step(3, "pair the other device", [commandBox("cwm pair <device-id>"), el("p", { class: "hint onb-hint", text: "Run steps 1 and 2 there too, then pair each device with the other's ID. The pair form appears here once Syncthing runs." })]),
 			]),
-			d.error ? el("details", { class: "check-details" }, [el("summary", { text: "details" }), el("pre", { class: "check-raw", text: d.error })]) : null,
+			d.error ? el("details", { class: "check-details" }, [el("summary", { text: "Details" }), el("pre", { class: "check-raw", text: d.error })]) : null,
 		]);
 	}
 
@@ -805,11 +1125,10 @@
 
 	function loginPill(st) {
 		const p = LOGIN_PILL[st] || ["warn", String(st || "unknown")];
-		const pill = el("span", { class: "badge pill badge-" + p[0] }, [
-			st === "in_progress" ? el("span", { class: "spinner", "aria-hidden": "true" }) : null,
-			p[1],
+		const lvl = p[0] === "info" ? "skip" : p[0];
+		return el("span", { class: "acct-state" }, [
+			st === "in_progress" ? el("span", { class: "spinner", "aria-hidden": "true" }) : tag(lvl), " " + p[1],
 		]);
-		return pill;
 	}
 
 	function defaultWithoutLogin(list) {
@@ -820,27 +1139,38 @@
 	}
 
 	function renderAccountsDot(list) {
+		slAccount(list);
 		const need = defaultWithoutLogin(list);
 		setBadge("accounts", need ? "!" : "", need ? (need.none ? "no account yet" : "the default account has no login") : "");
 	}
 
 	function setBadge(tab, text, label) {
-		for (const b of [$("badge-" + tab), $("bb-badge-" + tab)]) {
+		for (const b of [$("badge-" + tab), $("bb-badge-" + tab), $("sheet-badge-" + tab)]) {
 			if (!b) continue;
 			b.hidden = !text;
-			b.textContent = text || "";
+			b.classList.toggle("is-dot", text === "!");
+			b.textContent = text === "!" ? "" : text || "";
 			b.title = label || "";
 			if (label) b.setAttribute("aria-label", label); else b.removeAttribute("aria-label");
 		}
+		// the phone's More button gets a dot when a section behind it has a badge
+		const dot = $("bb-more-dot");
+		const inSheet = [...document.querySelectorAll("#more-sheet .tab-badge")].filter((x) => !x.hidden);
+		dot.hidden = !inSheet.length;
+		dot.title = inSheet.map((x) => x.title).join("; ");
+		const more = document.querySelector(".bb-item[data-more-open]");
+		if (inSheet.length) more.setAttribute("aria-label", "More: " + dot.title); else more.removeAttribute("aria-label");
 	}
 
 	function healthBadge(list) {
-		const n = list.filter(isProblem).length;
-		setBadge("health", n ? String(n) : "", n ? n + (n === 1 ? " thing" : " things") + " to fix" : "");
+		slHealth(list);
+		const h = healthSum(list);
+		setBadge("health", h.bad ? String(h.bad) : "", h.bad ? "Health: " + h.text : "");
+		for (const id of ["badge-health", "bb-badge-health", "sheet-badge-health"]) { const b = $(id); if (b) b.classList.toggle("is-fail", h.lvl === "fail"); }
 	}
 
 	async function refreshHealthBadge() {
-		if (current() === "health" && loaded.health) return; // the tab sets it itself
+		if ((current() === "health" && loaded.health) || (current() === "home" && loaded.home)) return; // the tab sets it itself
 		const r = await api("/api/doctor");
 		if (r.ok && Array.isArray(r.data)) healthBadge(r.data);
 	}
@@ -885,7 +1215,7 @@
 		}
 		box.replaceChildren(
 			el("div", { class: "first-banner-mark", "aria-hidden": "true", text: ">_" }),
-			el("div", { class: "first-banner-text" }, [el("h3", { text: title }), el("p", { text: text })]),
+			el("div", { class: "first-banner-text" }, [el("h2", { class: "card-title", text: title }), el("p", { text: text })]),
 			btn ? el("div", { class: "first-banner-actions" }, [btn]) : null,
 		);
 		box.hidden = false;
@@ -920,10 +1250,10 @@
 			menu.appendChild(b);
 		};
 		const close = (refocus) => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (refocus) btn.focus(); };
-		if (st !== "in_progress") item(st === "done" ? "log in again" : "log in", () => startLogin(a.name, null));
-		if (!a.is_default) item("make default", (b) => setDefault(a.name, b));
-		if (st === "done") item(a.is_default ? "start claude" : "run in parallel", () => runAccount(a));
-		item("remove", () => askRemove(a, btn), "menu-danger");
+		if (st !== "in_progress") item(st === "done" ? "Log in again" : "Log in", () => startLogin(a.name, null));
+		if (!a.is_default) item("Make default", (b) => setDefault(a.name, b));
+		if (st === "done") item(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a));
+		item("Remove", () => askRemove(a, btn), "menu-danger");
 		menu.lastChild.setAttribute("data-acct-remove", "");
 		btn.addEventListener("click", (ev) => {
 			ev.stopPropagation();
@@ -937,46 +1267,47 @@
 		return el("div", { class: "acct-menu-wrap" }, [btn, menu]);
 	}
 
-	function svgDots() {
+	function svgUse(id) {
 		const s = svg("svg", { class: "i", "aria-hidden": "true", focusable: "false" });
-		s.appendChild(svg("use", { href: "#i-more" }));
+		s.appendChild(svg("use", { href: "#" + id }));
 		return s;
 	}
+	const svgDots = () => svgUse("i-more");
 
 	function accountCard(a, i, animate) {
 		const st = a.login_status || "never";
 		const head = el("div", { class: "acct-head" }, [
 			el("span", { class: "acct-name", text: a.name }),
-			a.is_default ? el("span", { class: "tag tag-default", text: "default" }) : null,
-			a.running_now ? el("span", { class: "tag tag-run", text: "running now" }) : null,
+			a.is_default ? el("span", { class: "tag tag-default", text: "Default" }) : null,
+			a.running_now ? el("span", { class: "tag tag-run", text: "Running now" }) : null,
 			loginPill(st),
 			acctMenu(a, st),
 		]);
 		const meta = el("div", { class: "acct-meta" }, [
-			metaLine("login", a.email ? a.email + (a.plan ? " · " + a.plan : "") : "none recorded"),
-			metaLine("last login", lastLoginText(a, st), a.last_login),
-			metaLine("last used", a.last_used ? relTime(a.last_used) : "not launched yet", a.last_used),
-			metaLine("runs", a.is_default ? "in the workspace root (plain claude uses it)" : "in parallel: cwm run --account " + a.name),
+			metaLine("Login", a.email ? a.email + (a.plan ? " · " + a.plan : "") : "none recorded"),
+			metaLine("Last login", lastLoginText(a, st), a.last_login),
+			metaLine("Last used", a.last_used ? relTime(a.last_used) : "not launched yet", a.last_used),
+			metaLine("Runs", a.is_default ? "in the workspace root (plain claude uses it)" : "in parallel: cwm run --account " + a.name),
 		]);
 		const children = [head, meta];
 		if (st === "failed" || (st === "in_progress" && a.login_error)) {
 			children.push(el("div", { class: "msg msg-error acct-error" }, [
 				"The last login did not finish.",
 				a.login_error ? el("span", { class: "detail", text: a.login_error }) : null,
-				el("div", { class: "acct-inline" }, [accountLoginButton(a, "retry login", "btn-primary")]),
+				el("div", { class: "acct-inline" }, [accountLoginButton(a, "Retry login", "btn-primary")]),
 			]));
 		} else if (st === "in_progress") {
 			children.push(el("div", { class: "msg msg-info acct-error" }, [
 				el("span", { class: "spinner", "aria-hidden": "true" }),
 				"Waiting for the login in its terminal window…",
-				el("div", { class: "acct-inline" }, [accountLoginButton(a, "open a new login window")]),
+				el("div", { class: "acct-inline" }, [accountLoginButton(a, "Open a new login window")]),
 			]));
 		} else if (st === "never") {
-			children.push(el("div", { class: "acct-actions" }, [accountLoginButton(a, "log in", "btn-primary")]));
+			children.push(el("div", { class: "acct-actions" }, [accountLoginButton(a, "Log in", "btn-primary")]));
 		} else if (st === "done") {
 			children.push(el("div", { class: "acct-actions" }, [
-				btnDo(a.is_default ? "start claude" : "run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"),
-				a.is_default ? null : btnDo("make default", (b) => setDefault(a.name, b)),
+				btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"),
+				a.is_default ? null : btnDo("Make default", (b) => setDefault(a.name, b)),
 			]));
 		}
 		const card = el("article", { class: "acct-card" + (a.is_default ? " is-default" : "") + (animate ? " reveal" : ""), "aria-label": "Account " + a.name }, children);
@@ -999,7 +1330,7 @@
 				pendingAdd = "";
 				const res = $("acct-add-result");
 				if (a.is_default) return say(res, "ok", "“" + name + "” is logged in and is the default account.");
-				const mk = el("button", { type: "button", class: "btn btn-small btn-primary", text: "make default" });
+				const mk = el("button", { type: "button", class: "btn btn-small btn-primary", text: "Make default" });
 				mk.addEventListener("click", () => setDefault(name, mk));
 				res.replaceChildren(el("div", { class: "msg msg-ok" }, ["“" + name + "” is logged in. Make it the default account?", el("div", { class: "acct-inline" }, [mk])]));
 			}
@@ -1075,10 +1406,10 @@
 	async function setDefault(name, btn) {
 		const cur = accountsCache.find((a) => a.is_default);
 		const busy = accountsCache.some((a) => a.running_now);
-		if (!await confirmBox("make “" + name + "” the default", "Plain claude, cwm open and Resume log in as “" + name + "” from now on. cwm saves " +
+		if (!await confirmBox("Make “" + name + "” the default", "Plain claude, cwm open and Resume log in as “" + name + "” from now on. cwm saves " +
 			(cur ? "“" + cur.name + "”’s" : "the current") + " login first, so nothing is lost; sessions and settings are shared and stay.",
 		[busy ? "Claude is running now: open sessions keep using " + (cur ? "“" + cur.name + "”" : "the old login") + " until restarted." :
-			"Any open Claude session keeps the old login until it is restarted."], "make default")) return;
+			"Any open Claude session keeps the old login until it is restarted."], "Make default")) return;
 		btn.disabled = true;
 		const r = await post("/api/accounts/set-default", { name: name });
 		if (r.ok) toast(r.data.warning ? "info" : "ok", "“" + name + "” is the default account now", r.data.warning || "Plain claude, cwm open and Resume use it.");
@@ -1099,7 +1430,7 @@
 			cwmHome = r.ok && r.data && r.data.workspace ? String(r.data.workspace.path).replace(/[\\/]workspace$/, "") : "~/.cwm";
 		}
 		const only = accountsCache.length <= 1;
-		$("acct-remove-title").textContent = "remove account “" + a.name + "”";
+		$("acct-remove-title").textContent = "Remove account “" + a.name + "”";
 		$("acct-remove-text").replaceChildren(...(only
 			? ["“" + a.name + "” is the only account. cwm needs one to start Claude Code, so it cannot be removed — add another account first."]
 			: ["cwm forgets this login: its saved credentials and login-only folder are copied to ", el("code", { text: cwmHome + "/backups/" }), " first. Sessions, memory and settings are shared and stay." +
@@ -1153,25 +1484,28 @@
 	// --- settings (v0.8, D95): every `cwm config` key, PUT /api/settings
 
 	const PREVIEW = new Set(["features.autostart", "features.open_dashboard_at_login", "features.private_sync"]);
-	const GROUPS = [["sync", "sync items", "What follows you to your other devices. Off only stops syncing it; nothing is deleted."],
-		["features", "features", "What cwm does for you."], ["display", "display", "This dashboard."], ["advanced", "advanced", ""]];
+	const GROUPS = [["sync", "Sync items", "What follows you to your other devices. Off only stops syncing it; nothing is deleted."],
+		["features", "Features", "What cwm does for you."], ["display", "Display", "This dashboard."], ["advanced", "Advanced", ""]];
 	const MODES = {
 		capture: "~/.claude is the workspace: every Claude Code run on this machine is captured and synced — plain claude, the IDE extensions, the desktop app.",
 		isolated: "~/.cwm/workspace is the workspace: only sessions started through cwm use it; ~/.claude is left alone.",
 	};
 	let settings = null;
-	let display = { hidden: [], def: "sessions" };
+	let display = { hidden: [], def: "home", activity: true };
 
 	function applyDisplay(v) {
 		const get = (k) => (v.keys.find((x) => x.key === k) || {}).value || "";
-		display = { hidden: get("display.hidden_tabs").split(",").filter(Boolean), def: get("display.default_tab") || "sessions" };
-		if (state && state.stats === false) display.hidden.push("stats");
+		display = { hidden: get("display.hidden_tabs").split(",").filter(Boolean), def: get("display.default_tab") || "home",
+			activity: get("display.home_activity") !== "false" && !(state && state.stats === false) };
+		$("home-activity").hidden = !display.activity;
 		for (const t of TABS) {
 			const off = display.hidden.includes(t);
 			$("tab-" + t).hidden = off;
 			document.querySelectorAll('[data-tab-go="' + t + '"]').forEach((b) => { b.hidden = off; });
 		}
-		$("migrate-banner").hidden = !v.needs_migration;
+		// J1: Home's Needs attention carries the notice; the banner only when Home is hidden
+		$("migrate-banner").hidden = !v.needs_migration || !display.hidden.includes("home");
+		$("sl-mig").hidden = !v.needs_migration;
 		if (display.hidden.includes(current()) && dashboardVisible()) activate(current());
 	}
 
@@ -1204,7 +1538,7 @@
 		]);
 	}
 
-	const cardHead = (title, hint, ctl) => el("div", { class: "card-head" }, [el("div", null, [el("h3", { text: title }), hint ? el("p", { class: "hint", text: hint }) : null]), ctl]);
+	const cardHead = (title, hint, ctl) => el("div", { class: "card-head" }, [el("div", null, [el("h2", { class: "card-title", text: title }), hint ? el("p", { class: "hint", text: hint }) : null]), ctl]);
 	// a path may wrap only after a separator
 	const pathText = (s) => s.split(/(?<=[/\\])/).flatMap((p, i) => i ? [el("wbr"), p] : [p]);
 
@@ -1216,13 +1550,14 @@
 			return b;
 		}));
 		const out = [el("div", { class: "card set-wide" }, [
-			cardHead("mode", "Where Claude Code's data lives on this machine.", seg),
+			cardHead("Mode", "Where Claude Code's data lives on this machine.", el("div", { class: "mode-ctl" }, [
+				v.needs_migration ? el("button", { type: "button", class: "chip chip-warn", title: "This workspace predates v0.8: review the migration before anything moves" }, ["migration due · review"]) : null, seg])),
 			el("div", { class: "set-mode" }, [el("p", { text: MODES[v.mode] }),
 				el("dl", { class: "set-kv" }, [...kv("workspace root", v.root), ...kv(".claude.json", v.live.claude_json), ...kv("credentials", v.live.credentials),
 					...kv("CLAUDE_CONFIG_DIR", v.live.env || "not set")])]),
-			v.needs_migration ? el("div", { class: "msg msg-warn" }, ["This workspace predates v0.8: review the migration before anything moves.",
-				el("div", { class: "acct-inline" }, [btnDo("review migration", () => openMigration(v.mode), "btn-primary")])]) : null,
 		])];
+		const chip = out[0].querySelector(".chip");
+		if (chip) chip.addEventListener("click", () => openMigration(v.mode));
 		for (const [g, title, hint] of GROUPS) {
 			const rows = v.keys.filter((k) => k.group === g);
 			if (!rows.length) continue;
@@ -1232,12 +1567,12 @@
 					const hidden = row.value.split(",").filter(Boolean);
 					const box = el("div", { class: "set-tabs", role: "group", "aria-label": "Visible tabs" }, row.choices.map((t) => {
 						const on = !hidden.includes(t);
-						const b = el("button", { type: "button", class: "menu-item toggle", role: "switch", "aria-checked": String(on), "aria-label": "show " + t },
-							[el("span", { class: "toggle-box" }), t]);
+						const b = el("button", { type: "button", class: "menu-item toggle", role: "switch", "aria-checked": String(on), "aria-label": "Show " + (TAB_LABEL[t] || t) },
+							[el("span", { class: "toggle-box" }), TAB_LABEL[t] || t]);
 						b.addEventListener("click", () => setSetting(row.key, (on ? hidden.concat(t) : hidden.filter((x) => x !== t)).join(","), b));
 						return b;
 					}));
-					items.push(setRow(row, box, "visible tabs", "div"));
+					items.push(setRow(row, box, "Visible tabs", "div"));
 				} else items.push(setRow(row, row.kind === "bool" ? switchBtn(row) : choice(row, row.choices || [])));
 			}
 			out.push(el("div", { class: "card" + (g === "sync" || g === "features" ? "" : " set-wide") }, [cardHead(title, hint), ...items]));
@@ -1258,7 +1593,7 @@
 		$("confirm-text").textContent = text;
 		$("confirm-lines").replaceChildren(...(lines || []).map((l) => el("li", { class: "wl wl-out", text: l })));
 		$("confirm-lines").hidden = !(lines && lines.length);
-		$("confirm-ok").textContent = ok || "apply";
+		$("confirm-ok").textContent = ok || "Apply";
 		const back = document.activeElement;
 		dlg.showModal();
 		return new Promise((res) => {
@@ -1284,7 +1619,7 @@
 			await load("settings", true);
 			const f = document.activeElement;
 			if (lbl && (!f || f === document.body)) { const n = [...$("panel-settings").querySelectorAll("[aria-label]")].find((x) => x.getAttribute("aria-label") === lbl); if (n) n.focus(); }
-			if (key === "features.stats") refreshState();
+			if (key === "features.stats" || key === "display.home_activity") { await refreshState(); delete loaded.activity; delete lastJSON.activity; }
 		}
 	}
 
@@ -1305,12 +1640,12 @@
 	async function openMigration(to) {
 		const dlg = $("mig-dialog");
 		migTo = to;
-		$("mig-title").textContent = "migrate to " + to + " mode";
+		$("mig-title").textContent = "Migrate to " + to + " mode";
 		$("mig-log").replaceChildren();
 		$("mig-sum").replaceChildren(el("p", { class: "hint", text: "Building the plan (nothing changes yet)…" }));
 		$("mig-apply").hidden = false;
 		$("mig-apply").disabled = true;
-		$("mig-cancel").textContent = "cancel";
+		$("mig-cancel").textContent = "Cancel";
 		if (!dlg.open) dlg.showModal();
 		const r = await post("/api/migrate/preview", { to: to });
 		if (!r.ok) return $("mig-sum").replaceChildren(el("div", { class: "msg msg-error", text: r.error }));
@@ -1325,7 +1660,7 @@
 				...kv("backup", p.backup_roots.join(", ") + " (" + bytes(p.backup_bytes) + ", sha256 manifest)"),
 				...kv("plan", none ? "nothing to do" : counts.join(" · ")), ...kv("conflicts", p.conflicts ? p.conflicts + " kept side by side" : "none")]),
 			...(p.warnings || []).map((w) => el("div", { class: "msg msg-warn", text: w })),
-			p.actions.length ? el("details", { class: "check-details" }, [el("summary", { text: "every step" + (p.truncated ? " (first " + p.actions.length + ")" : "") }),
+			p.actions.length ? el("details", { class: "check-details" }, [el("summary", { text: "Every step" + (p.truncated ? " (first " + p.actions.length + ")" : "") }),
 				el("pre", { class: "check-raw", text: p.actions.map((a) => a.kind + "  " + (a.src || "") + (a.dst ? " → " + a.dst : "") + (a.detail ? "  # " + a.detail : "")).join("\n") })]) : null,
 			el("p", { class: "hint", text: "Nothing is deleted: replaced files go into the backup. Undo with cwm migrate rollback." }),
 		);
@@ -1358,7 +1693,7 @@
 			break;
 		}
 		$("mig-apply").hidden = true;
-		$("mig-cancel").textContent = "close";
+		$("mig-cancel").textContent = "Close";
 		await load("settings", true);
 		refreshState();
 		refreshHealthBadge();
@@ -1568,7 +1903,7 @@
 	}
 
 	async function load(name, silent) {
-		if (!silent) {
+		if (!silent && content(name)) {
 			delete lastJSON[name];
 			show(name, skeleton(name === "health" ? 6 : 4));
 		}
@@ -1599,17 +1934,21 @@
 		const more = document.querySelector(".bb-item[data-more-open]");
 		if (more) more.classList.toggle("is-active", !document.querySelector('.bb-item[data-tab-go="' + name + '"]'));
 		if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+		$("sl-path").textContent = "~/cwm/" + name;
 		if (!loaded[name]) load(name);
 		else if (stale[name]) load(name, true);
+		else if (name === "home") scheduleActivity(false);
 	}
 
 	function current() {
 		let name = location.hash.replace(/^#/, "");
 		if (name === "wip") name = "handoff"; // v0.7.1 bookmarks (D70)
+		if (name === "stats") { name = "home"; wantActivity = true; } // v0.8 bookmarks (D105)
 		if (!TABS.includes(name)) name = display.def;
 		return display.hidden.includes(name) ? TABS.find((t) => !display.hidden.includes(t)) : name;
 	}
 
+	let wantActivity = false;
 	function dashboardVisible() {
 		return !$("dashboard").hidden;
 	}
@@ -1667,7 +2006,7 @@
 	}
 
 	function wireToggles() {
-		const seg = document.querySelector(".hdr-full .seg");
+		const seg = $("theme-seg");
 		document.querySelectorAll("[data-theme-seg]").forEach((n) => n.replaceWith(seg.cloneNode(true)));
 		applyTheme(root.getAttribute("data-theme-pref") || "system", false);
 		document.querySelectorAll("[data-theme-set]").forEach((b) => {
@@ -1695,9 +2034,15 @@
 		box.classList.remove("beat");
 		void box.offsetWidth;
 		box.classList.add("beat");
+		document.querySelector(".statusline").classList.toggle("is-offline", box.dataset.mode === "offline");
 		renderLive();
 	}
 
+	const LIVE_TITLE = {
+		sse: "Live updates from cwm (server-sent events)",
+		poll: "Auto-refresh every 15 seconds (this cwm has no live event stream)",
+		offline: "cwm is not reachable. Click to retry.",
+	};
 	function ago(ms) {
 		const sec = Math.max(0, Math.round(ms / 1000));
 		if (sec < 60) return sec + "s ago";
@@ -1708,26 +2053,23 @@
 	function renderLive() {
 		const box = $("live");
 		const mode = box.dataset.mode;
-		let label = "connecting…";
+		let label = "connecting…", last = "";
 		if (mode === "offline") label = "offline – retry";
-		else if ((mode === "sse" || mode === "poll") && lastSeen) label = "live " + ago(Date.now() - lastSeen);
+		else if ((mode === "sse" || mode === "poll") && lastSeen) { label = "live"; last = "last event " + ago(Date.now() - lastSeen); }
 		const text = $("live-text");
-		if (text.textContent !== label) {
-			text.textContent = label;
-			box.setAttribute("aria-label", "connection: " + label);
-		}
+		if (text.textContent !== label) text.textContent = label;
+		box.setAttribute("aria-label", "connection: " + label + (last ? ", " + last : ""));
+		box.title = (LIVE_TITLE[mode] || "Connecting to cwm") + (last ? " · " + last : "");
 	}
 
 	function setLive(mode) {
 		liveMode = mode === "offline" ? liveMode : mode;
 		const box = $("live");
+		if (box.dataset.mode === "offline" && mode !== "offline") announce("Connection restored");
 		box.dataset.mode = mode;
-		box.title = {
-			sse: "Live updates from cwm (server-sent events)",
-			poll: "Auto-refresh every 15 seconds (this cwm has no live event stream)",
-			offline: "cwm is not reachable. Click to retry.",
-		}[mode] || "Connecting to cwm";
 		$("offline-banner").hidden = mode !== "offline";
+		document.querySelectorAll(".fix-run:not([aria-busy])").forEach((b) => { b.disabled = mode === "offline"; });
+		document.querySelector(".statusline").classList.toggle("is-offline", mode === "offline");
 		renderLive();
 		clearInterval(liveTick);
 		if (mode === "sse" || mode === "poll") {
@@ -1762,7 +2104,9 @@
 		}
 	}
 
-	const TOPIC_TAB = { doctor: "health", health: "health", sessions: "sessions", projects: "projects", devices: "devices", wip: "handoff", accounts: "accounts", stats: "stats", settings: "settings" };
+	// one topic can feed several tabs: Home summarises most of them
+	const TOPIC_TABS = { doctor: ["health", "home"], health: ["health", "home"], sessions: ["sessions", "home"], projects: ["projects"], devices: ["devices", "home"],
+		wip: ["handoff", "home"], accounts: ["accounts", "home"], stats: ["home"], settings: ["settings"] };
 	const QUIET = new Set(["ping", "heartbeat", "hello", "keepalive", "open", "connected"]);
 	let pendingTopics = new Set();
 	let eventTimer = 0;
@@ -1774,7 +2118,7 @@
 			const d = JSON.parse(ev.data);
 			if (d && typeof d === "object") {
 				topic = String(d.topic || d.type || d.kind || d.event || topic);
-				if (Array.isArray(d.changed)) parts = d.changed.map((c) => String(c).toLowerCase()).filter((c) => TOPIC_TAB[c]);
+				if (Array.isArray(d.changed)) parts = d.changed.map((c) => String(c).toLowerCase()).filter((c) => TOPIC_TABS[c]);
 			}
 		} catch (err) { /* plain-text payloads are fine */ }
 		topic = topic.toLowerCase();
@@ -1794,13 +2138,16 @@
 			if (t === "state" || t === "accounts" || t === "initialized") refreshState();
 			if (t === "settings" && current() !== "settings") loadSettings();
 			if (t === "doctor" || t === "health" || t === "*") refreshHealthBadge();
-			if (TOPIC_TAB[t]) tabs.push(TOPIC_TAB[t]);
+			if (t === "accounts" || t === "devices" || t === "*") slFeeds(false);
+			if (t === "stats") stale.activity = true;
+			if (TOPIC_TABS[t]) tabs.push(...TOPIC_TABS[t]);
 			else if (t !== "state") tabs = TABS.slice();
 		}
 		for (const t of new Set(tabs)) stale[t] = true;
 		lastRefresh = Date.now();
 		beat();
 		if (dashboardVisible() && stale[current()]) load(current(), true);
+		if (dashboardVisible() && current() === "home" && stale.activity && loaded.activity) { delete stale.activity; loadActivity(true); }
 	}
 
 	function startPolling() {
@@ -1901,20 +2248,21 @@
 	let palAt = 0;
 
 	function palEntries() {
-		const out = TABS.filter((t) => !display.hidden.includes(t)).map((t) => ({ kind: "section", label: t, hint: (TABS.indexOf(t) + 1) + ":", run: () => { activate(t); $("tab-" + t).focus({ preventScroll: true }); } }));
+		const out = TABS.filter((t) => !display.hidden.includes(t)).map((t) => ({ kind: "section", label: TAB_LABEL[t], hint: String(TABS.indexOf(t) + 1), run: () => { activate(t); $("tab-" + t).focus({ preventScroll: true }); } }));
 		const act = (label, hint, run) => out.push({ kind: "action", label: label, hint: hint, run: run });
-		for (const g of ["mode", "sync items", "features", "display"]) act("settings: " + g, "8:", () => activate("settings"));
-		act("review migration", "", () => openMigration(settings ? settings.mode : "capture"));
-		act("theme auto", "t", () => applyTheme("system", true));
-		act("theme dark", "t", () => applyTheme("dark", true));
-		act("theme light", "t", () => applyTheme("light", true));
-		act("motion on/off", "b", toggleMotion);
-		act("refresh", "r", () => refreshNow(true));
-		act("copy debug logs", "d", copyDebugLogs);
-		act("filter sessions", "/", () => { activate("sessions"); $("sessions-filter").focus(); });
-		act("keyboard shortcuts", "?", openKeys);
-		if (window.cwmAbout) act("about cwm", "", window.cwmAbout);
-		sessionsCache.forEach((s) => out.push({ kind: "session", label: "resume " + s.project, sub: s.firstPrompt || "(no prompt)", hint: s.id.slice(0, 8),
+		if (display.activity && !display.hidden.includes("home")) act("Activity (stats)", "1", () => { activate("home"); goActivity(); });
+		for (const g of ["mode", "sync items", "features", "display"]) act("Settings: " + g, String(TABS.indexOf("settings") + 1), () => activate("settings"));
+		act("Review migration", "", () => openMigration(settings ? settings.mode : "capture"));
+		act("Theme: auto", "t", () => applyTheme("system", true));
+		act("Theme: dark", "t", () => applyTheme("dark", true));
+		act("Theme: light", "t", () => applyTheme("light", true));
+		act("Motion on/off", "b", toggleMotion);
+		act("Refresh", "r", () => refreshNow(true));
+		act("Copy debug logs", "d", copyDebugLogs);
+		act("Filter sessions", "/", () => { activate("sessions"); $("sessions-filter").focus(); });
+		act("Keyboard shortcuts", "?", openKeys);
+		if (window.cwmAbout) act("About cwm", "", window.cwmAbout);
+		sessionsCache.forEach((s) => out.push({ kind: "session", label: "Resume " + projectLabel(s.project).text, sub: promptText(s), hint: s.id.slice(0, 8),
 			run: () => resumeSession(s, null) }));
 		return out;
 	}
@@ -2015,6 +2363,22 @@
 		dlg.addEventListener("click", (ev) => { if (ev.target === dlg) closePalette(); });
 	}
 
+	// v0.9 shifted the number keys (Home is 1): say so once per browser.
+	function renumberedToast() {
+		let seen = false;
+		try { seen = localStorage.getItem("cwm-tabs-v09") === "1"; } catch (err) { seen = true; }
+		if (seen) return;
+		store("cwm-tabs-v09", "1");
+		toast("info", "Tabs renumbered: Sessions is now 2 · Stats moved into Home");
+	}
+
+	function goActivity() {
+		const box = $("home-activity");
+		if (box.hidden) return;
+		scheduleActivity(false);
+		box.scrollIntoView({ block: "start", behavior: reduceMotion.matches ? "auto" : "smooth" });
+	}
+
 	function wireKeys() {
 		const dlg = $("keys");
 		$("keys-close").addEventListener("click", () => dlg.close());
@@ -2039,6 +2403,7 @@
 			const k = ev.key;
 			if (k >= "1" && k <= "8" && dashboardVisible()) {
 				const name = TABS[Number(k) - 1];
+				renumberedToast();
 				activate(name);
 				$("tab-" + name).focus({ preventScroll: true });
 			} else if (k === "/" && dashboardVisible()) {
@@ -2087,7 +2452,7 @@
 		for (const [v, s] of [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]]) {
 			if (a >= v) {
 				const x = n / v;
-				return (x >= 100 ? x.toFixed(0) : x.toFixed(1).replace(/\.0$/, "")) + s;
+				return (x >= 100 ? x.toFixed(0) : x.toFixed(1)) + s; // one rule: 7.0M, 4.6M, 72.2k, 144k
 			}
 		}
 		return String(n);
@@ -2117,11 +2482,23 @@
 		return n;
 	}
 
-	function kpi(label, value, sub, title) {
+	// H1: "claude-opus-5-5" reads "Opus 5.5"; the id stays in the title
+	function modelLabel(id) {
+		const s = String(id || "");
+		let m = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(s);
+		if (m) return m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "");
+		m = /^claude-(\d+)(?:-(\d))?-(opus|sonnet|haiku)/.exec(s);
+		if (m) return m[3][0].toUpperCase() + m[3].slice(1) + " " + m[1] + (m[2] ? "." + m[2] : "");
+		return s;
+	}
+
+	const RANGE_SUB = { "7d": "in 7 days", "30d": "in 30 days", "90d": "in 90 days", "365d": "in 1 year", all: "all time" };
+	function kpi(label, value, sub, title, note) {
 		return el("div", { class: "kpi" }, [
 			el("div", { class: "kpi-label", text: label }),
 			el("div", { class: "kpi-value", text: value, title: title || null }),
 			sub ? el("div", { class: "kpi-sub", text: sub }) : null,
+			note ? el("div", { class: "kpi-note" }, note) : null,
 		]);
 	}
 
@@ -2131,15 +2508,19 @@
 		const unpriced = (d.unpriced || []).length ? "unpriced (counted $0): " + d.unpriced.join(", ") : "";
 		const days = (d.daily || []).length;
 		const st = d.streaks || {};
-		return el("div", { class: "kpis" }, [
-			kpi("sessions", nf.format(t.sessions), null),
-			kpi("messages", compact(t.messages), nf.format(t.user_messages) + " prompts · " + nf.format(t.assistant_messages) + " replies", nf.format(t.messages)),
-			kpi("tokens", compact(t.tokens.total), "in, out and cache", nf.format(t.tokens.total) + " tokens"),
-			kpi("active days", nf.format(t.active_days), "of " + plural(days, "day")),
-			kpi("streak", plural(st.current || 0, "day"), "longest " + plural(st.longest || 0, "day"),
-				st.longest ? "longest: " + st.longest_start + " to " + st.longest_end : null),
-			kpi("est. cost", "≈ $" + (cost.usd || 0).toFixed(2), cost.note || "est., list prices — your plan may be flat-rate",
-				"API-equivalent at list prices as of " + (cost.prices_updated || "?") + (unpriced ? " · " + unpriced : "")),
+		const nUnpriced = (d.unpriced || []).length;
+		return el("div", { class: "kpi-wrap" }, [
+			el("div", { class: "kpis" }, [
+				kpi("Sessions", nf.format(t.sessions), RANGE_SUB[statsRange] || ""),
+				kpi("Messages", compact(t.messages), nf.format(t.user_messages) + " prompts · " + nf.format(t.assistant_messages) + " replies", nf.format(t.messages)),
+				kpi("Tokens", compact(t.tokens.total), "in, out and cache", nf.format(t.tokens.total) + " tokens"),
+				kpi("Active days", nf.format(t.active_days), "of " + plural(days, "day")),
+				kpi("Streak", plural(st.current || 0, "day").replace(" ", "\u00a0"), "longest " + plural(st.longest || 0, "day"),
+					st.longest ? "longest: " + st.longest_start + " to " + st.longest_end : null),
+				kpi("Est. cost", "≈\u00a0$" + (cost.usd || 0).toFixed(2), cost.note || "est., list prices — your plan may be flat-rate",
+					"API-equivalent at list prices" + (unpriced ? " · " + unpriced : ""),
+					[(nUnpriced ? plural(nUnpriced, "model") + " unpriced ($0) · " : "") + "prices as of ", el("span", { class: "nowrap", text: cost.prices_updated || "unknown" })]),
+			]),
 		]);
 	}
 
@@ -2159,7 +2540,7 @@
 		const card = el("div", { class: "card stats-card heat-card" });
 		const toggle = el("div", { class: "seg seg-text", role: "group", "aria-label": "Heatmap metric" },
 			Object.keys(METRICS).map((m) => {
-				const b = el("button", { type: "button", class: "seg-btn", "aria-pressed": String(m === statsMetric), text: m });
+				const b = el("button", { type: "button", class: "seg-btn", "aria-pressed": String(m === statsMetric), text: m[0].toUpperCase() + m.slice(1) });
 				b.addEventListener("click", () => {
 					statsMetric = m;
 					store("cwm-stats-metric", m);
@@ -2170,7 +2551,7 @@
 				});
 				return b;
 			}));
-		card.appendChild(el("div", { class: "card-head" }, [el("h3", { text: "activity, last 12 months" }), toggle]));
+		card.appendChild(el("div", { class: "card-head" }, [el("h2", { class: "card-title", text: "Activity, last 12 months" }), toggle]));
 		if (!cal.length) return card;
 
 		const ws = weekStart();
@@ -2179,7 +2560,7 @@
 		const startIdx = last - ((todayDow - ws + 7) % 7) - 52 * 7;
 		const cells = cal.slice(Math.max(0, startIdx));
 		const lv = levels(cells.map(cellValue));
-		const grid = el("div", { class: "heat", role: "grid", "aria-label": "Daily " + statsMetric + ", last 12 months" });
+		const grid = el("div", { class: "heat", role: "group", "aria-label": "Daily " + statsMetric + ", last 12 months (arrow keys move between days)" });
 		const tip = el("div", { class: "heat-tip", role: "tooltip", hidden: "" });
 		const unit = statsMetric === "sessions" ? "session" : statsMetric === "messages" ? "message" : "token";
 		const buttons = [];
@@ -2196,11 +2577,12 @@
 			const dt = dayDate(c.date);
 			const col = Math.floor(i / 7);
 			const row = i % 7;
-			if (row === 0 || i === 0) {
-				const mo = dt.getUTCMonth();
-				if (mo !== prevMonth && dt.getUTCDate() <= 7 && col - lastLabelCol >= 3) {
+			const mo = dt.getUTCMonth();
+			if (mo !== prevMonth && (dt.getUTCDate() === 1 || i === 0)) {
+				// the label starts on the week column that holds the 1st
+				if (dt.getUTCDate() === 1 && col - lastLabelCol >= 3) {
 					const ml = el("span", { class: "heat-mo", text: MON[mo], "aria-hidden": "true" });
-					ml.style.gridColumn = String(col + 2) + " / span 3";
+					ml.style.gridColumn = String(col + 2) + " / span " + Math.max(1, Math.min(3, 53 - col));
 					grid.appendChild(ml);
 					lastLabelCol = col;
 				}
@@ -2244,25 +2626,29 @@
 			ev.preventDefault();
 			ev.stopPropagation();
 		});
-		const legend = el("div", { class: "heat-legend", "aria-hidden": "true" }, ["less",
+		const legend = el("div", { class: "heat-legend", "aria-hidden": "true" }, ["less ",
 			...[0, 1, 2, 3, 4].map((l) => el("span", { class: "heat-cell", "data-l": String(l) })), "more"]);
-		card.appendChild(el("div", { class: "heat-scroll" }, [grid, tip]));
-		card.appendChild(legend);
+		const sc = el("div", { class: "heat-scroll" }, [grid, tip]);
+		const wrap = el("div", { class: "heat-wrap" }, [sc]);
+		sc.addEventListener("scroll", () => wrap.classList.toggle("at-start", sc.scrollLeft < 4), { passive: true });
+		card.appendChild(wrap);
+		card.appendChild(el("div", { class: "heat-foot" }, [el("span", { class: "heat-hint", "aria-hidden": "true", text: "← scroll" }), legend]));
 		return card;
 	}
 
-	function barList(title, groups, sub) {
-		const card = el("div", { class: "card stats-card" }, [el("h3", { text: title })]);
+	function barList(title, groups, sub, label, full) {
+		const card = el("div", { class: "card stats-card sc-" + title.split(" ").pop().toLowerCase() }, [el("h2", { class: "card-title", text: title })]);
 		if (!groups.length) {
 			card.appendChild(el("p", { class: "hint", text: "Nothing in this range." }));
 			return card;
 		}
 		const most = Math.max(1, ...groups.map((g) => g.tokens.total));
-		card.appendChild(el("ol", { class: "hbars" }, groups.map((g) => {
+		card.appendChild(el("ol", { class: "hbars" + (groups.length > 5 ? " is-long" : "") }, groups.map((g) => {
 			const fill = el("span");
-			fill.style.width = Math.max(1, Math.round((g.tokens.total / most) * 100)) + "%";
+			fill.style.width = ((g.tokens.total / most) * 100).toFixed(1) + "%";
+			if (g.tokens.total > 0) fill.className = "has-v";
 			return el("li", null, [
-				el("span", { class: "hb-name", text: g.name, title: g.name }),
+				el("span", { class: "hb-name", text: label ? label(g.name) : g.name, title: full ? full(g.name) : g.name }),
 				el("span", { class: "bar", "aria-hidden": "true" }, [fill]),
 				el("span", { class: "hb-val", text: compact(g.tokens.total), title: nf.format(g.tokens.total) + " tokens · " + plural(g.messages, "message") + " · " + plural(g.sessions, "session") }),
 				sub ? el("span", { class: "hb-sub", text: sub(g) }) : null,
@@ -2271,92 +2657,111 @@
 		return card;
 	}
 
+	// H2: input/output and cache differ by orders of magnitude: one 100% bar;
+	// the small part keeps a minimum width and its share is printed beside it
 	function tokenSplit(tok) {
-		const card = el("div", { class: "card stats-card" }, [el("h3", { text: "token kinds" })]);
+		const card = el("div", { class: "card stats-card sc-kinds" }, [el("h2", { class: "card-title", text: "Token kinds" })]);
+		const all = Math.max(1, tok.total);
 		const rows = [
-			["billed", tok.input + tok.output, "input " + compact(tok.input) + " · output " + compact(tok.output), "chart-billed"],
-			["cache", tok.cache_write + tok.cache_read, "write " + compact(tok.cache_write) + " · read " + compact(tok.cache_read), "chart-cache"],
+			["Input + output", tok.input + tok.output, "input " + compact(tok.input) + " · output " + compact(tok.output), "chart-billed"],
+			["Cache", tok.cache_write + tok.cache_read, "write " + compact(tok.cache_write) + " · read " + compact(tok.cache_read), "chart-cache"],
 		];
-		const most = Math.max(1, rows[0][1], rows[1][1]);
-		card.appendChild(el("ol", { class: "hbars kinds" }, rows.map(([name, v, sub, cls]) => {
-			const fill = el("span", { class: cls });
-			fill.style.width = Math.max(1, Math.round((v / most) * 100)) + "%";
-			return el("li", null, [
-				el("span", { class: "hb-name" }, [el("span", { class: "sw " + cls, "aria-hidden": "true" }), name]),
-				el("span", { class: "bar", "aria-hidden": "true" }, [fill]),
-				el("span", { class: "hb-val", text: compact(v), title: nf.format(v) + " tokens" }),
-				el("span", { class: "hb-sub", text: sub + " · " + Math.round((v / Math.max(1, tok.total)) * 100) + "%" }),
-			]);
-		})));
+		const pct = (v) => (v / all) * 100;
+		const bar = el("div", { class: "stack", role: "img", "aria-label": rows.map(([n, v]) => n + " " + pct(v).toFixed(1) + "%").join(", ") });
+		const share = (v) => (pct(v) < 1 && v ? pct(v).toFixed(1) : Math.round(pct(v))) + "%";
+		for (const [, v, , cls] of rows) {
+			const seg = el("span", { class: cls + (v ? " has-v" : "") });
+			seg.style.flexGrow = String(pct(v));
+			bar.appendChild(seg);
+		}
+		card.appendChild(bar);
+		const small = rows.filter(([, v]) => v && pct(v) < 15);
+		if (small.length) card.appendChild(el("div", { class: "stack-labels", "aria-hidden": "true" }, small.map(([name, v, , cls]) =>
+			el("span", { class: "stack-l" + (cls === rows[1][3] ? " is-end" : "") }, [el("span", { class: "sw " + cls }), share(v) + " " + name.toLowerCase()]))));
+		card.appendChild(el("ul", { class: "stack-legend" }, rows.map(([name, v, sub, cls]) => el("li", null, [
+			el("span", { class: "sw " + cls, "aria-hidden": "true" }), el("span", { class: "hb-name", text: name }),
+			el("span", { class: "hb-val", text: share(v), title: nf.format(v) + " tokens" }),
+			el("span", { class: "hb-sub", text: compact(v) + " · " + sub }),
+		]))));
 		return card;
 	}
 
+	// H3: scaled min..max so the line uses the whole height, with labels
 	function trend(d) {
 		const days = (d.calendar || []).slice(-30);
-		const card = el("div", { class: "card stats-card" }, [el("h3", { text: "tokens, last 30 days" })]);
+		const card = el("div", { class: "card stats-card sc-trend" }, [el("h2", { class: "card-title", text: "Tokens, last 30 days" })]);
 		if (!days.length) return card;
-		const W = 300, H = 80, P = 4;
-		const peak = Math.max(1, ...days.map((x) => x.tokens));
-		const pts = days.map((x, i) => [
-			(P + (i * (W - 2 * P)) / Math.max(1, days.length - 1)).toFixed(1),
-			(H - P - (x.tokens / peak) * (H - 2 * P)).toFixed(1),
-		]);
+		const W = 300, H = 120;
+		const vals = days.map((x) => x.tokens);
+		const peak = Math.max(1, ...vals), low = Math.min(...vals);
+		// y from 0 to a round top above the peak (headroom), ticks 0 / half / top
+		const raw = (peak * 1.12) / 2, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+		const step = ([1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((f) => f * mag >= raw) || 10) * mag, top = step * 2;
+		const y = (v) => (H - (v / top) * H).toFixed(1);
+		const pts = days.map((x, i) => [((i * W) / Math.max(1, days.length - 1)).toFixed(1), y(x.tokens)]);
 		const line = "M" + pts.map((p) => p.join(" ")).join(" L");
 		const s = svg("svg", { class: "trend", viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", role: "img",
-			"aria-label": "Daily tokens over the last 30 days, peak " + nf.format(peak) });
-		s.appendChild(svg("path", { class: "trend-area", d: line + " L" + pts[pts.length - 1][0] + " " + (H - P) + " L" + pts[0][0] + " " + (H - P) + " Z" }));
+			"aria-label": "Daily tokens over the last 30 days, from " + nf.format(low) + " to " + nf.format(peak) });
+		s.appendChild(svg("line", { class: "trend-grid", x1: 0, x2: W, y1: 0.5, y2: 0.5, "vector-effect": "non-scaling-stroke" }));
+		s.appendChild(svg("line", { class: "trend-grid", x1: 0, x2: W, y1: H / 2, y2: H / 2, "vector-effect": "non-scaling-stroke" }));
+		s.appendChild(svg("path", { class: "trend-area", d: line + " L" + W + " " + H + " L0 " + H + " Z" }));
+		s.appendChild(svg("line", { class: "trend-base", x1: 0, x2: W, y1: H - 0.5, y2: H - 0.5, "vector-effect": "non-scaling-stroke" }));
 		s.appendChild(svg("path", { class: "trend-line", d: line, "vector-effect": "non-scaling-stroke" }));
-		card.appendChild(s);
-		card.appendChild(el("div", { class: "trend-axis" }, [
-			el("span", { text: longDate(dayDate(days[0].date)).slice(5) }),
-			el("span", { text: "peak " + compact(peak), title: nf.format(peak) + " tokens" }),
-			el("span", { text: "today" }),
+		const dm = (i) => { const dt = dayDate(days[i].date); return dt.getUTCDate() + " " + MON[dt.getUTCMonth()]; };
+		card.appendChild(el("div", { class: "trend-box" }, [
+			el("div", { class: "trend-ticks", "aria-hidden": "true" }, [compact(top), compact(step), "0"].map((t) => el("span", { class: "trend-y", text: t }))),
+			s,
+			el("div", { class: "trend-axis", "aria-hidden": "true" }, [
+				el("span", { text: dm(0) }), el("span", { text: dm(Math.floor((days.length - 1) / 2)) }), el("span", { text: dm(days.length - 1), title: "today" }),
+			]),
 		]));
 		return card;
 	}
 
 	function renderStats(d) {
 		statsData = d;
+		for (const g of d.top_projects || []) if (g.label) statsLabels[g.name] = { text: g.label, title: g.path || g.name };
 		if (!d.totals || !d.totals.messages) {
 			const all = (d.calendar || []).some((c) => c.messages > 0);
-			return show("stats", el("div", { class: "card stats-empty" }, [
-				el("p", { class: "empty", text: all ? "No activity in this range — try a longer one." : "No sessions yet — start one and your activity appears here." }),
+			return show("activity", el("div", { class: "card stats-empty" }, [
+					emptyState(all ? "No activity in this range" : "No sessions yet", all ? "Try a longer range." : "Start one and your activity appears here."),
 				all ? heatmap(d) : null,
 			]));
 		}
 		const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.date : "";
-		show("stats", el("div", { class: "stats-grid" }, [
+		show("activity", el("div", { class: "stats-grid" }, [
 			statsKPIs(d),
 			heatmap(d),
-			el("div", { class: "stats-cols" }, [
-				barList("top projects", d.top_projects || []),
-				barList("top models", d.top_models || [], (g) => g.cost_usd ? "≈ $" + g.cost_usd.toFixed(2) + " est." : ""),
+			el("div", { class: "stats-cols" + ((d.accounts || []).length > 1 ? " has-acct" : "") }, [
+				barList("Top projects", d.top_projects || [], null, (n) => midCut(projectLabel(n).text, 24), (n) => projectLabel(n).title),
+				barList("Top models", d.top_models || [], (g) => g.cost_usd ? "≈ $" + g.cost_usd.toFixed(2) + " est." : "", modelLabel),
+				(d.accounts || []).length > 1 ? barList("Accounts", d.accounts) : null,
 				tokenSplit(d.totals.tokens),
 				trend(d),
-				(d.accounts || []).length > 1 ? barList("accounts", d.accounts) : null,
 			]),
 		]));
-		content("stats").querySelectorAll(".heat-scroll").forEach((sc) => { sc.scrollLeft = sc.scrollWidth; });
+		content("activity").querySelectorAll(".heat-scroll").forEach((sc) => { sc.scrollLeft = sc.scrollWidth; });
 		if (focused) {
-			const b = content("stats").querySelector('.heat-cell[data-date="' + focused + '"]');
+			const b = content("activity").querySelector('.heat-cell[data-date="' + focused + '"]');
 			if (b) { b.tabIndex = 0; b.focus({ preventScroll: true }); }
 		}
 	}
 
+	const rangeSeg = () => $("stats-range");
 	function syncRangeButtons() {
-		document.querySelectorAll("#stats-range [data-range]").forEach((b) => {
+		rangeSeg().querySelectorAll("[data-range]").forEach((b) => {
 			b.setAttribute("aria-pressed", String(b.dataset.range === statsRange));
 		});
 	}
 
 	function wireStats() {
 		syncRangeButtons();
-		document.querySelectorAll("#stats-range [data-range]").forEach((b) => {
+		rangeSeg().querySelectorAll("[data-range]").forEach((b) => {
 			b.addEventListener("click", () => {
 				statsRange = b.dataset.range;
 				store("cwm-stats-range", statsRange);
 				syncRangeButtons();
-				load("stats");
+				loadActivity(false);
 			});
 		});
 	}
@@ -2389,6 +2794,7 @@
 			["author", [d.author.name]],
 			["github", [el("a", { href: d.author.github, target: "_blank", rel: "noopener noreferrer", text: d.author.github.replace(/^https:\/\//, "") })]],
 			["license", [d.license]],
+			["font", ["JetBrains Mono, SIL Open Font License 1.1"]],
 		];
 		$("about-kv").replaceChildren(...kv.flatMap(([k, v], i) => {
 			const dt = el("dt", { text: k });
@@ -2447,7 +2853,7 @@
 			const btn = ev.currentTarget; // null once the await below yields
 			if (!aboutData) return;
 			const ok = await copyQuiet(aboutSummary(aboutData) + "\n" + JSON.stringify(aboutData, null, 2));
-			flash(btn, ok ? "copied" : "copy failed");
+			flash(btn, ok ? "Copied" : "Copy failed");
 		});
 		$("about-update").addEventListener("click", async (ev) => {
 			const btn = ev.currentTarget;
@@ -2481,27 +2887,73 @@
 		return Math.floor(h / 24) + "d" + (h % 24) + "h";
 	}
 
+	// E: a live tmux/powerline status line. Segments are fed by the loaders
+	// that already run (health badge, accounts, devices); no extra polling.
 	let agentInfo = null;
+	const slTag = (lvl) => el("span", { class: "sl-tag boot-" + lvl, "aria-hidden": "true", text: BOOT[lvl] });
+	function slSeg(id, lvl, text, label) {
+		const b = $(id);
+		b.hidden = false;
+		b.className = "sl-seg sl-" + lvl;
+		b.replaceChildren(slTag(lvl), text);
+		b.setAttribute("aria-label", label);
+		b.title = label;
+	}
+	function slHealth(list) {
+		const h = healthSum(list);
+		slSeg("sl-health", h.lvl, h.bad ? h.text : "healthy", "Health: " + h.text + (h.bad ? ", " + h.sub : ""));
+	}
+	function slAccount(list) {
+		const d = list.find((a) => a.is_default);
+		if (!d) return slSeg("sl-acct", "warn", "no account", "Accounts: no account yet");
+		const st = d.login_status || "never";
+		slSeg("sl-acct", st === "done" ? "ok" : st === "failed" ? "fail" : "warn", "account " + d.name, "Default account " + d.name + ": " + (LOGIN_PILL[st] || ["", st])[1]);
+	}
+	function slSync(r) {
+		if (!r.ok) return slSeg("sl-sync", r.status === 503 ? "warn" : "skip", "sync ?", "Devices: Syncthing is not reachable");
+		if (r.data && !Array.isArray(r.data)) return slSeg("sl-sync", "skip", "sync off", "Devices: sync is not set up");
+		const list = r.data || [];
+		const on = list.filter((d) => d.connected).length;
+		slSeg("sl-sync", on ? "ok" : "skip", list.length ? "sync " + on + "/" + list.length : "sync, no peers", "Devices: " + on + " of " + plural(list.length, "device") + " online");
+	}
+	let slFeedsAt = 0;
+	async function slFeeds(force) {
+		// only when no loader on screen feeds them (Home, Accounts, Devices do)
+		if (!force && (Date.now() - slFeedsAt < 10000 || ["home", "accounts", "devices"].includes(current()))) return;
+		slFeedsAt = Date.now();
+		const [acc, dev] = await Promise.all([api("/api/accounts"), api("/api/devices")]);
+		if (acc.ok && Array.isArray(acc.data)) renderAccountsDot(acc.data);
+		slSync(dev);
+	}
+	function slClock() {
+		const t = new Date();
+		$("sl-clock").textContent = String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
+		if (agentInfo) {
+			$("sl-up").textContent = "agent up " + uptime(agentInfo.started);
+			$("sl-up").title = "The cwm agent started " + longStamp(agentInfo.started);
+		}
+		setTimeout(slClock, (60 - t.getSeconds()) * 1000 + 50);
+	}
+
 	async function statusline() {
 		const [v, a] = await Promise.all([api("/api/version"), api("/api/agent")]);
 		if (v.ok && v.data) {
-			$("sl-version").textContent = "[cwm " + versionLabel(v.data) + "]";
+			$("sl-version").textContent = "cwm " + versionLabel(v.data);
 			verText = "cwm " + v.data.version + " (" + v.data.os + "/" + v.data.arch + ", " + (v.data.commit || "unknown") + ")";
-			$("sl-os").textContent = v.data.os + "/" + v.data.arch;
 		}
 		if (a.ok && a.data) {
 			agentInfo = a.data;
 			const bind = a.data.bind || "127.0.0.1";
 			const local = bind === "127.0.0.1" || bind === "localhost" || bind === "::1";
+			const addr = (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + a.data.port;
 			const listen = $("sl-listen");
-			listen.textContent = (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + a.data.port + (local ? ", localhost only" : ", reachable from the network");
+			listen.replaceChildren(svgUse(local ? "i-lock" : "i-warn"), addr);
+			listen.title = local ? "Localhost only" : "Reachable from the network over plain HTTP";
+			listen.setAttribute("aria-label", "Listening on " + addr + ", " + listen.title.toLowerCase());
 			listen.classList.toggle("sl-warn", !local);
-			const tick = () => {
-				$("sl-agent-text").textContent = "agent up " + uptime(agentInfo.started);
-				setTimeout(tick, /s$/.test(uptime(agentInfo.started)) ? 1000 : 30000);
-			};
-			tick();
 		}
+		slClock();
+		slFeeds(true);
 	}
 
 	// --- boot
@@ -2524,7 +2976,7 @@
 		});
 		$("refresh").addEventListener("click", () => refreshNow(true));
 		$("sessions-filter").addEventListener("input", () => renderSessions(false));
-		window.addEventListener("hashchange", () => activate(current()));
+		window.addEventListener("hashchange", () => { activate(current()); if (wantActivity) { wantActivity = false; goActivity(); } });
 		wireWizard();
 		wirePairForm();
 		wireAccounts();
@@ -2546,6 +2998,8 @@
 		wireAbout();
 		document.querySelectorAll(".cmd-slot[data-cmd]").forEach((n) => n.replaceWith(commandBox(n.dataset.cmd)));
 		$("live").addEventListener("click", retryNow);
+		document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => activate(b.dataset.go)));
+		$("sl-mig").addEventListener("click", () => openMigration(settings ? settings.mode : "capture"));
 		$("offline-retry").addEventListener("click", retryNow);
 
 		statusline();
@@ -2563,6 +3017,7 @@
 			return;
 		}
 		activate(current());
+		if (wantActivity) { wantActivity = false; setTimeout(goActivity, 50); }
 		refreshHealthBadge();
 	});
 })();

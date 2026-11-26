@@ -37,7 +37,9 @@ type release struct {
 
 // releases is newest first; "current" is filled in per request.
 var releases = []release{
-	{V: "0.8", State: "next", Note: "In-browser terminal, full CLI parity"},
+	{V: "0.10", State: "next", Note: "In-dashboard terminal"},
+	{V: "0.9", Note: "Home, live status line, fixes from the dashboard"},
+	{V: "0.8", Note: "One workspace: capture mode, accounts as logins"},
 	{V: "0.7.2", Note: "UI refresh: terminal vocabulary"},
 	{V: "0.7.1", Note: "Stats"},
 	{V: "0.7", Note: "Live dashboard, cyber theme"},

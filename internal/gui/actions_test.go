@@ -103,10 +103,11 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 }
 
 var postEndpoints = map[string]string{
-	"/api/init":            `{}`,
-	"/api/accounts":        `{"name":"work"}`,
-	"/api/sessions/resume": `{"project":"alpha","id":"11111111-aaaa"}`,
-	"/api/pair":            `{"deviceID":"` + testPeerID + `","name":"laptop"}`,
+	"/api/init":                 `{}`,
+	"/api/accounts":             `{"name":"work"}`,
+	"/api/sessions/resume":      `{"project":"alpha","id":"11111111-aaaa"}`,
+	"/api/pair":                 `{"deviceID":"` + testPeerID + `","name":"laptop"}`,
+	"/api/doctor/fix?dry_run=1": `{"checks":["stignore"]}`,
 }
 
 func TestActionAuthCSRFAndBodyRules(t *testing.T) {
@@ -494,10 +495,10 @@ func TestDashboardHasActions(t *testing.T) {
 	if n := bytes.Count(html, []byte("data-debug-copy")); n < 2 {
 		t.Errorf("Copy debug logs must be in the header menu and on the Health tab, found %d", n)
 	}
-	// v0.8.1: report a bug in the statusline, About and Health: copy the
-	// bundle, open the form prefilled with the version.
+	// v0.8.1: report a bug copies the bundle and opens the form prefilled
+	// with the version; v0.9 (E2) it is in the menu, About and Health.
 	if n := bytes.Count(html, []byte("data-bug-report")); n < 3 {
-		t.Errorf("report a bug must be in the statusline, About and Health, found %d", n)
+		t.Errorf("report a bug must be in the menu, About and Health, found %d", n)
 	}
 	for _, want := range []string{bugReportURL + "&version=", "encodeURIComponent(verText)", `&title=bug:%20`, `window.open(bugURL(), "_blank")`, "debug logs copied — paste them into the form", `btn: ["copy debug logs"`} {
 		if !bytes.Contains(js, []byte(want)) {
@@ -509,7 +510,7 @@ func TestDashboardHasActions(t *testing.T) {
 			t.Errorf("app.js lacks %s", want)
 		}
 	}
-	for _, want := range []string{"/api/state", "/api/init", "/api/accounts", "/api/sessions/resume", "/api/pair", "/api/csrf", CSRFHeader, `"resume"`} {
+	for _, want := range []string{"/api/state", "/api/init", "/api/accounts", "/api/sessions/resume", "/api/pair", "/api/csrf", CSRFHeader, `"Resume"`} {
 		if !bytes.Contains(js, []byte(want)) {
 			t.Errorf("app.js lacks %s", want)
 		}

@@ -248,7 +248,7 @@ func TestPriceFor(t *testing.T) {
 }
 
 func TestFormatCompact(t *testing.T) {
-	for n, want := range map[int64]string{0: "0", 999: "999", 1000: "1k", 1234: "1.2k", 1234567: "1.2M", 25_000_000: "25M", 123_456_789: "123M", 2e9: "2B"} {
+	for n, want := range map[int64]string{0: "0", 999: "999", 1000: "1.0k", 1234: "1.2k", 1234567: "1.2M", 25_000_000: "25.0M", 123_456_789: "123M", 2e9: "2.0B"} {
 		if got := FormatCompact(n); got != want {
 			t.Errorf("%d = %s, want %s", n, got, want)
 		}

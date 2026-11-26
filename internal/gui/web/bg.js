@@ -137,7 +137,7 @@
 	}
 
 	function frame(now) {
-		if (now - lastInput > IDLE_MS) { raf = 0; return; } // idle: keep the last frame, stop drawing
+		if (now - lastInput > IDLE_MS) { raf = 0; root.setAttribute("data-idle", ""); return; } // idle: keep the last frame, stop drawing (CSS stops the heading caret too)
 		raf = requestAnimationFrame(frame);
 		if (now - last < FRAME_MS - 2) return; // ~30fps cap on a 60Hz+ display
 		last = now;
@@ -171,6 +171,7 @@
 
 	function wake() {
 		lastInput = performance.now();
+		if (root.hasAttribute("data-idle")) root.removeAttribute("data-idle");
 		if (!raf && on() && !reduce.matches && !document.hidden) raf = requestAnimationFrame(frame);
 	}
 	for (const type of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart", "scroll"]) {

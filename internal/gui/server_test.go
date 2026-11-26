@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -263,7 +264,8 @@ func TestSecurityHeaders(t *testing.T) {
 		rec := f.do(t, "GET", target, func(r *http.Request) { r.AddCookie(f.cookie()) })
 		h := rec.Header()
 		if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("X-Frame-Options") != "DENY" ||
-			h.Get("Referrer-Policy") != "no-referrer" || !strings.Contains(h.Get("Content-Security-Policy"), "script-src 'self'") {
+			h.Get("Referrer-Policy") != "no-referrer" || !strings.Contains(h.Get("Content-Security-Policy"), "script-src 'self'") ||
+			!strings.Contains(h.Get("Content-Security-Policy"), "font-src 'self';") {
 			t.Errorf("%s: missing security headers: %v", target, h)
 		}
 	}
@@ -282,21 +284,31 @@ func TestStaticDashboard(t *testing.T) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	// v0.7.2 (D67, D70): a tmux window list, "<k>:<name>"; WIP is "handoff".
-	for i, tab := range []string{"sessions", "projects", "devices", "handoff", "health", "accounts", "stats"} {
+	// v0.9 (D105): Home is tab 1 and Stats is gone (its content is Home's
+	// Activity section); labels are sentence case with a dim number key.
+	for i, tab := range []string{"Home", "Sessions", "Projects", "Devices", "Handoff", "Health", "Accounts", "Settings"} {
 		k := strconv.Itoa(i + 1)
-		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, `<span class="tk" aria-hidden="true">`+k+`:</span>`+tab+`<`) {
-			t.Errorf("dashboard missing tab %s:%s", k, tab)
+		if !strings.Contains(body, `role="tab"`) || !strings.Contains(body, `aria-keyshortcuts="`+k+`"><kbd class="tk" aria-hidden="true">`+k+`</kbd>`+tab) {
+			t.Errorf("dashboard missing tab %s %s", k, tab)
 		}
 	}
-	for _, gone := range []string{"Ctrl-C", ">WIP<", "bug-icon"} {
+	if strings.Contains(body, `id="tab-stats"`) || !strings.Contains(body, `id="home-activity"`) {
+		t.Error("the Stats tab must be Home's Activity section (D105)")
+	}
+	for _, gone := range []string{"Ctrl-C", ">WIP<", "bug-icon", `class="tmux-prefix"`} { // J2 (v0.9) dropped the [cwm] prefix
 		if strings.Contains(body, gone) {
 			t.Errorf("index.html still contains %q", gone)
 		}
 	}
-	for _, want := range []string{`class="statusline"`, `id="palette"`, `class="tmux-prefix"`, `~/cwm/</span>sessions</h1>`} {
+	for _, want := range []string{`class="statusline"`, `id="palette"`, `~/cwm/</span>sessions</h1>`, `~/cwm/</span>home</h1>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("index.html lacks %s", want)
+		}
+	}
+	// v0.9 F2: the self-hosted font and its licence are served
+	for _, asset := range []string{"/fonts/jetbrains-mono-400.woff2", "/fonts/jetbrains-mono-700.woff2", "/fonts/OFL.txt"} {
+		if rec := f.do(t, "GET", asset, nil); rec.Code != http.StatusOK || rec.Body.Len() == 0 {
+			t.Errorf("GET %s = %d (%d bytes)", asset, rec.Code, rec.Body.Len())
 		}
 	}
 	for _, asset := range []string{"/app.js", "/app.css", "/theme.js", "/bg.js", "/favicon.svg", "/favicon-16.svg"} {
@@ -320,13 +332,14 @@ func TestStaticDashboard(t *testing.T) {
 	}
 	// Every embedded asset (v0.7: theme.js, bg.js, favicon.svg too): no
 	// external CDN / remote resources, no HTML-parsing sinks in scripts,
-	// and the whole UI stays under its D71 budget: 200KB raw, < 60KB gzip.
+	// and the whole UI stays under its D106 budget: code (html, css, js,
+	// svg) <= 260KB raw and <= 75KB gzip; self-hosted fonts <= 60KB.
 	// Every absolute URL is either the SVG namespace or a GitHub link of
 	// this project (opened by the user with target=_blank, never loaded).
 	external := regexp.MustCompile(`(?i)(src|href)\s*=\s*["']?(https?:)?//|url\(\s*["']?(https?:)?//`)
 	sinks := regexp.MustCompile(`innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function`)
 	anyURL := regexp.MustCompile(`https?://[^\s"'<>)]*`)
-	total, gz := 0, 0
+	total, gz, fonts := 0, 0, 0
 	err := fs.WalkDir(webFS, "web", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -334,6 +347,13 @@ func TestStaticDashboard(t *testing.T) {
 		data, err := webFS.ReadFile(name)
 		if err != nil {
 			return err
+		}
+		switch path.Ext(name) {
+		case ".woff2":
+			fonts += len(data)
+			return nil
+		case ".txt": // the font licence (OFL.txt), served, never parsed
+			return nil
 		}
 		total += len(data)
 		var zb bytes.Buffer
@@ -361,11 +381,14 @@ func TestStaticDashboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total > 200<<10 {
-		t.Errorf("embedded web assets = %d bytes, budget is 200KB (D71)", total)
+	if total > 260<<10 {
+		t.Errorf("embedded web code = %d bytes, budget is 260KB (D106)", total)
 	}
-	if gz >= 60<<10 {
-		t.Errorf("embedded web assets = %d bytes gzipped, budget is < 60KB (D71)", gz)
+	if gz > 75<<10 {
+		t.Errorf("embedded web code = %d bytes gzipped, budget is 75KB (D106)", gz)
+	}
+	if fonts > 60<<10 {
+		t.Errorf("embedded fonts = %d bytes, budget is 60KB (D106)", fonts)
 	}
 	// The pre-paint theme script must be a blocking <head> script (no
 	// defer/async) so the first paint already has the right theme; inline

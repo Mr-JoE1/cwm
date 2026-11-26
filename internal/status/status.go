@@ -107,6 +107,10 @@ type Session struct {
 	// clone path is listed once.
 	Copies  int      `json:"copies"`
 	Devices []string `json:"devices"`
+	// Label (v0.9 polish): the list name, the repo basename when known;
+	// ProjectPath is the full cwd behind it.
+	Label       string `json:"label"`
+	ProjectPath string `json:"projectPath,omitempty"`
 }
 
 // FromSession converts a discovered session to its snapshot row.
@@ -121,6 +125,8 @@ func FromSession(s sessions.Session) Session {
 		Modified:    s.Modified.Format(time.RFC3339),
 		Copies:      max(s.Copies, 1),
 		Devices:     append([]string{}, s.Devices...),
+		Label:       s.Label,
+		ProjectPath: s.Cwd,
 	}
 }
 

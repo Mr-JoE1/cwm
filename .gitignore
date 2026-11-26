@@ -1,1 +1,6 @@
 dist/
+# UX capture output (tools/ux): screenshots and audits stay out of git
+/ux-out/
+/tools/ux/out/
+/tools/ux/baseline*/
+*_profile*/

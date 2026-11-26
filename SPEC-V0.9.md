@@ -1,0 +1,216 @@
+# cwm v0.9.0: dashboard UX (as implemented)
+
+v0.9.0 is the dashboard UX release. It implements every P0 and P1 item of the
+owner's UX brief (D107), adapted by the owner's decisions: Home replaces the
+Stats tab (D105), the asset budget is raised (D106), the in-dashboard terminal
+moves to v0.10 (D108), and the UX checks run on demo data with the repo's own
+tools (D109). Running fixes from the dashboard is D110. This file records
+what was built, the audit before and after, the deviations from the brief and
+the release notes. The decision log (`docs/PLAN.md`) is binding where the two
+differ.
+
+## Release notes
+
+### Changed: the tabs, and their shortcuts
+
+- **Stats moved into Home.** Home is the new first tab and the default. It shows:
+  - a status strip (health, sync, default account, agent);
+  - Continue where you left off: the newest five sessions, with Resume on each;
+  - Needs attention;
+  - Uncommitted work;
+  - **Activity**, which holds everything the Stats tab had.
+- **The keyboard shortcuts are renumbered.** There are still 8 tabs on keys 1–8, but from Sessions on every key moved up by one:
+
+  | key | v0.8 | v0.9 |
+  |---|---|---|
+  | 1 | Sessions | **Home** |
+  | 2 | Projects | Sessions |
+  | 3 | Devices | Projects |
+  | 4 | Handoff | Devices |
+  | 5 | Health | Handoff |
+  | 6 | Accounts | Health |
+  | 7 | Stats | Accounts |
+  | 8 | Settings | Settings |
+
+  A one-time toast says "Tabs renumbered: Sessions is now 2 · Stats moved into Home".
+- Old settings and links are carried over once, when the agent starts:
+  - `display.default_tab = "stats"` becomes `home`;
+  - `"stats"` in `display.hidden_tabs` is dropped, and Activity is hidden instead (`display.home_activity = false`);
+  - `#stats` links open Home, scrolled to Activity.
+- On a phone the bottom bar is Home, Sessions, Projects, Health and More. Accounts moved into More, which shows a dot when a section behind it has a badge.
+
+### New
+
+- **Run fixes from the dashboard.** Checks that `cwm doctor --fix` repairs get a **Run** button next to Copy, on Health and in Home's Needs attention. Run first shows what the fix will do and asks before it applies anything. Fixes that need a terminal (installs, service restarts, logins, pairing) are copy-only; one line under the list says to run them in a terminal, and each Copy button says so too.
+- **A live status line** in the footer, styled like a powerline. It shows the section, health, sync, the default account, live updates, uptime, the bind address and a clock. Each item opens its tab.
+- **JetBrains Mono** is bundled (SIL OFL 1.1, a 32 KB subset, served by the dashboard itself), so terminal text looks the same everywhere.
+- Sessions show the real first prompt. Current Claude Code transcripts used to read "(no prompt)". Slash commands read `/name args`. Projects are named by their repo basename (`billing-svc`, not `…/Acme-Corp-2026-billing-svc`), taken from the cwd the transcripts record; a parent folder is added only when two projects share a name, and the full path is on hover (D111). Both changes apply to the dashboard and to `cwm sessions`.
+- Activity charts:
+  - models read "Opus 5.5";
+  - token kinds are one 100% bar ("Input + output" and "Cache"), the small part always visible;
+  - the 30-day trend starts at 0 with headroom, three y ticks and dated x labels;
+  - the range selector sits on the KPI row;
+  - unpriced models and the price date are spelled out.
+
+### Fixed
+
+- The phone layout was 427 px wide on 390 px and 320 px screens (Sessions). It now fits the device.
+- The focus ring was invisible on inputs, the palette and the More sheet.
+- Health's "Details" toggles had no names a screen reader could tell apart.
+- The palette's section labels had low contrast.
+- Resume is visible without hovering. Empty columns are hidden. Dates use one format per group.
+- Headings no longer jump levels. "Connection restored" is announced. Small links now have a 24 px minimum target.
+
+### Quieter
+
+- The migration notice appears in one place, not four.
+- Sentence case throughout.
+- Magenta is used only for the brand. Cyan marks what you can click, and green marks what is live or OK.
+- The header holds only the logo, Refresh and the menu. Theme and motion moved into the menu, and their keys (`t`, `b`) are unchanged.
+
+## As implemented, by package
+
+| package | commit | content |
+|---|---|---|
+| U0 | 7db23c9 | `tools/ux/` capture, audit, footer close-ups, `--compare`, `demo.sh` + `demo-data.js`; budget D106 |
+| U1 | b1ba169 | Home replaces Stats (D105): routing, default tab, keys 1–8, toast, TAB_LABEL, TOPIC_TABS, server migration, phone bar, independent widgets, lazy Activity |
+| U2 | 75e1762 | B1 prompts (server, client, CLI), B2 project labels, B3, B4, B6, C1, I1 |
+| U3 | 79ed5b9 | B5, B7, C2–C8, D, G1, G4, H1–H6, I2–I5, J1, J2, J4–J6 |
+| U4 | 6fb3b46 | E1–E6 status line, J3 header, F1–F5, F11 |
+| U5 | ac559be | G2/G2a `POST /api/doctor/fix` (D110) and the Run/Copy actions |
+| U6 | this commit | QA, screenshots, README, wiki, this file |
+
+### `POST /api/doctor/fix` (D110)
+
+- **Request:** `{"checks":["vault", …]}`.
+  - Accepted names are `doctor.FixActions`: `stignore`, `mcp-bridge`, `cwm-hooks`, `settings`, `vault`.
+  - Any other name, an empty list or more than 16 names answers 400, and nothing runs.
+- **Gates:** the same as `/api/migrate/apply`:
+  - the session cookie (401 without it);
+  - the `X-CWM-CSRF` header (403 without it);
+  - a JSON body;
+  - `actionMu`.
+- **`?dry_run=1`:** returns `{"dry_run":true,"results":[{name,status,detail}]}` and changes nothing. Each result's status is one of:
+  - `planned`;
+  - `skipped`, with the reason:
+    - a pre-v0.8 config waits for its migration;
+    - `features.hooks` is off;
+    - there is no default account.
+- **Apply:** runs the pass `cwm doctor --fix` runs: one `upkeep.Tick`, then the vault save and install.
+  - It runs under the agent's tick lock, so it never overlaps the minute tick. A paused agent answers 409.
+  - Each check comes back `ok`, or `failed` with the fresh doctor detail.
+  - The response includes the full fresh check list in `checks`.
+  - It bumps `Snapshot.doctor`, so every open page gets a `doctor` change on `/api/events`.
+- **Tests** (`internal/gui/doctorfix_test.go`):
+  - an allow-list rejection (400) for unknown names, a mixed list and command-like text;
+  - no CSRF (403) and no cookie (401);
+  - a dry run writes nothing and emits no event;
+  - an apply fixes the check and emits a `doctor` change;
+  - skips, and 409 while paused.
+  - The endpoint is also in the shared CSRF/body matrix of `actions_test.go`.
+- **The page:**
+  - Checks that share a command get one action ("Fixes 3 issues · $ cmd · Copy · Run").
+  - The plan opens in the confirm dialog.
+  - While it runs, the button shows a spinner and `aria-busy`.
+  - On success it shows `[  OK  ]`, announces the result and re-renders: the check clears and the badge drops without a reload.
+  - On failure it shows `[FAILED]` and the detail, and keeps the Copy command.
+  - Run is disabled while the agent is offline.
+  - Focus returns to the same Run button, or else to the panel heading.
+
+## Audit: before and after
+
+Measured with `tools/ux/capture.mjs --compare` against the pre-change build
+(v0.8.4) on the same demo data: 72 views, 1440/1024/390/320 × dark/light plus
+the overlays.
+
+| measure | before (v0.8.4) | after (v0.9.0) |
+|---|---|---|
+| page width = device width | 9 views wider (phone Sessions and the More sheet: 427 px at 390 and 320) | all 72 |
+| low-contrast text | 1 (palette section label, 4.22:1) | 0 |
+| unnamed controls | 12 in every Health view (Details toggles) | 0 |
+| console errors | 0 | 0 |
+| CSP violations (all tabs + overlays) | 0 | 0 |
+| contrast pairs checked (`scripts/contrast-check.js`) | 134, 0 failed | 164, 0 failed |
+| code (html+css+js+svg) raw / gzip | 204 348 / 55 603 B | 242 340 / 65 989 B (budget 266 240 / 76 800) |
+| fonts | 0 | 32 300 B (budget 61 440) |
+
+Other checks:
+- **Keyboard only:**
+  - keys 1–8 select the 8 tabs in order;
+  - `?` opens the keys dialog, Ctrl-K opens the palette with its input focused, and Esc closes both;
+  - every tab stop on Home, Health and Sessions has a visible ring.
+- **Reduced motion and `data-bg=off`:** no infinite animation is running.
+- **Run fixes:** checked end to end on a demo home where the live login was missing:
+  - Health and Home both showed the Run button;
+  - the plan opened in the dialog;
+  - apply restored the login, the check cleared and the badge went from 3 to 2;
+  - a forced failure showed `[FAILED]` with the detail;
+  - Run was disabled when the agent stopped.
+
+### Visual review (U6)
+
+All 72 screenshots were reviewed by eye. These were fixed in U6:
+
+- **Phone command boxes** broke inside words and pushed `$` onto its own line. They now wrap at spaces with a hanging `$`, in a slightly smaller font.
+- **Settings at 320 px.** The base rules came after the phone media block in the stylesheet, so they won over it: the Mode description was one word wide and paths broke mid-word. The narrow rules now come last; card headers stack, and controls take their natural width.
+- **Phone Sessions** showed a branch cut down to two characters, or an empty slot between two dots. The meta line is now project · msgs · time; the branch stays in the desktop table and in the tooltip.
+- **Accounts cards.** The login state has its own line, so both cards' headers and rows line up.
+- **Home's Needs attention** cut commands off. They now wrap.
+- **Activity.** "≈ $27.43" and "19 days" no longer break. "Totals for" takes its own line under 480 px, so the range selector fits at 320 px.
+- **"Details" toggles** get a ▸/▾ marker. Hints and empty states use `text-wrap: pretty`, and tile values use `balance`, to avoid orphans.
+- **Tablet nav.** The lone palette glyph is hidden at 721–1100 px; Ctrl-K and the menu still open the palette.
+- **About timeline.** It still showed v0.7.2 as this build and "0.8 next"; it now lists 0.10 (next), 0.9 and 0.8.
+- **The `display.hidden_tabs` help** said "comma-separated" next to a set of switches. It now reads "tabs the dashboard hides (a comma-separated list from the CLI)".
+- **Capture tool.**
+  - Overlays are now closed with Esc between captures, so the keys dialog is no longer captured over the palette.
+  - The keyboard sample reloads the page, so a phone sheet no longer leaks onto desktop.
+  - The landing shot is taken in the theme its name says.
+
+Kept on purpose:
+
+- **A single word longer than the command box** scrolls sideways inside the box instead of breaking (polish pass).
+- **On phone Health**, "Report a bug" stays a text link next to the "Copy debug logs" button. Both have 44 px targets.
+- **The phone heatmap** shows the most recent months and scrolls sideways for the rest (H6).
+
+### Polish pass (D111)
+
+From the owner's review of the final captures:
+
+1. **One set of health numbers.** Footer, Home tile, tab badges, Needs attention and the Health summary all use `healthSum()`: the worst level as the tag and "1 failed · 1 warning" as the text. Skipped checks never count. The phone badge turns red on a failure.
+2. **Footer.** "live" with "last event 11s ago" in its tooltip, "agent up 1s", "account work" (with a label). Tags are the fixed 8-character `[  OK  ]`, `[ WARN ]`, `[FAILED]`, `[ SKIP ]` everywhere.
+3. **Account tile** shows the default account and its login state only. A missing Claude Code is folded into Health (its `claude` check), not a fifth tile.
+4. **Project names** are the repo basename in Sessions, Home, Activity, the palette, `cwm sessions` and `cwm stats`; names that must be shortened lose their middle, never their end.
+5. **Dates.** Every Sessions group header carries the day (today, yesterday, then "Tue, 24 Nov"); cells show HH:MM; the full timestamp is the tooltip.
+6. **Untitled sessions** read "untitled" in the table (the ID has its own column) and "untitled · id8" on phone cards, Home and the palette.
+7. **Commands** wrap only between words, share one width within a list and hang the `$`. "Run it in a terminal" appears once per list and on the Copy button.
+8. **Phone targets** are at least 44 px: header buttons, toggles, range buttons, Resume, command boxes, the filter and the "All … →" links.
+9. **Activity.** One number rule (7.0M, 4.6M, 72.2k, 144k), 3 px minimum bars, "Input + output" with a minimum segment and a label beside the bar, a bottom grid of named areas (no orphan row at 1440 or 1024), a sublabel on every KPI, "prices as of" inside the cost card, month labels on the week that holds the 1st, a fade edge plus "← scroll" on phone, and a 30-day chart from 0 with headroom and three ticks.
+10. **Home.** Continue and Needs attention share the row height; Resume is centred.
+11. **Uncommitted work** has dividers between rows only.
+12. **Header and tab bar** are solid (`--surface-solid`), so the background canvas shows only in the gutters.
+13. **Palette hint** uses the plain `>` prompt, on the baseline of `ctrl k`.
+14. **Phone Health badge** is 16 px, filled, and sits clear of the icon.
+
+Contrast: `scripts/contrast-check.js` now also checks the status line (segments, warn/fail tints), pills on tinted rows, `[ WARN ]` on pale yellow and the filled badge, and holds faint text to 4.5:1. Light `--warn` (#764c00) and `--accent-2` (#00717f) are darker for headroom.
+
+The fixed status line and bottom bar appear mid-page in full-page captures: that is the capture, not the page. The real bottom padding clears them (bar + safe area + 24 px on phones, status line + 32 px on desktop).
+
+## Deviations from the brief
+
+- **Home replaces Stats; there is no separate "Last 7 days" widget.** This is the owner's decision (D105). Activity is the whole former tab.
+- **`default_tab = "sessions"` also migrates to Home.** Every v0.8 init wrote that value, so a deliberate choice cannot be told apart from the old default. Choosing Sessions again after the upgrade sticks (D105).
+- **G3 does not apply.** The orphaned "use this" button no longer exists since v0.8.4 (D104).
+- **The status line is hidden on phones.** Home's status strip shows the same on a narrow screen.
+- **Effects (F10) is v0.9.1.** The motion toggle moved into the menu unchanged, and F6–F9 are v0.9.1 too (D107).
+- **B6 (one tab stop per row) is in 0.9.0**, although the brief marks it P2 (D107).
+- **G2a runs only `cwm doctor --fix`.**
+  - It is the only fix the CLI already performs without a terminal or credentials.
+  - Every other command stays copy-only.
+  - With `features.hooks` off, the `cwm-hooks` fix is skipped and the plan says why. The fix pass leaves settings.json alone in that state (D89).
+- **Fixable checks rarely stay visible on a running agent.** The agent runs the same maintenance every minute, so `stignore`, `mcp-bridge` and `cwm-hooks` usually heal on their own. `vault` and `settings`, and any check that fails while the agent is paused, are the ones the button mostly serves.
+
+## Out of scope (next)
+
+- **v0.9.1 (P2):** HUD card chrome, segmented meters, the boot log, small touches, the Effects setting (F6–F10).
+- **v0.10:** the in-dashboard terminal.
+- **v1.0:** the statusline, removal of the bash kit, a docs site.

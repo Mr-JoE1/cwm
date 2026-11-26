@@ -26,7 +26,7 @@ const (
 	agentContent = `{"type":"user","message":{"content":"agent raw"}}` + "\n"
 	b1Content    = `{"type":"system","message":{"content":"sys"}}` + "\n" +
 		`{"type":"user","message":{"content":"  fix the   login\nbug\ttoday  "}}` + "\n"
-	b2Content = `{"type":"user","message":{"content":[{"type":"text","text":"tool result"}]}}` + "\n" +
+	b2Content = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"tool result"}]}}` + "\n" +
 		`{"type":"assistant","message":{"content":"hi"}}` + "\n" +
 		`{"type":"user","message":{"content":"later   string line"}}` + "\n"
 	b3Content = `{"type":"system","message":{"content":"x"}}` + "\n" +
@@ -143,7 +143,7 @@ func TestListScansAndEnriches(t *testing.T) {
 
 	row = list[3]
 	if row.FirstPrompt != "later string line" {
-		t.Fatalf("row 3 FirstPrompt = %q, want array-content line skipped", row.FirstPrompt)
+		t.Fatalf("row 3 FirstPrompt = %q, want the tool-result line skipped", row.FirstPrompt)
 	}
 
 	row = list[4]
@@ -339,5 +339,96 @@ func TestListDedupesMirroredCopies(t *testing.T) {
 	list, err := List(projects, "", 0)
 	if err != nil || len(list) != 1 || list[0].Copies != 2 || strings.Join(list[0].Devices, ",") != "a" {
 		t.Fatalf("List = %+v %v", list, err)
+	}
+}
+
+// v0.9 B1: block content counts, tool results and meta turns do not, and
+// slash-command envelopes read as the command.
+func TestParseUserPromptBlocksAndEnvelopes(t *testing.T) {
+	cases := map[string]string{
+		`{"type":"user","message":{"content":[{"type":"text","text":"migrate the\n invoices table"}]}}`:                                                                                      "migrate the invoices table",
+		`{"type":"user","message":{"content":"<command-message>workflow-authoring</command-message>\n<command-name>/workflow-authoring</command-name>\n<skill-format>true</skill-format>"}}`: "/workflow-authoring",
+		`{"type":"user","message":{"content":"<command-name>/review</command-name><command-args>the diff</command-args>"}}`:                                                                  "/review the diff",
+		`{"type":"user","isMeta":true,"message":{"content":"Caveat: local commands"}}`:                                                                                                       "",
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"x","content":"ok"}]}}`:                                                                                    "",
+		`{"type":"user","message":{"content":"<local-command-stdout>done</local-command-stdout>"}}`:                                                                                          "",
+	}
+	for line, want := range cases {
+		got, ok := parseUserPrompt(line)
+		if got != want || ok != (want != "") {
+			t.Errorf("%s\n  = %q, %v; want %q", line, got, ok, want)
+		}
+	}
+}
+
+// v0.9 B2: home, OneDrive and WSL prefixes shorten for any user name.
+func TestProjectLabel(t *testing.T) {
+	for in, want := range map[string]string{
+		"c--Users-alice-OneDrive---Acme-Corp-billing": "…/Acme-Corp-billing",
+		"--wsl-localhost-Ubuntu-home-bob-projects-x":  "WSL/projects-x",
+		"--wsl-localhost-Debian-srv-app":              "WSL/srv-app",
+		"C--Users-carol-src-tool":                     "~/src-tool",
+		"-home-dave-repos-api":                        "~/repos-api",
+		"-Users-erin-code-site":                       "~/code-site",
+		"api-gateway":                                 "api-gateway",
+		"d--work-thing":                               "d--work-thing",
+	} {
+		if got := ProjectLabel(in); got != want {
+			t.Errorf("ProjectLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// v0.9 polish: lists name a project by its repo basename (from the cwd the
+// transcripts recorded); a parent prefix only tells two same-named apart.
+func TestLabels(t *testing.T) {
+	cwds := map[string]string{
+		"c--Users-alice-OneDrive---Acme-Corp-2026-billing-svc": `C:\Users\alice\OneDrive - Acme Corp 2026\billing-svc`,
+		"--wsl-localhost-Ubuntu-home-bob-projects-edge-proxy":  "/home/bob/projects/edge-proxy",
+		"-home-dave-src-cli-tools":                             "/home/dave/src/cli-tools",
+		"-home-dave-work-api":                                  "/home/dave/work/api",
+		"-home-dave-oss-api":                                   "/home/dave/oss/api",
+		"-home-dave-mirror-site":                               "/Users/dave/elsewhere/site", // mirrored from another clone path
+		"-home-dave-other-thing":                               "/home/dave/unrelated",       // cwd does not match the folder
+	}
+	names := []string{"api-gateway", "-home-dave-no-cwd"}
+	for n := range cwds {
+		names = append(names, n)
+	}
+	got := Labels(names, func(n string) string { return cwds[n] })
+	want := map[string]Label{
+		"c--Users-alice-OneDrive---Acme-Corp-2026-billing-svc": {"billing-svc", `C:\Users\alice\OneDrive - Acme Corp 2026\billing-svc`},
+		"--wsl-localhost-Ubuntu-home-bob-projects-edge-proxy":  {"edge-proxy", ""},
+		"-home-dave-src-cli-tools":                             {"cli-tools", "/home/dave/src/cli-tools"},
+		"-home-dave-work-api":                                  {"work/api", "/home/dave/work/api"},
+		"-home-dave-oss-api":                                   {"oss/api", "/home/dave/oss/api"},
+		"-home-dave-mirror-site":                               {"site", ""},
+		"-home-dave-other-thing":                               {"~/other-thing", ""},
+		"api-gateway":                                          {"api-gateway", ""},
+		"-home-dave-no-cwd":                                    {"~/no-cwd", ""},
+	}
+	for n, w := range want {
+		if got[n] != w {
+			t.Errorf("Labels[%q] = %+v, want %+v", n, got[n], w)
+		}
+	}
+}
+
+func TestProjectLabelsReadsCwd(t *testing.T) {
+	ws := t.TempDir()
+	dir := filepath.Join(ws, "-home-dave-src-cli-tools")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := `{"type":"session-owner"}` + "\n" + `{"type":"user","cwd":"/home/dave/src/cli-tools","message":{"role":"user","content":"hi"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, idA1+".jsonl"), []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list, err := List(ws, "", 0)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("List = %v, %v", list, err)
+	}
+	if list[0].Label != "cli-tools" || list[0].Cwd != "/home/dave/src/cli-tools" {
+		t.Fatalf("label = %q, cwd = %q", list[0].Label, list[0].Cwd)
 	}
 }

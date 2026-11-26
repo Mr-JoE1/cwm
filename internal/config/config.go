@@ -72,6 +72,10 @@ type Config struct {
 	Display  Display         `toml:"display"`
 
 	Accounts []Account `toml:"account"`
+
+	// displayMigrated: Load mapped a pre-v0.9 [display] table (D105);
+	// MigrateFile persists it.
+	displayMigrated bool
 }
 
 // Default returns a fresh config with schema defaults filled in. A fresh
@@ -92,6 +96,7 @@ func Default() *Config {
 func legacyDefault() *Config {
 	c := Default()
 	c.Mode = ""
+	c.Display.Schema = 0 // a file without the marker predates v0.9 (D105)
 	return c
 }
 
@@ -145,6 +150,26 @@ func validLinkMode(m string) bool {
 		return true
 	}
 	return false
+}
+
+// MigrateFile rewrites path once when Load had to migrate it (today: the
+// v0.9 [display] tabs, D105). Missing or current files are left alone;
+// it reports whether it wrote.
+func MigrateFile(path string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		return false, nil
+	}
+	c, err := Load(path)
+	if err != nil {
+		return false, err
+	}
+	if !c.displayMigrated {
+		return false, nil
+	}
+	if err := Save(path, c); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Save atomically writes the config to path (temp file + fsync + rename).

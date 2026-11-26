@@ -28,6 +28,18 @@ import (
 // maintenance pass now (the agent runs the same pass every minute).
 const FixCommand = "cwm doctor --fix"
 
+// FixActions is the allow-list of checks FixCommand repairs, keyed by
+// check name, with what the fix pass does for each (D110). The
+// dashboard's POST /api/doctor/fix runs these and nothing else: never a
+// command, never client-supplied text.
+var FixActions = map[string]string{
+	"stignore":   "regenerate the workspace .stignore from the [sync] switches",
+	"mcp-bridge": "write the workspace MCP servers into every .claude.json",
+	"cwm-hooks":  "merge cwm's session hooks into the workspace settings.json",
+	"settings":   "merge cwm's session hooks into the workspace settings.json",
+	"vault":      "save the live login into the default account's vault entry, or put the saved login live when there is none",
+}
+
 // EnvHit is one place a persistent CLAUDE_CONFIG_DIR is set for the user.
 type EnvHit struct {
 	// Where is a profile path with ~ ("~/.bashrc:12"), or "Windows user

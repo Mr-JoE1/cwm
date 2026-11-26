@@ -138,6 +138,10 @@ type Group struct {
 	Messages int64    `json:"messages"`
 	Tokens   Tokens   `json:"tokens"`
 	CostUSD  *float64 `json:"cost_usd,omitempty"`
+	// Label and Path (top projects only, v0.9 polish): the list name and
+	// the full cwd, filled by the caller that knows the projects folder.
+	Label string `json:"label,omitempty"`
+	Path  string `json:"path,omitempty"`
 }
 
 // Cost is the API-list-price estimate.
@@ -398,7 +402,8 @@ func streaks(byDay map[int]*agg, today int) Streaks {
 	return st
 }
 
-// FormatCompact renders 1234567 as "1.2M" (the dashboard's KPI style).
+// FormatCompact renders 1234567 as "1.2M" (the dashboard's KPI style):
+// one decimal below 100 ("7.0M", "72.2k"), none from 100 ("144k").
 func FormatCompact(n int64) string {
 	abs := n
 	if abs < 0 {
@@ -412,7 +417,7 @@ func FormatCompact(n int64) string {
 		if abs >= u.v {
 			v := float64(n) / float64(u.v)
 			str := strconv.FormatFloat(v, 'f', 1, 64)
-			if v >= 100 || strings.HasSuffix(str, ".0") {
+			if v >= 100 {
 				str = strconv.FormatFloat(v, 'f', 0, 64)
 			}
 			return str + u.s

@@ -106,8 +106,8 @@ func TestSessions(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339, got[0].Modified); err != nil {
 		t.Errorf("modified %q is not RFC 3339: %v", got[0].Modified, err)
 	}
-	if k := keys(t, got[0]); k != "branch,copies,devices,firstPrompt,id,messages,modified,project,summary" { // v0.4 keys + additive v0.8 copies/devices
-		t.Errorf("session JSON keys = %s (v0.4 --json contract + v0.8 additive)", k)
+	if k := keys(t, got[0]); k != "branch,copies,devices,firstPrompt,id,label,messages,modified,project,summary" { // v0.4 keys + additive v0.8 copies/devices + v0.9 label (projectPath only when known)
+		t.Errorf("session JSON keys = %s (v0.4 --json contract + v0.8/v0.9 additive)", k)
 	}
 }
 

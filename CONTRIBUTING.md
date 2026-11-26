@@ -70,7 +70,9 @@ bash scripts/test-install.sh
 - Security-sensitive code keeps the existing model: argv arrays (never shell
   strings), strict allowlists, loopback by default, no secrets in logs.
 - Frontend (`internal/gui/web`): no external references, no inline
-  scripts/styles, no `innerHTML`/`eval`, 150 KB budget (enforced by a test).
+  scripts/styles, no `innerHTML`/`eval`; budget (D106, enforced by a test): code
+  (html + css + js + svg) ≤ 260 KB raw and ≤ 75 KB gzip, self-hosted fonts ≤ 60 KB.
+  UX checks: `tools/ux/` (capture, audit, `--compare`), against demo data only.
 
 ## Pull request checklist
 

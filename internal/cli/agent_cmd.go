@@ -164,6 +164,11 @@ func runAgent(e *Env, o agentOpts) error {
 		return err
 	}
 	defer lock.Release()
+	// D105: a v0.8 [display] table (the Stats tab) is rewritten for the
+	// v0.9 tabs once; an unreadable config is reported by the dashboard.
+	if wrote, err := config.MigrateFile(layout.ConfigPath()); err == nil && wrote {
+		fmt.Fprintln(e.Stderr, name+": display settings moved to the v0.9 tabs (Stats is now Home's Activity section)")
+	}
 
 	cfg, err := agent.EnsureToken(root)
 	if err != nil {

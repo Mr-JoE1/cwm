@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -93,6 +94,7 @@ func cmdStats(e *Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	gui.LabelTopProjects(snap, filepath.Join(layout.WorkspaceDir(), "projects"))
 	if p.asJSON {
 		// Byte-for-byte the GET /api/stats body (same encoder as writeAPI).
 		data, err := json.Marshal(snap)
@@ -148,14 +150,21 @@ func renderStats(w io.Writer, s *stats.Snapshot) error {
 		}
 		fmt.Fprintf(&b, "\n%s\n", title)
 		width := 4
-		for _, g := range gs {
-			width = max(width, min(len(g.Name), 40))
+		name := func(g stats.Group) string {
+			n := g.Name
+			if g.Label != "" {
+				n = g.Label
+			}
+			if r := []rune(n); len(r) > 40 { // cut the middle, never the end
+				n = string(r[:19]) + "…" + string(r[len(r)-20:])
+			}
+			return n
 		}
 		for _, g := range gs {
-			name := g.Name
-			if len(name) > 40 {
-				name = name[:39] + "…"
-			}
+			width = max(width, len([]rune(name(g))))
+		}
+		for _, g := range gs {
+			name := name(g)
 			fmt.Fprintf(&b, "  %-*s %8s tokens %6d msgs %5d sessions\n", width, name,
 				stats.FormatCompact(g.Tokens.Total), g.Messages, g.Sessions)
 		}

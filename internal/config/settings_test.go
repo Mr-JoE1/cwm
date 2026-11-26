@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestDefaultHasModeAndEverySwitch(t *testing.T) {
 	if !f.Hooks || !f.HandoffPush || !f.Stats || !f.Autostart || f.OpenDashboardAtLogin || f.PrivateSync || f.UpdateCheck != UpdateCheckManual {
 		t.Errorf("feature defaults = %+v", f)
 	}
-	if c.Display.DefaultTab != "sessions" || len(c.Display.HiddenTabs) != 0 {
+	if c.Display.DefaultTab != "home" || len(c.Display.HiddenTabs) != 0 || !c.Display.HomeActivity || c.Display.Schema != DisplaySchema {
 		t.Errorf("display defaults = %+v", c.Display)
 	}
 }
@@ -41,7 +42,7 @@ func TestLegacyConfigNeedsMigration(t *testing.T) {
 	if !c.NeedsMigration() || c.EffectiveMode() != ModeCapture {
 		t.Fatalf("legacy: needs %v mode %q", c.NeedsMigration(), c.EffectiveMode())
 	}
-	if !c.SyncEnabled("sessions") || !c.Features.Hooks || c.Display.DefaultTab != "sessions" {
+	if !c.SyncEnabled("sessions") || !c.Features.Hooks || c.Display.DefaultTab != "home" {
 		t.Errorf("legacy defaults not filled: %+v", c)
 	}
 	if err := Save(p, c); err != nil {
@@ -118,7 +119,7 @@ func TestGetSetEveryKey(t *testing.T) {
 				}
 			}
 		case KindList:
-			next = "stats, devices,stats"
+			next = "handoff, devices,handoff"
 		}
 		if err := c.Set(k.Name, next); err != nil {
 			t.Fatalf("set %s %q: %v", k.Name, next, err)
@@ -127,7 +128,7 @@ func TestGetSetEveryKey(t *testing.T) {
 		if got == v {
 			t.Errorf("set %s %q: still %q", k.Name, next, got)
 		}
-		if k.Kind == KindList && got != "devices,stats" {
+		if k.Kind == KindList && got != "devices,handoff" {
 			t.Errorf("list = %q", got)
 		}
 	}
@@ -150,7 +151,7 @@ func TestGetSetEveryKey(t *testing.T) {
 func TestSaveRoundTripsSwitches(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.toml")
 	c := Default()
-	for _, kv := range [][2]string{{"mode", "isolated"}, {"sync.plugins", "off"}, {"features.private_sync", "on"}, {"display.hidden_tabs", "stats"}} {
+	for _, kv := range [][2]string{{"mode", "isolated"}, {"sync.plugins", "off"}, {"features.private_sync", "on"}, {"display.hidden_tabs", "handoff"}} {
 		if err := c.Set(kv[0], kv[1]); err != nil {
 			t.Fatal(err)
 		}
@@ -164,5 +165,51 @@ func TestSaveRoundTripsSwitches(t *testing.T) {
 	}
 	if r.Mode != ModeIsolated || r.SyncEnabled("plugins") || !r.Features.PrivateSync || len(r.Display.HiddenTabs) != 1 {
 		t.Errorf("round trip = %+v", r)
+	}
+}
+
+// D105: a v0.8 [display] table maps onto the v0.9 tabs once. Hidden
+// "stats" hides Home's Activity section, a stats or sessions (the v0.8
+// default) default tab becomes home, and after the marker is saved an
+// explicit sessions choice sticks.
+func TestDisplayMigratesStatsToHomeOnce(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.toml")
+	cases := map[string]Display{
+		"[display]\nhidden_tabs = [\"stats\", \"devices\"]\ndefault_tab = \"sessions\"\n": {HiddenTabs: []string{"devices"}, DefaultTab: "home", HomeActivity: false},
+		"[display]\nhidden_tabs = []\ndefault_tab = \"stats\"\n":                          {HiddenTabs: []string{}, DefaultTab: "home", HomeActivity: true},
+		"[display]\nhidden_tabs = [\"handoff\"]\ndefault_tab = \"health\"\n":              {HiddenTabs: []string{"handoff"}, DefaultTab: "health", HomeActivity: true},
+		"version = 1\n": {HiddenTabs: []string{}, DefaultTab: "home", HomeActivity: true},
+	}
+	for in, want := range cases {
+		if err := os.WriteFile(p, []byte("version = 1\nmode = \"capture\"\n"+strings.TrimPrefix(in, "version = 1\n")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		wrote, err := MigrateFile(p)
+		if err != nil || !wrote {
+			t.Fatalf("%q: MigrateFile = %v, %v", in, wrote, err)
+		}
+		c, err := Load(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := c.Display
+		if !slices.Equal(got.HiddenTabs, want.HiddenTabs) || got.DefaultTab != want.DefaultTab || got.HomeActivity != want.HomeActivity || got.Schema != DisplaySchema {
+			t.Errorf("%q: display = %+v, want %+v", in, got, want)
+		}
+		if again, err := MigrateFile(p); err != nil || again {
+			t.Errorf("%q: second MigrateFile = %v, %v (want a no-op)", in, again, err)
+		}
+		if err := c.Set("display.default_tab", "sessions"); err != nil {
+			t.Fatal(err)
+		}
+		if err := Save(p, c); err != nil {
+			t.Fatal(err)
+		}
+		if c2, _ := Load(p); c2.Display.DefaultTab != "sessions" {
+			t.Errorf("%q: an explicit sessions default was migrated again: %q", in, c2.Display.DefaultTab)
+		}
+	}
+	if wrote, err := MigrateFile(filepath.Join(t.TempDir(), "absent.toml")); wrote || err != nil {
+		t.Errorf("missing file: %v, %v", wrote, err)
 	}
 }

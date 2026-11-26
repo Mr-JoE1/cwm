@@ -35,6 +35,10 @@ type Session struct {
 	Copies int
 	// Devices are the hosts that recorded running it (session-repos/).
 	Devices []string
+	// Label and Cwd (v0.9 polish): the list name (repo basename) and the
+	// full cwd for tooltips, "" when unknown.
+	Label string
+	Cwd   string
 }
 
 type indexEntry struct {
@@ -57,8 +61,14 @@ func List(wsProjectsDir string, project string, limit int) ([]Session, error) {
 	}
 	out = dedupe(out)
 	idx := pathmirror.LoadSessionIndex(filepath.Dir(wsProjectsDir))
+	labels := ProjectLabels(wsProjectsDir)
 	for i := range out {
 		out[i].Devices = idx.Devices[out[i].ID]
+		l, ok := labels[out[i].Project]
+		if !ok {
+			l = Label{Text: ProjectLabel(out[i].Project)}
+		}
+		out[i].Label, out[i].Cwd = l.Text, l.Path
 	}
 	sortSessions(out)
 	if limit > 0 && len(out) > limit {
@@ -171,12 +181,10 @@ func listProject(dir string, project string) []Session {
 			Size:     info.Size(),
 		}
 		if ok {
-			s.Summary = entry.Summary
 			s.Messages = entry.MessageCount
 			s.Branch = entry.GitBranch
-			if entry.FirstPrompt != "" {
-				s.FirstPrompt = entry.FirstPrompt
-			}
+			s.Summary = CleanPrompt(entry.Summary)
+			s.FirstPrompt = CleanPrompt(entry.FirstPrompt)
 		}
 		if s.FirstPrompt == "" {
 			s.FirstPrompt = extractFirstPrompt(s.Path)
@@ -222,9 +230,13 @@ func extractFirstPrompt(path string) string {
 	}
 }
 
+// parseUserPrompt returns the human text of a user turn. Content is a
+// string or (current Claude Code) a list of blocks; tool results, meta
+// turns and bare command output carry no prompt (v0.9 B1).
 func parseUserPrompt(line string) (string, bool) {
 	var parsed struct {
 		Type    string `json:"type"`
+		IsMeta  bool   `json:"isMeta"`
 		Message *struct {
 			Content any `json:"content"`
 		} `json:"message"`
@@ -232,14 +244,27 @@ func parseUserPrompt(line string) (string, bool) {
 	if err := json.Unmarshal([]byte(line), &parsed); err != nil {
 		return "", false
 	}
-	if parsed.Type != "user" || parsed.Message == nil {
+	if parsed.Type != "user" || parsed.Message == nil || parsed.IsMeta {
 		return "", false
 	}
-	content, ok := parsed.Message.Content.(string)
-	if !ok {
+	var text string
+	switch c := parsed.Message.Content.(type) {
+	case string:
+		text = c
+	case []any:
+		var parts []string
+		for _, b := range c {
+			if m, ok := b.(map[string]any); ok && m["type"] == "text" {
+				if t, ok := m["text"].(string); ok {
+					parts = append(parts, t)
+				}
+			}
+		}
+		text = strings.Join(parts, " ")
+	default:
 		return "", false
 	}
-	prompt := collapseSpaces(content)
+	prompt := CleanPrompt(text)
 	if prompt == "" {
 		return "", false
 	}

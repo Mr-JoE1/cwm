@@ -38,6 +38,9 @@ type Snapshot struct {
 	// change made in another tab or with `cwm config set` reaches every
 	// open page as a "settings" change.
 	Settings string `json:"settings,omitempty"`
+	// Doctor counts dashboard fixes (D110): each one reaches every open
+	// page as a "doctor" change, so Health and Home refetch the checks.
+	Doctor int64 `json:"doctor,omitempty"`
 }
 
 // changed lists the snapshot sections that differ, in a fixed order; the
@@ -62,6 +65,9 @@ func (a Snapshot) changed(b Snapshot) []string {
 	}
 	if a.Settings != b.Settings {
 		out = append(out, "settings")
+	}
+	if a.Doctor != b.Doctor {
+		out = append(out, "doctor")
 	}
 	return out
 }
@@ -102,6 +108,7 @@ func (s *Server) snapshot() Snapshot {
 		snap.Stats = s.statsEngine().Fingerprint()
 	}
 	snap.Settings = s.configHash()
+	snap.Doctor = s.doctorGen.Load()
 	s.snap, s.snapAt = snap, time.Now()
 	return snap
 }

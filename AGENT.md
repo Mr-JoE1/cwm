@@ -54,7 +54,7 @@ clones if missing, exports CLAUDE_CONFIG_DIR + CLAUDE_CODE_PROJECT_DIR_NAME, exe
   4-space indent, quote all variable expansions.
 - PowerShell: 5.1-compatible, `Set-StrictMode -Version Latest` where safe, CRLF endings,
   UTF-8 no BOM, camelCase params.
-- No jq / python / node dependencies anywhere.
+- No jq / python / node dependencies anywhere (dev-only exception: `tools/ux/`, Node ≥ 22, never shipped).
 - Every hook exits 0 unconditionally (errors → log file).
 - Comments explain WHY, not what.
 
@@ -63,3 +63,13 @@ clones if missing, exports CLAUDE_CONFIG_DIR + CLAUDE_CODE_PROJECT_DIR_NAME, exe
 - Never write outside the repo except what tests/test.sh does inside its mktemp sandbox.
 - Do not touch ~/.claude or ~/.claude-me on this machine (tests use sandbox HOME).
 - tests must not require network or a real `claude` binary — stub everything.
+
+## Web dashboard (internal/gui/web)
+
+- Vanilla JS, one CSS file, the `el()` helper; no framework, no build step.
+- No inline scripts or styles, no HTML-parsing sinks, no external hosts (CSP).
+- Every colour is a token in both themes; `node scripts/contrast-check.js` must pass.
+- Budget (D106): code (html + css + js + svg) ≤ 260 KB raw and ≤ 75 KB gzip;
+  self-hosted fonts ≤ 60 KB total. `go test ./internal/gui/` enforces it.
+- UX checks: `tools/ux/demo.sh` + `node tools/ux/capture.mjs <out> --compare <before>/audit.json`
+  (demo data only; never capture a real workspace).

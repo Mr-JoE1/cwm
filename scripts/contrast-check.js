@@ -3,7 +3,7 @@
 // tokens. Parses the two theme blocks of internal/gui/web/app.css (only
 // literal #hex / rgb[a]() values and var() references between tokens),
 // flattens translucent colours over the surface below them, and checks:
-//   text pairs     >= 4.5:1  (faint: 4.4:1, non-essential hints only)
+//   text pairs     >= 4.5:1  (faint too, since v0.9 polish)
 //   control pairs  >= 3.0:1  (input/button borders, WCAG 1.4.11)
 //   chart marks    >= 3.0:1  (bars, swatches, the heatmap top vs empty)
 // Prints a table; exits 1 when any pair fails. Node, no dependencies.
@@ -64,7 +64,7 @@ function ratio(a, b) {
   return (x + 0.05) / (y + 0.05);
 }
 
-const TEXT = ["text", "text-strong", "muted", "accent", "accent-2", "magenta", "ok", "warn", "fail"];
+const TEXT = ["text", "text-strong", "muted", "accent", "accent-2", "code", "magenta", "ok", "warn", "fail"];
 const SURFACES = ["bg", "surface", "surface-solid", "surface-2", "band"];
 
 function check(theme, vars) {
@@ -83,7 +83,7 @@ function check(theme, vars) {
   };
   for (const s of SURFACES) {
     for (const t of TEXT) add("text", t, s, flat(t, surf[s]), surf[s], 4.5);
-    add("text", "faint", s, flat("faint", surf[s]), surf[s], 4.4);
+    add("text", "faint", s, flat("faint", surf[s]), surf[s], 4.5);
     add("control", "control-line", s, flat("control-line", surf[s]), surf[s], 3.0);
   }
   add("text", "accent-ink", "accent-fill", flat("accent-ink"), flat("accent-fill"), 4.5);
@@ -91,6 +91,32 @@ function check(theme, vars) {
   add("text", "fail", "fail-soft", flat("fail", flat("fail-soft", surf.surface)), flat("fail-soft", surf.surface), 4.5);
   add("text", "ok", "ok-soft", flat("ok", flat("ok-soft", surf.surface)), flat("ok-soft", surf.surface), 4.5);
   add("text", "accent", "accent-soft", flat("accent", flat("accent-soft", surf.surface)), flat("accent-soft", surf.surface), 4.5);
+  // v0.9 G1: warn/fail check rows sit on their soft tint; inline code there
+  // also has an accent-soft chip under it (I3).
+  for (const tint of ["warn-soft", "fail-soft"]) {
+    const row = flat(tint, surf.surface);
+    for (const t of ["text-strong", "text", "muted", "code"]) add("text", t, tint, flat(t, row), row, 4.5);
+    const chip = flat("accent-soft", row);
+    add("text", "code", tint + "+chip", flat("code", chip), chip, 4.5);
+  }
+  // v0.9 polish (owner review): the status line (segments on surface-2 /
+  // sl-step, warn/fail segments on their tint over the solid bar), the
+  // yellow pills and [ WARN ] tags on pale yellow, a pill on a warn row,
+  // and the phone's filled tab badge.
+  surf["sl-step"] = flat("sl-step");
+  for (const t of ["text", "muted", "ok", "warn", "fail", "accent-2"]) {
+    add("text", t, "sl-step", flat(t, surf["sl-step"]), surf["sl-step"], 4.5);
+  }
+  for (const tint of ["warn", "fail"]) {
+    const seg = flat(tint + "-soft", surf["surface-solid"]);
+    add("text", tint, tint + "-soft on bar", flat(tint, seg), seg, 4.5);
+    const row = flat(tint + "-soft", surf.surface);
+    const pill = flat(tint + "-soft", row);
+    add("text", tint, tint + "-soft pill on row", flat(tint, pill), pill, 4.5);
+    add("text", tint, tint + "-soft on band", flat(tint, flat(tint + "-soft", surf.band)), flat(tint + "-soft", surf.band), 4.5);
+    add("text", "surface-solid", tint + " (badge)", surf["surface-solid"], flat(tint, surf["surface-solid"]), 4.5);
+  }
+  add("text", "warn", "warn-soft on bg", flat("warn", flat("warn-soft", bg)), flat("warn-soft", bg), 4.5);
   for (const m of ["accent-2", "accent-fill", "chart-billed", "chart-cache", "magenta", "heat-4"]) {
     add("chart", m, "surface", flat(m, surf.surface), surf.surface, 3.0);
   }

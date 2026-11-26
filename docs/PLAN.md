@@ -3,6 +3,97 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-26 (v0.9.0 — dashboard UX, SPEC-V0.9)
+
+- **D105: Home replaces the Stats tab; 8 tabs, Home first.** The tabs are
+  Home, Sessions, Projects, Devices, Handoff, Health, Accounts, Settings
+  (keys 1–8, so every key from Sessions on moved up by one; a one-time
+  toast says "Tabs renumbered: Sessions is now 2 · Stats moved into
+  Home"). Home answers "is my workspace healthy?" and "what was I
+  doing?": a status strip (health, sync, default account, agent), Continue
+  where you left off (the newest five sessions, Resume on each), Needs
+  attention (non-OK checks, fail > warn > skip, duplicate commands
+  grouped, and the migration notice, which no longer needs the global
+  banner unless Home is hidden), Uncommitted work, and Activity — the
+  whole former Stats tab. Every widget loads on its own with its own
+  skeleton and error; Activity starts only when it scrolls near the
+  viewport or the summary widgets have settled, so a slow stats scan
+  never delays the first paint. `features.stats = off` hides Activity
+  and scans nothing; the new `display.home_activity` switch hides it too.
+  The phone bottom bar is Home, Sessions, Projects, Health, More
+  (Accounts moved into More, which shows a dot when a section behind it
+  has a badge). Old references are migrated server-side, once, by the
+  agent at start (`config.MigrateFile`; `display.schema = 9` marks it
+  done): `default_tab = "stats"` becomes "home", `hidden_tabs` containing
+  "stats" drops it and sets `home_activity = false`, and `#stats` links
+  open Home scrolled to Activity. Deviation: `default_tab = "sessions"`
+  becomes "home" too, because every v0.8 init wrote that value, so a
+  deliberate choice cannot be told from the old default; choosing
+  Sessions again after the upgrade sticks.
+- **D106: asset budget 260 KB raw / 75 KB gzip for code, 60 KB for fonts.**
+  Supersedes D71. Code is everything under `internal/gui/web/` that the
+  page parses (html, css, js, svg); the self-hosted fonts (woff2) have
+  their own 60 KB cap and never count against the code budget. The owner
+  raised it for v0.9's Home tab, live status line and dashboard fixes;
+  `internal/gui` enforces both numbers in a test, the release gate checks
+  them too.
+- **D107: v0.9.0 is every P0 and P1 item of the UX brief; P2 is v0.9.1.**
+  v0.9.0: Home (adapted by D105), sessions content (B1–B7, B6 included
+  although the brief calls it P2), mobile (C1–C8), casing and copy (D),
+  the live status line (E), colour discipline, JetBrains Mono, glow,
+  prompt headings, status tags and a lower dark bg-alpha (F1–F5, F11),
+  Health incl. running fixes from the dashboard (G, G2a), Activity (H),
+  accessibility (I) and noise reduction (J). v0.9.1: HUD card chrome,
+  segmented meters, the boot log, small touches and the Effects setting
+  (F6–F10). The header's motion toggle moves into the menu as it is in
+  v0.9.0; it becomes Effects in v0.9.1.
+- **D108: roadmap.** The in-dashboard terminal moves to v0.10. v1.0 is
+  unchanged: the statusline, removing the bash kit, a docs site.
+- **D109: UX checks run on demo data with the repo's own tools.** The
+  owner's zero-dependency CDP capture lives in `tools/ux/` (capture,
+  audit, footer close-ups, `--compare`), with `demo.sh` for a throwaway
+  HOME full of invented data. Captures, baselines and screenshots stay
+  out of git. Each package is re-captured and compared with the
+  pre-change capture; the release bar is phone `vw` = device width, 0
+  low-contrast text, 0 unnamed controls and 0 console errors.
+- **D110: the dashboard runs `cwm doctor --fix` for an allow-list of
+  checks.** `POST /api/doctor/fix` with `{"checks":[…]}` accepts only the
+  names in `doctor.FixActions` — `stignore`, `mcp-bridge`, `cwm-hooks`,
+  `settings`, `vault`, the checks whose fix hint is `cwm doctor --fix` —
+  and answers 400 for anything else (one bad name rejects the request);
+  it never runs a command or client text. Same gates as
+  `/api/migrate/apply`: session cookie, CSRF header, JSON body,
+  `actionMu`. `?dry_run=1` returns the plan (`planned`, or `skipped` with
+  the reason: a pre-v0.8 config waits for its migration, D102;
+  `features.hooks` off leaves settings.json alone, D89; no default
+  account); the page shows it in the confirm dialog before applying. The
+  apply runs the same pass as the CLI — one `upkeep.Tick` plus the vault
+  save / install — under the agent's tick lock (`Pauser.RunTick`), so it
+  never overlaps the minute tick, and a paused agent answers 409. Each
+  check comes back `ok` or `failed` with the fresh doctor detail, the
+  fresh check list rides along (the badge drops at once), and a
+  `doctor` change goes out on `/api/events` (`Snapshot.doctor`) so other
+  open pages refetch. Software installs, service restarts, logins and
+  pairing stay copy-only ("run in terminal"). Run is disabled while the
+  agent is offline.
+- **D111: v0.9.0 polish pass (owner review of the final captures).**
+  One function (`healthSum` in app.js) gives the footer, the Home tile,
+  the tab badges, Needs attention and the Health summary the same
+  numbers: the tag is the worst level, the text says what is counted
+  ("1 failed · 1 warning"), skipped optional checks never count. The
+  Home Account tile shows only the default account and its login state;
+  "Claude Code not found" is not a fifth tile but stays in Health, where
+  the `claude` check already counts it (folded into Health). Lists name
+  a project by its repo basename: `sessions.ProjectLabels` reads the
+  `cwd` Claude Code records in each folder's transcripts (one bounded
+  read per folder, cached on the folder mtime), keeps the basename when
+  the folder name ends with it (path mirroring, D91), and adds the parent
+  folder only when two projects share a basename; without a cwd the
+  shortened folder name stays. `/api/sessions` gains `label` and
+  `projectPath`, `/api/stats` top projects gain `label` and `path`, and
+  `cwm sessions` / `cwm stats` print the same names. Compact numbers keep
+  one decimal below 100 (7.0M, 72.2k, 144k) in the dashboard and the CLI.
+
 ## 2026-11-26 (v0.8.4 — patch release, Windows doctor findings)
 
 - **D104: a bundled claude with no standalone CLI is a note, not a

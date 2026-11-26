@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
@@ -167,6 +168,8 @@ type Server struct {
 	update updateState
 	// migration is the dashboard's mode-change job (D95).
 	migration migrationJob
+	// doctorGen counts dashboard fixes (D110, Snapshot.Doctor).
+	doctorGen atomic.Int64
 }
 
 // NewToken returns a fresh 32-byte crypto/rand token, hex-encoded.
@@ -317,7 +320,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; "+
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; "+
 		"connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 	if !s.hostOK(r.Host) {
@@ -450,6 +453,7 @@ func (s *Server) routes() map[string]route {
 		"/api/devices":              {get: s.apiDevices},
 		"/api/wip":                  {get: s.apiWip},
 		"/api/doctor":               {get: s.apiDoctor},
+		"/api/doctor/fix":           {post: s.apiDoctorFix},
 		"/api/csrf":                 {get: s.apiCSRF},
 		"/api/state":                {get: s.apiState},
 		"/api/accounts":             {get: s.apiAccounts, post: s.apiAccountAdd},
