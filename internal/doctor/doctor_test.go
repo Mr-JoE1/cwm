@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
+	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 	"github.com/Mr-JoE1/cwm/internal/testsafe"
@@ -224,6 +226,73 @@ func TestDoctorWiredHookNotExecutable(t *testing.T) {
 	}
 }
 
+// TestHookNotExecutableByOS: Windows never has exec bits, so a wired
+// cwm.exe must pass on the extension alone and chmod is never the advice
+// there; on Unix the +x bits still decide.
+func TestHookNotExecutableByOS(t *testing.T) {
+	t.Setenv("PATHEXT", "")
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cwm.exe")
+	txt := filepath.Join(dir, "cwm.txt")
+	plain := filepath.Join(dir, "cwm")
+	for _, p := range []string{exe, txt, plain} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil { // no mode bits
+			t.Fatal(err)
+		}
+	}
+	if msg := hookNotExecutable("windows", exe); msg != "" {
+		t.Errorf("windows .exe without mode bits flagged: %q", msg)
+	}
+	msg := hookNotExecutable("windows", txt)
+	if !strings.Contains(msg, "hook not executable: "+txt) || !strings.Contains(msg, "PATHEXT") || strings.Contains(msg, "chmod") {
+		t.Errorf("windows .txt: %q, want a PATHEXT warning without chmod", msg)
+	}
+	t.Setenv("PATHEXT", ".COM;.EXE;.TXT")
+	if msg := hookNotExecutable("windows", txt); msg != "" {
+		t.Errorf("windows .txt with .TXT in PATHEXT flagged: %q", msg)
+	}
+	if msg := hookNotExecutable("linux", plain); msg != "hook not executable: "+plain+" (chmod +x)" {
+		t.Errorf("linux file without +x: %q, want the chmod advice", msg)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(plain, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if msg := hookNotExecutable("linux", plain); msg != "" {
+			t.Errorf("linux +x file flagged: %q", msg)
+		}
+	}
+	if msg := hookNotExecutable("windows", dir); msg == "" {
+		t.Error("a directory must never count as an executable hook")
+	}
+}
+
+// TestDoctorWindowsHookExeIsOK: the whole report, as on a Windows box
+// with cwm.exe wired, has no hook-wired warning.
+func TestDoctorWindowsHookExeIsOK(t *testing.T) {
+	noClaude(t)
+	t.Setenv("PATHEXT", "")
+	old := hostOS
+	t.Cleanup(func() { hostOS = old })
+	hostOS = "windows"
+	root := isolatedRoot(t)
+	t.Setenv("CWM_HOME", root)
+	ws := filepath.Join(root, "workspace")
+	bin := filepath.Join(t.TempDir(), "cwm.exe")
+	writeFile(t, bin, "MZ\n") // 0644: no exec bit, as Go reports every Windows file
+	cmd, _ := json.Marshal(bin + " hook session-start")
+	writeFile(t, filepath.Join(ws, "settings.json"),
+		fmt.Sprintf(`{"hooks":{"SessionStart":[{"hooks":[{"command":%s}]}]}}`, cmd))
+	for _, c := range Checks(root, false) {
+		if c.Name == "hook-wired" {
+			t.Errorf("windows cwm.exe hook flagged: %+v", c)
+		}
+		if strings.Contains(c.Detail, "chmod") {
+			t.Errorf("chmod advice on windows: %+v", c)
+		}
+	}
+}
+
 func TestDoctorLegacySessionFolders(t *testing.T) {
 	noClaude(t)
 	root := isolatedRoot(t)
@@ -329,7 +398,7 @@ func TestDoctorClaudeBundledOnly(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"ok:   claude 2.1.319 found — bundled with the VS Code extension, ~/.vscode/extensions/anthropic.claude-code-2.1.319-linux-x64/resources/native-binary/claude",
-		"warn: only the claude bundled with the VS Code extension was found (vscode-extension): it works, but updates with the app; a standalone CLI is more stable — install Claude Code: curl -fsSL https://claude.ai/install.sh | bash",
+		"ok:   no standalone claude CLI — using the copy bundled with the VS Code extension (2.1.319). Works; bundled copies update with their app. For a claude command in terminals: curl -fsSL https://claude.ai/install.sh | bash",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q:\n%s", want, got)
@@ -337,6 +406,39 @@ func TestDoctorClaudeBundledOnly(t *testing.T) {
 	}
 	if strings.Contains(got, "export PATH=") || strings.Contains(got, "claude-binary") {
 		t.Errorf("no PATH advice for a bundled copy:\n%s", got)
+	}
+}
+
+// TestBundledNote: the owner's Windows case (D104) — two verified bundled
+// copies, the newest used, the other listed; one copy names only itself.
+// The note is an ok, optional check: nothing to fix.
+func TestBundledNote(t *testing.T) {
+	ext := `C:\Users\u\.vscode\extensions\anthropic.claude-code-2.1.332-win32-x64\resources\native-binary\claude.exe`
+	desk := `C:\Users\u\AppData\Roaming\Claude\claude-code\2.1.330\claude.exe`
+	res := claudebin.Result{Path: ext, Source: claudebin.SourceExtension, Version: "2.1.332", Bundle: "the VS Code extension",
+		Candidates: []claudebin.Candidate{
+			{Path: desk, Source: claudebin.SourceDesktop, Verified: true, Result: "verified: 2.1.330 (Claude Code)"},
+			{Path: ext, Source: claudebin.SourceExtension, Verified: true, Result: "verified: 2.1.332 (Claude Code)"},
+			{Path: `C:\x\claude.exe`, Source: claudebin.SourceDesktop, Verified: false, Result: "not Claude Code"},
+		}}
+	want := "no standalone claude CLI — using the copy bundled with the VS Code extension (2.1.332, newest); also found: Claude desktop app 2.1.330. Works; bundled copies update with their app. For a claude command in terminals: irm https://claude.ai/install.ps1 | iex"
+	if got := bundledNote(res, "windows"); got != want {
+		t.Errorf("several copies:\n got %q\nwant %q", got, want)
+	}
+	res.Candidates = res.Candidates[1:2]
+	want = "no standalone claude CLI — using the copy bundled with the VS Code extension (2.1.332). Works; bundled copies update with their app. For a claude command in terminals: irm https://claude.ai/install.ps1 | iex"
+	if got := bundledNote(res, "windows"); got != want {
+		t.Errorf("one copy:\n got %q\nwant %q", got, want)
+	}
+
+	var r checkList
+	r.ok("claude-bundled", "%s", bundledNote(res, "windows"))
+	r.optional()
+	if c := r[0]; c.Skipped() || textPrefix(c) != "ok:   " {
+		t.Errorf("claude-bundled must print as ok, got %q skipped=%v", textPrefix(c), c.Skipped())
+	}
+	if _, nWarn, nFail := Counts(r); nWarn != 0 || nFail != 0 {
+		t.Errorf("claude-bundled counted as a problem: warn=%d fail=%d", nWarn, nFail)
 	}
 }
 

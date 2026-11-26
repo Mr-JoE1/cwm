@@ -108,6 +108,10 @@ ARCHIVE="cwm_${VER}_${OS}_${ARCH}.tar.gz"
 tar -czf "$DL/$ARCHIVE" -C "$SANDBOX/build" cwm LICENSE
 (cd "$DL" && { sha256sum "$ARCHIVE" 2>/dev/null || shasum -a 256 "$ARCHIVE"; } >checksums.txt)
 printf '{\n  "url": "fake",\n  "tag_name": "%s",\n  "name": "%s"\n}\n' "$TAG" "$TAG" >"$SRV/repos/Mr-JoE1/cwm/releases/latest"
+# A second fake API whose latest release is newer than the snapshot, for
+# a CWM_VERSION pin left behind (NEWER below).
+mkdir -p "$SRV/newer/repos/Mr-JoE1/cwm/releases"
+printf '{\n  "tag_name": "v9.9.9"\n}\n' >"$SRV/newer/repos/Mr-JoE1/cwm/releases/latest"
 
 PORT=$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 python3 -I -m http.server "$PORT" --bind 127.0.0.1 --directory "$SRV" >"$SANDBOX/http.log" 2>&1 &
@@ -128,6 +132,7 @@ for _ in $(seq 50); do
 done
 RATE_LIMITED=(CWM_INSTALL_API="http://127.0.0.1:$FPORT/api403" CWM_INSTALL_WEB="http://127.0.0.1:$FPORT/web")
 BOTH_FAIL=(CWM_INSTALL_API="http://127.0.0.1:$FPORT/api403" CWM_INSTALL_WEB="http://127.0.0.1:$FPORT/webnone")
+NEWER=(CWM_INSTALL_API="http://127.0.0.1:$PORT/newer")
 
 # run_install HOME_DIR ARGS... — install.sh in a clean environment, plus
 # whatever VAR=value pairs INSTALL_ENV holds.
@@ -248,6 +253,48 @@ printf '%s\n' "$OUT" | sed 's/^/    | /'
 check "API and redirect both fail: exits non-zero" '[[ $CODE -ne 0 ]]'
 check "both fail: error names --version and CWM_VERSION" 'grep -q "could not determine the latest release (pass --version vX.Y.Z)" <<<"$OUT" && grep -q "or set CWM_VERSION=vX.Y.Z first" <<<"$OUT"'
 check "both fail: nothing installed" '[[ ! -e "$SANDBOX/home-bothfail/.local/bin/cwm" ]]'
+INSTALL_ENV=()
+
+# A CWM_VERSION left set from an earlier run must not pin silently.
+echo "== 1f. CWM_VERSION pin, newer release available"
+HP="$SANDBOX/home-pinned"
+set +e
+INSTALL_ENV=(CWM_VERSION="$TAG" "${NEWER[@]}")
+OUT=$(run_install "$HP" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+printf '%s\n' "$OUT" | sed 's/^/    | /'
+PINNED="release $TAG (pinned by CWM_VERSION - newest is v9.9.9; clear it: unset CWM_VERSION)"
+check "pinned: install exits 0, the pinned release installed" '[[ $CODE -eq 0 ]] && "$HP/.local/bin/cwm" --version | grep -q "$VER"'
+check "pinned: step 1 names CWM_VERSION, the newest release and how to clear it" 'grep -q -F "$PINNED" <<<"$(plain_lines "$OUT" | tr -d "\n" | tr -s " ")"'
+check "pinned older than newest: one warning line after the box" '[[ $(grep -c "older than the newest release" <<<"$OUT") -eq 1 ]] && plain_lines "$OUT" | grep -v "^$" | tail -n 1 | grep -q -F "!! CWM_VERSION pinned $TAG, older than the newest release v9.9.9 - clear it (unset CWM_VERSION) and re-run the installer"'
+check "pinned: plain mode stays ASCII" '! LC_ALL=C grep -q "[^[:print:][:space:]]" <<<"$OUT"'
+set +e
+INSTALL_ENV=(CWM_VERSION="$TAG" "${NEWER[@]}" LANG=C.UTF-8 TERM=xterm CWM_INSTALL_FANCY=1 NO_COLOR=1)
+OUT=$(run_install "$SANDBOX/home-pinned-fancy" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "pinned, terminal look: em dash and the warning glyph" '[[ $CODE -eq 0 ]] && grep -q -F "pinned by CWM_VERSION — newest is v9.9.9" <<<"$(tr -d "\n" <<<"$OUT" | tr -s " ")" && grep -q -F "⚠ CWM_VERSION pinned $TAG" <<<"$OUT"'
+echo "== 1g. CWM_VERSION pin that is the newest release"
+set +e
+INSTALL_ENV=(CWM_VERSION="$VER")
+OUT=$(run_install "$SANDBOX/home-pinned-newest" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "pinned newest: names the newest, no warning" '[[ $CODE -eq 0 ]] && grep -q -F "release $TAG (pinned by CWM_VERSION - newest is $TAG; clear it: unset CWM_VERSION)" <<<"$(plain_lines "$OUT" | tr -d "\n" | tr -s " ")" && ! grep -q "older than the newest" <<<"$OUT"'
+echo "== 1h. CWM_VERSION pin, newest unknown (API and redirect fail)"
+set +e
+INSTALL_ENV=(CWM_VERSION="$TAG" "${BOTH_FAIL[@]}")
+OUT=$(run_install "$SANDBOX/home-pinned-offline" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "pinned, lookup fails: install still exits 0, no newest named" '[[ $CODE -eq 0 ]] && grep -q -F "release $TAG (pinned by CWM_VERSION; clear it: unset CWM_VERSION)" <<<"$(plain_lines "$OUT" | tr -d "\n" | tr -s " ")" && ! grep -q "newest" <<<"$OUT"'
+set +e
+INSTALL_ENV=(CWM_VERSION=v0.0.1 "${NEWER[@]}")
+OUT=$(run_install "$SANDBOX/home-flag-wins" --version "$VER" --no-open --no-service 2>&1)
+CODE=$?
+set -e
+check "--version beats CWM_VERSION and says plain (pinned)" '[[ $CODE -eq 0 ]] && grep -q "release $TAG (pinned)" <<<"$OUT" && ! grep -q "CWM_VERSION" <<<"$OUT"'
 INSTALL_ENV=()
 
 echo "== 2. re-run is idempotent (explicit --version)"
@@ -381,6 +428,22 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
     set -e
     check "ps1 via Invoke-Expression: exits 0, no service step" '[[ $CODE -eq 0 ]] && [[ -x "$P2/AppData/Local/cwm/bin/cwm.exe" ]] && ! grep -q "cwm service install" <<<"$OUT"'
     check "ps1 via Invoke-Expression: banner art verbatim" 'banner_ok "$OUT"'
+    check "ps1 via Invoke-Expression: the CWM_VERSION pin is named, no warning" 'grep -q -F "release $TAG (pinned by CWM_VERSION - newest is $TAG; clear it: Remove-Item Env:CWM_VERSION)" <<<"$(plain_lines "$OUT" | tr -d "\n" | tr -s " ")" && ! grep -q "older than the newest" <<<"$OUT"'
+    # A CWM_VERSION pin left behind, newer release available.
+    P9="$SANDBOX/ps-home-pinned"
+    set +e
+    OUT=$(run_ps1 "$P9" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 CWM_VERSION="$TAG" "${NEWER[@]}" "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    printf '%s\n' "$OUT" | sed 's/^/    | /'
+    check "ps1 pinned: exits 0, step 1 names CWM_VERSION and the newest release" '[[ $CODE -eq 0 ]] && grep -q -F "release $TAG (pinned by CWM_VERSION - newest is v9.9.9; clear it: Remove-Item Env:CWM_VERSION)" <<<"$(plain_lines "$OUT" | tr -d "\n" | tr -s " ")"'
+    check "ps1 pinned older: one warning line after the box" '[[ $(grep -c "older than the newest release" <<<"$OUT") -eq 1 ]] && plain_lines "$OUT" | grep -v "^$" | tail -n 1 | grep -q -F "!! CWM_VERSION pinned $TAG, older than the newest release v9.9.9 - clear it (Remove-Item Env:CWM_VERSION) and re-run the installer"'
+    P10="$SANDBOX/ps-home-pinned-offline"
+    set +e
+    OUT=$(run_ps1 "$P10" env CWM_NO_OPEN=1 CWM_NO_SERVICE=1 CWM_VERSION="$TAG" "${BOTH_FAIL[@]}" "$PWSH" -NoProfile -NonInteractive -File "$REPO/scripts/install.ps1" 2>&1)
+    CODE=$?
+    set -e
+    check "ps1 pinned, lookup fails: exits 0, no newest named" '[[ $CODE -eq 0 ]] && grep -q -F "release $TAG (pinned by CWM_VERSION; clear it: Remove-Item Env:CWM_VERSION)" <<<"$(plain_lines "$OUT" | tr -d "\n" | tr -s " ")" && ! grep -q "newest" <<<"$OUT" && [[ -x "$P10/AppData/Local/cwm/bin/cwm.exe" ]]'
     # API rate-limited (403): the releases/latest redirect names the tag.
     P7="$SANDBOX/ps-home-ratelimited"
     set +e

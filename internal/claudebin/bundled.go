@@ -482,3 +482,28 @@ func BundleName(src Source, path string) string {
 
 // Bundled reports whether s is one of the app-bundled sources (D98).
 func (s Source) Bundled() bool { return s == SourceDesktop || s == SourceExtension }
+
+// OtherBundled lists the other verified app-bundled copies the lookup
+// probed besides the chosen one, as "<app> <version>" without the
+// leading "the" ("Claude desktop app 2.1.330"), in probe order, and
+// whether the chosen copy is at least as new as all of them (D104).
+func (r Result) OtherBundled() (others []string, newest bool) {
+	newest = true
+	mine := parseBundleVersion(r.Version)
+	seen := map[string]bool{}
+	for _, c := range r.Candidates {
+		if !c.Verified || !c.Source.Bundled() || c.Path == r.Path {
+			continue
+		}
+		ver, _, _ := ParseVersionOutput(strings.TrimPrefix(c.Result, "verified: "))
+		if parseBundleVersion(ver).newer(mine) {
+			newest = false
+		}
+		s := strings.TrimPrefix(BundleName(c.Source, c.Path), "the ") + " " + orUnknown(ver)
+		if !seen[s] {
+			seen[s] = true
+			others = append(others, s)
+		}
+	}
+	return others, newest
+}

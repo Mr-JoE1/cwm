@@ -3,6 +3,26 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-26 (v0.8.4 — patch release, Windows doctor findings)
+
+- **D104: a bundled claude with no standalone CLI is a note, not a
+  warning.** On the owner's Windows machine both the desktop app's copy
+  (2.1.330) and the VS Code extension's (2.1.332) verified, and the
+  `claude-bundled` warning said "only the claude bundled with the VS Code
+  extension was found (… the Claude desktop app has 2.1.330)", which
+  contradicts itself. Everything works in this state, so the check is
+  now `ok` (marked optional, D75) and is never counted in "things to
+  fix". The line names the copy cwm uses and every other verified
+  bundled copy the survey probed: `no standalone claude CLI — using the
+  copy bundled with the VS Code extension (2.1.332, newest); also found:
+  Claude desktop app 2.1.330. Works; bundled copies update with their
+  app. For a claude command in terminals: <install command>`. With one
+  copy it is `… using the copy bundled with <app> (<ver>). …`, same tail.
+  The Health tab lists it among the passed checks with the title "no
+  standalone claude CLI (using <app>'s copy)", a one-line why and the
+  install command; the "use this" button (D98) went with the warning.
+  The D103 `why` stays in `/api/claude` and the debug bundle.
+
 ## 2026-11-25 (v0.8.3 — patch release, the first real Windows migration)
 
 - **D103: the desktop app's copy is found in more layouts, and every

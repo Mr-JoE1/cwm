@@ -660,7 +660,6 @@
 		"hook-wired": ["a session hook is broken", "Claude Code runs it when a session starts or ends; it fails until it is fixed.", "cwm init"],
 		"cwm-path": ["background service can't find cwm", "Its PATH has no cwm folder; Claude Code started the same way (desktop app, IDE) could not run cwm's hooks.", ""],
 		claude: ["claude not found", "The desktop app and the VS Code extension do not put claude on PATH; cwm found no standalone CLI.", ""],
-		"claude-bundled": ["claude comes with an app", "cwm uses it, but it updates with the app; a standalone CLI is more stable.", ""],
 		"claude-binary": ["claude is not on your PATH", "cwm finds it, but your own terminals and IDEs will not.", ""],
 		"claude-reads-from": ["claude reads another folder", "A persistent CLAUDE_CONFIG_DIR points plain claude and IDEs away from the workspace. Remove the line shown.", ""],
 		migration: ["cwm now captures all Claude Code activity", "This workspace predates v0.8. Review the migration; nothing moves until you apply it.", "cwm migrate --dry-run"],
@@ -684,6 +683,8 @@
 		stignore: "sync ignore file", syncthing: "Syncthing reachable", ssh: "GitHub SSH", "wip-log": "handoff log", "path-duplicates": "PATH",
 		"cwm-hooks": "cwm hooks", "mcp-bridge": "MCP bridge", conflicts: "no conflicts", vault: "default login saved", "unknown-items": "local-only items",
 	};
+	// D104: ok, but worth a line: the title ($ = the app) and why show in the passed list.
+	const NOTE = { "claude-bundled": ["no standalone claude CLI (using $'s copy)", "Works: cwm runs it. Bundled copies update with their app; for a claude command in terminals, install the standalone CLI:"] };
 	const BOOT = { ok: "[  OK  ]", warn: "[ WARN ]", fail: "[FAILED]", skip: "[ SKIP ]" };
 	const SR_STATUS = { ok: "passed:", warn: "warning:", fail: "failed:", skip: "optional, not set up:" };
 	const level = (c) => c.optional && c.status !== "ok" ? "skip" : BOOT[c.status] ? c.status : "warn";
@@ -691,11 +692,11 @@
 
 	function fixCommand(c, fallback) {
 		const d = String(c.detail || "");
-		let m = /install Claude Code: (.+)$/.exec(d);
+		let m = /(?:install Claude Code|terminals): (.+)$/.exec(d);
 		if (m) return m[1].trim();
 		m = /fix: `([^`]+)`/.exec(d) || /fix: (cwm [\w -]+)/.exec(d);
 		if (m) return m[1].trim();
-		m = /hook not executable: (\S+)/.exec(d);
+		m = /hook not executable: (\S+) \(chmod \+x\)/.exec(d);
 		if (m) return "chmod +x " + m[1];
 		if (c.name === "repos-tsv") return /not readable/.test(d) ? "cwm open <name>" : "";
 		return fallback || "";
@@ -703,9 +704,11 @@
 
 	function checkRow(c, i, animate) {
 		const st = level(c);
-		const plain = st === "ok" ? null : HEALTH[c.name];
-		const title = plain ? plain[0] : st === "ok" ? (PASSED[c.name] || c.name) : String(c.detail || c.name).split(" — ")[0];
-		const cmd = st === "ok" ? "" : fixCommand(c, plain ? plain[2] : "");
+		const note = st === "ok" && NOTE[c.name];
+		const plain = note || (st === "ok" ? null : HEALTH[c.name]);
+		const app = (/bundled with (.+?) \(/.exec(c.detail) || [0, "an app"])[1];
+		const title = plain ? plain[0].replace("$", app) : st === "ok" ? (PASSED[c.name] || c.name) : String(c.detail || c.name).split(" — ")[0];
+		const cmd = st === "ok" && !note ? "" : fixCommand(c, plain ? plain[2] : "");
 		const raw = [c.detail, ...(c.lines || [])].filter(Boolean).join("\n");
 		const li = el("li", { class: "check check-" + st + (animate ? " reveal" : "") }, [
 			el("span", { class: "boot boot-" + st, "aria-hidden": "true", text: BOOT[st] }),
@@ -713,22 +716,12 @@
 				el("span", { class: "check-title" }, [el("span", { class: "sr-only", text: SR_STATUS[st] + " " }), title]),
 				plain ? el("span", { class: "check-why" }, [richText(plain[1])]) : null,
 				cmd ? commandBox(cmd) : null,
-				c.name === "claude-bundled" && st !== "ok" ? btnDo("use this", useBundled) : null,
 				el("details", { class: "check-details" }, [el("summary", { text: "details" }),
 					el("pre", { class: "check-raw" }, [el("span", { class: "check-id", text: c.name + ": " }), raw])]),
 			]),
 		]);
 		if (animate) li.style.setProperty("--i", String(Math.min(i, 18)));
 		return li;
-	}
-
-	// D98: nothing to save; cwm already uses the bundled copy. Say which one.
-	async function useBundled() {
-		const r = await api("/api/claude");
-		const d = r.ok ? r.data : {};
-		if (!d.bundled) return load("health");
-		toast("ok", "cwm uses the claude bundled with " + d.bundle, d.path + " — found afresh each time, nothing saved. More stable: the standalone CLI.",
-			{ cmd: d.install[0].command, sticky: true });
 	}
 
 	function healthView(list, animate) {
