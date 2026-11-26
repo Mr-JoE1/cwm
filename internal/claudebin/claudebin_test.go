@@ -2,6 +2,7 @@ package claudebin
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -373,6 +374,31 @@ func TestVersion(t *testing.T) {
 	for out, want := range map[string]string{"2.1.234 (Claude Code)\n": "2.1.234", "x\n": "", "": ""} {
 		if got := versionRe.FindString(out); got != want {
 			t.Errorf("parse(%q) = %q, want %q", out, got, want)
+		}
+	}
+}
+
+// TestExecutableByOS: Windows has no exec bits, so PATHEXT decides there.
+func TestExecutableByOS(t *testing.T) {
+	cases := []struct {
+		goos, path string
+		mode       fs.FileMode
+		pathext    string
+		want       bool
+	}{
+		{"windows", `C:\x\cwm.exe`, 0o644, "", true},
+		{"windows", `C:\x\claude.CMD`, 0o644, "", true},
+		{"windows", `C:\x\cwm.txt`, 0o644, "", false},
+		{"windows", `C:\x\cwm`, 0o755, "", false},
+		{"windows", `C:\x\tool.ps1`, 0o644, ".EXE;.PS1", true},
+		{"windows", `C:\x\cwm.exe`, fs.ModeDir | 0o755, "", false},
+		{"linux", "/x/cwm", 0o644, "", false},
+		{"linux", "/x/cwm", 0o755, "", true},
+		{"darwin", "/x/cwm.exe", 0o644, "", false},
+	}
+	for _, c := range cases {
+		if got := Executable(c.goos, c.path, c.mode, c.pathext); got != c.want {
+			t.Errorf("Executable(%s, %s, %v, %q) = %v, want %v", c.goos, c.path, c.mode, c.pathext, got, c.want)
 		}
 	}
 }

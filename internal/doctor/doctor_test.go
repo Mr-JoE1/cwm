@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -221,6 +222,73 @@ func TestDoctorWiredHookNotExecutable(t *testing.T) {
 	Run(&out, root, false)
 	if !strings.Contains(out.String(), "warn: hook not executable: "+bin) {
 		t.Errorf("output missing not-executable warn:\n%s", out.String())
+	}
+}
+
+// TestHookNotExecutableByOS: Windows never has exec bits, so a wired
+// cwm.exe must pass on the extension alone and chmod is never the advice
+// there; on Unix the +x bits still decide.
+func TestHookNotExecutableByOS(t *testing.T) {
+	t.Setenv("PATHEXT", "")
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cwm.exe")
+	txt := filepath.Join(dir, "cwm.txt")
+	plain := filepath.Join(dir, "cwm")
+	for _, p := range []string{exe, txt, plain} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil { // no mode bits
+			t.Fatal(err)
+		}
+	}
+	if msg := hookNotExecutable("windows", exe); msg != "" {
+		t.Errorf("windows .exe without mode bits flagged: %q", msg)
+	}
+	msg := hookNotExecutable("windows", txt)
+	if !strings.Contains(msg, "hook not executable: "+txt) || !strings.Contains(msg, "PATHEXT") || strings.Contains(msg, "chmod") {
+		t.Errorf("windows .txt: %q, want a PATHEXT warning without chmod", msg)
+	}
+	t.Setenv("PATHEXT", ".COM;.EXE;.TXT")
+	if msg := hookNotExecutable("windows", txt); msg != "" {
+		t.Errorf("windows .txt with .TXT in PATHEXT flagged: %q", msg)
+	}
+	if msg := hookNotExecutable("linux", plain); msg != "hook not executable: "+plain+" (chmod +x)" {
+		t.Errorf("linux file without +x: %q, want the chmod advice", msg)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(plain, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if msg := hookNotExecutable("linux", plain); msg != "" {
+			t.Errorf("linux +x file flagged: %q", msg)
+		}
+	}
+	if msg := hookNotExecutable("windows", dir); msg == "" {
+		t.Error("a directory must never count as an executable hook")
+	}
+}
+
+// TestDoctorWindowsHookExeIsOK: the whole report, as on a Windows box
+// with cwm.exe wired, has no hook-wired warning.
+func TestDoctorWindowsHookExeIsOK(t *testing.T) {
+	noClaude(t)
+	t.Setenv("PATHEXT", "")
+	old := hostOS
+	t.Cleanup(func() { hostOS = old })
+	hostOS = "windows"
+	root := isolatedRoot(t)
+	t.Setenv("CWM_HOME", root)
+	ws := filepath.Join(root, "workspace")
+	bin := filepath.Join(t.TempDir(), "cwm.exe")
+	writeFile(t, bin, "MZ\n") // 0644: no exec bit, as Go reports every Windows file
+	cmd, _ := json.Marshal(bin + " hook session-start")
+	writeFile(t, filepath.Join(ws, "settings.json"),
+		fmt.Sprintf(`{"hooks":{"SessionStart":[{"hooks":[{"command":%s}]}]}}`, cmd))
+	for _, c := range Checks(root, false) {
+		if c.Name == "hook-wired" {
+			t.Errorf("windows cwm.exe hook flagged: %+v", c)
+		}
+		if strings.Contains(c.Detail, "chmod") {
+			t.Errorf("chmod advice on windows: %+v", c)
+		}
 	}
 }
 

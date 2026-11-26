@@ -695,7 +695,7 @@
 		if (m) return m[1].trim();
 		m = /fix: `([^`]+)`/.exec(d) || /fix: (cwm [\w -]+)/.exec(d);
 		if (m) return m[1].trim();
-		m = /hook not executable: (\S+)/.exec(d);
+		m = /hook not executable: (\S+) \(chmod \+x\)/.exec(d);
 		if (m) return "chmod +x " + m[1];
 		if (c.name === "repos-tsv") return /not readable/.test(d) ? "cwm open <name>" : "";
 		return fallback || "";

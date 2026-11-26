@@ -598,13 +598,44 @@ func (env Env) isExecutable(p string) bool {
 		return false
 	}
 	fi, err := env.Stat(p)
-	if err != nil || !fi.Mode().IsRegular() {
+	if err != nil {
 		return false
 	}
-	if env.GOOS == "windows" {
-		return true // no exec bit; the extension decides
+	pathext := ""
+	if env.Getenv != nil {
+		pathext = env.Getenv("PATHEXT")
 	}
-	return fi.Mode().Perm()&0o111 != 0
+	return Executable(env.GOOS, p, fi.Mode(), pathext)
+}
+
+// DefaultPathExt is the PATHEXT Windows ships with, reduced to what can
+// run without a script host; used when PATHEXT is empty.
+const DefaultPathExt = ".COM;.EXE;.BAT;.CMD"
+
+// Executable reports whether a file with this path and mode can be run
+// on goos. Windows has no exec bits (Go never sets them): there a
+// regular file is executable when its extension is in pathext (PATHEXT,
+// DefaultPathExt when empty). Elsewhere any of the +x bits counts.
+func Executable(goos, path string, mode fs.FileMode, pathext string) bool {
+	if !mode.IsRegular() {
+		return false
+	}
+	if goos != "windows" {
+		return mode.Perm()&0o111 != 0
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		return false
+	}
+	if strings.TrimSpace(pathext) == "" {
+		pathext = DefaultPathExt
+	}
+	for _, e := range strings.Split(pathext, ";") {
+		if strings.ToLower(strings.TrimSpace(e)) == ext {
+			return true
+		}
+	}
+	return false
 }
 
 // dirOnPath reports whether dir is an entry of $PATH (case-insensitive and

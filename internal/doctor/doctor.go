@@ -224,8 +224,8 @@ func Checks(root string, netProbe bool) []Check {
 				r.fail("hook-wired", "hook wired but missing: %s — re-run the cwm bootstrap or `cwm init`", path)
 				continue
 			}
-			if info, err := os.Stat(path); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-				r.warn("hook-wired", "hook not executable: %s (chmod +x)", path)
+			if msg := hookNotExecutable(hostOS, path); msg != "" {
+				r.warn("hook-wired", "%s", msg)
 			}
 		}
 		if len(wired) > 0 {
@@ -452,6 +452,24 @@ func resolveHookBin(bin string) (string, bool) {
 		return path, true
 	}
 	return bin, false
+}
+
+// hookNotExecutable is the warning for a wired hook file that cannot be
+// run on goos ("" when it can). Windows has no exec bits, so the
+// extension decides (PATHEXT) and chmod is never the advice there.
+func hookNotExecutable(goos, path string) string {
+	info, err := os.Stat(path)
+	if err == nil && claudebin.Executable(goos, path, info.Mode(), os.Getenv("PATHEXT")) {
+		return ""
+	}
+	if goos == "windows" {
+		pathext := os.Getenv("PATHEXT")
+		if strings.TrimSpace(pathext) == "" {
+			pathext = claudebin.DefaultPathExt
+		}
+		return fmt.Sprintf("hook not executable: %s (Windows runs only files whose extension is in PATHEXT: %s) — re-wire the hooks: `cwm init`", path, pathext)
+	}
+	return fmt.Sprintf("hook not executable: %s (chmod +x)", path)
 }
 
 func fileExists(path string) bool {
