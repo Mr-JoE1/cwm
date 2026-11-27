@@ -150,3 +150,36 @@ func TestDesktopHandOffRunsInATerminal(t *testing.T) {
 		t.Fatalf("fallback = %d %s %q", rec.Code, rec.Body.String(), *bg)
 	}
 }
+
+// TestAccountStartNeverClaimsDesktop (D118): Start claude for an account
+// with the desktop option opens a terminal (auto) unless the app is known
+// to be signed in to that account, and the toast says why.
+func TestAccountStartNeverClaimsDesktop(t *testing.T) {
+	f, l, bg := launchFixture(t, allChoices)
+	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"capture\"\ndefault_account = \"work\"\n[launch]\nclaude = \"desktop\"\n[[account]]\nname = \"default\"\n[[account]]\nname = \"work\"\n")
+	for _, tc := range []struct {
+		name     string
+		app      claudeopen.AppAccount
+		terminal bool
+		note     string
+	}{
+		{"unknown", claudeopen.AppAccount{}, true, "keeps its own sign-in"},
+		{"different", claudeopen.AppAccount{Name: "default", Known: true}, true, "signed in to default — opened work in a terminal instead"},
+		{"same", claudeopen.AppAccount{Name: "work", Known: true}, false, "its own sign-in, which is work"},
+	} {
+		l.calls, *bg = nil, nil
+		f.srv.opts.DesktopAccount = func() claudeopen.AppAccount { return tc.app }
+		rec := f.post(t, "/api/accounts/run", `{"name":"work"}`, nil)
+		var lr launchResult
+		_ = json.Unmarshal(rec.Body.Bytes(), &lr)
+		if rec.Code != 200 || !strings.Contains(lr.Note, tc.note) {
+			t.Errorf("%s: %d %s", tc.name, rec.Code, rec.Body.String())
+		}
+		if tc.terminal && (len(l.calls) != 1 || !strings.HasSuffix(strings.Join(l.calls[0], "|"), "|run|--account|work|--with|auto") || len(*bg) != 0) {
+			t.Errorf("%s: terminal %q background %q", tc.name, l.calls, *bg)
+		}
+		if !tc.terminal && (len(l.calls) != 0 || len(*bg) != 1 || !strings.HasSuffix(strings.Join((*bg)[0], "|"), "|--with|desktop")) {
+			t.Errorf("%s: terminal %q background %q", tc.name, l.calls, *bg)
+		}
+	}
+}

@@ -116,7 +116,7 @@ func (s *Server) launchVia(c claudeopen.Choice, args []string, resumeID string) 
 }
 
 // NoteHandOffTerminal is the toast note of a desktop hand-off (D117).
-const NoteHandOffTerminal = "a terminal window hands the session to the app and closes when it is done"
+const NoteHandOffTerminal = "a terminal window hands the session to the app (it uses its own sign-in) and closes when it is done"
 
 // resumeCommand is the copy-paste fallback shown with an app launch.
 func resumeCommand(id string) string {

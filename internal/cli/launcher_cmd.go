@@ -102,6 +102,14 @@ func cmdRun(e *Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	if choice.ID == claudeopen.Desktop {
+		// The app keeps its own sign-in (D118): an account opens where
+		// cwm's account env applies, a terminal — this one.
+		if r := claudeopen.RouteAccount(account, claudeopen.DesktopAccount(claudeopen.SystemEnv(nil, true))); !r.Desktop {
+			fmt.Fprintln(e.Stderr, "note: "+r.Note)
+			choice = claudeopen.Choice{ID: claudeopen.Auto}
+		}
+	}
 	if choice.ID == claudeopen.VSCode || choice.ID == claudeopen.Desktop {
 		e.Account = account
 		return e.openApp(choice, runFolder(), "", nil)

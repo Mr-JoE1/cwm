@@ -203,7 +203,7 @@
 		if (r.ok && r.data.opened) return toast("ok", "Opened " + r.data.opened, r.data.note, { cmd: r.data.command });
 		if (r.ok) {
 			toastPathHint(r.data);
-			return toast("ok", okText, "running: " + r.data.command);
+			return toast("ok", okText, r.data.note || "running: " + r.data.command);
 		}
 		if (r.status === 424) return toastNoClaude(r);
 		if (r.status === 501) {
@@ -1320,7 +1320,7 @@
 			children.push(el("div", { class: "acct-actions" }, [accountLoginButton(a, "Log in", "btn-primary")]));
 		} else if (st === "done") {
 			children.push(el("div", { class: "acct-actions" }, [
-				withPair(btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"), (w) => runAccount(a, w)),
+				withPair(btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"), Object.assign((w) => runAccount(a, w), { acct: 1 })),
 				a.is_default ? null : btnDo("Make default", (b) => setDefault(a.name, b)),
 			]));
 		}
@@ -1527,7 +1527,7 @@
 		const m = el("div", { class: "menu with-menu", role: "menu", tabindex: "-1", "aria-label": "Open with" }, [el("p", { class: "menu-label", text: "open with" }),
 			...v.choices.map((c) => {
 				const b = el("button", { type: "button", class: "menu-item", role: "menuitem", disabled: c.available ? null : "", title: c.reason || c.note || c.help },
-					[el("span", { text: c.label + (c.id === v.setting ? " (default)" : "") }), el("span", { class: "with-why", text: c.reason || c.note || "" })]);
+					[el("span", { text: c.label + (run.acct && c.id === "desktop" ? " (app's own login)" : "") + (c.id === v.setting ? " (default)" : "") }), el("span", { class: "with-why", text: c.reason || c.note || "" })]);
 				b.addEventListener("click", () => { closeWith(); run(c.id); });
 				return b;
 			})]);

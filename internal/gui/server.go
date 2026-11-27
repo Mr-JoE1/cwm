@@ -95,6 +95,9 @@ type Options struct {
 	// output (nil = exec CwmPath).
 	Launchers  func() []claudeopen.Choice
 	Background func(argv []string) (string, error)
+	// DesktopAccount says who the desktop app is signed in to (D118; nil =
+	// claudeopen.DesktopAccount, which cannot tell).
+	DesktopAccount func() claudeopen.AppAccount
 	// DebugSources seeds GET /api/debug with what only the CLI can build
 	// (service status needs its environment); the server adds itself,
 	// its API errors and anything left unset (D52).
