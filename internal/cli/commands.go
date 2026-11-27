@@ -93,7 +93,7 @@ func cmdWip(e *Env, args []string) error {
 func wipSummary(res wip.EndResult) string {
 	switch {
 	case res.Pushed:
-		return "wip: pushed HEAD to " + res.Branch
+		return "wip: pushed a snapshot to " + res.Branch + " (your branch and files are untouched)"
 	case res.Error != "":
 		return "wip: error: " + res.Error + " (logged to logs/wip.log)"
 	case res.Skipped != "":

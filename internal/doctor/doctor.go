@@ -21,9 +21,11 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/manifest"
 	"github.com/Mr-JoE1/cwm/internal/pathmirror"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
+	"github.com/Mr-JoE1/cwm/internal/wip"
 )
 
 // Status is a check outcome. The JSON values are the GUI/--json contract
@@ -349,6 +351,10 @@ func Checks(root string, netProbe bool) []Check {
 		r[len(r)-1].Lines = tailLines(string(data), 3)
 	}
 
+	// 10b. v0.9.2: a WIP commit cwm ≤ 0.9.1 left on a branch (D119); only
+	// shown when there is one.
+	checkStrandedWIP(&r, ws)
+
 	// 11. --net only: SSH probe. Never runs in default mode (D9).
 	if netProbe {
 		out, err := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
@@ -604,5 +610,31 @@ func checkClaude(r *checkList, root string) {
 	}
 	if note := claudebin.ClearedNote(layout); note != "" {
 		r.ok("claude-cleared", "%s (it no longer verified as Claude Code; cwm looks it up afresh)", note)
+	}
+}
+
+// checkStrandedWIP looks at the HEAD of every repos.tsv clone and of the
+// current directory: cwm ≤ 0.9.1's SessionEnd committed `wip: <host> …`
+// onto the user's branch. Nothing recorded = nothing to probe.
+func checkStrandedWIP(r *checkList, ws string) {
+	m, err := manifest.Load(filepath.Join(ws, "repos.tsv"))
+	if err != nil || m.Len() == 0 {
+		return
+	}
+	var dirs []string
+	if root, err := storage.ReposRoot(); err == nil {
+		for _, n := range m.Names() {
+			dirs = append(dirs, filepath.Join(root, n))
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		dirs = append(dirs, wd)
+	}
+	for _, s := range wip.FindStranded(dirs, storage.HostName()) {
+		where := "a detached HEAD"
+		if s.Branch != "" {
+			where = s.Branch
+		}
+		r.warn("wip-on-branch", "a WIP commit from cwm ≤0.9.1 sits on %s in %s — undo: git reset HEAD~1 (keeps your files)", where, s.Dir)
 	}
 }

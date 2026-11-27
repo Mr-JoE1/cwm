@@ -10,8 +10,8 @@ import (
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
-	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/claudeopen"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"

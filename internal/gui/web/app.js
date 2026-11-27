@@ -904,6 +904,7 @@
 		"repos-tsv": ["the repo list needs attention", "cwm clones repos on other devices from repos.tsv.", ""],
 		"session-folders": ["some sessions were started outside cwm", "Plain `claude` created these folders; they do not follow you to your other devices.", "cwm sessions"],
 		"diverged-sessions": ["a session was continued on two devices", "Both copies are kept; resume picks the newest.", "cwm doctor"],
+		"wip-on-branch": ["an old WIP commit is on your branch", "cwm ≤0.9.1 committed it there; undo it, your files stay.", "git reset HEAD~1"],
 		stignore: ["the sync ignore file is out of date", "It must match the sync switches, or Syncthing shares the wrong files.", "cwm doctor --fix"],
 		syncthing: ["sync is not set up", "Optional. Syncthing keeps the workspace the same on all your devices.", "cwm pair --start"],
 		ssh: ["GitHub SSH login failed", "Private repos cannot be cloned until your SSH key works.", "ssh -T git@github.com"],
