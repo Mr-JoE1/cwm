@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/doctor"
@@ -60,7 +63,13 @@ func cmdHook(e *Env, args []string) error {
 		id, cwd := readHookPayload(e.Stdin)
 		recordSessionRepo(layout, dir, id, cwd)
 	case "session-end":
-		if cfgErr == nil && (!cfg.Features.Hooks || !cfg.Features.HandoffPush) {
+		if cfgErr == nil && !cfg.Features.Hooks {
+			return nil
+		}
+		if cfgErr == nil {
+			reconcileLogin(layout, cfg, time.Now())
+		}
+		if cfgErr == nil && !cfg.Features.HandoffPush {
 			return nil
 		}
 		wip.SessionEnd(layout, dir)
@@ -194,4 +203,38 @@ func writeJSON(w io.Writer, v any) error {
 		return fmt.Errorf("write json: %w", err)
 	}
 	return nil
+}
+
+// reconcileLogin is SessionEnd's capture-back (D126): Claude Code may
+// have renewed — and so rotated — the default account's login during the
+// session, live or (a session started before the account became the
+// default) in its vault dir; the newest copy is written over the older.
+// Best effort: a change or an error is a line in logs/vault.log, never a
+// failed hook.
+func reconcileLogin(layout *storage.Layout, cfg *config.Config, now time.Time) {
+	what, err := accounts.Reconcile(layout, cfg, nil)
+	line := ""
+	switch {
+	case err != nil:
+		line = "session-end: " + err.Error()
+	case what == accounts.ReconcileToVault:
+		line = "session-end: saved " + cfg.DefaultAccount + "'s renewed login into its vault entry"
+	case what == accounts.ReconcileToLive:
+		line = "session-end: the vault held a newer login for " + cfg.DefaultAccount + " (renewed by a session that ran from its vault dir); made it the live one"
+	default:
+		return
+	}
+	appendLog(filepath.Join(layout.LogsDir(), "vault.log"), now.Format(time.RFC3339)+" "+line+"\n")
+}
+
+func appendLog(path, line string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(line)
 }
