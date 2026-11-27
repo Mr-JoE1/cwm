@@ -118,6 +118,7 @@ func TestSessionEndPushesWIPBranch(t *testing.T) {
 	repo, origin := initRepo(t, "alpha")
 	dirty(t, repo, "dirty wip")
 	home := t.TempDir()
+	before := repoState(t, repo)
 
 	res := SessionEnd(storage.NewLayoutAt(home), repo)
 	host := storage.HostName()
@@ -130,19 +131,125 @@ func TestSessionEndPushesWIPBranch(t *testing.T) {
 	if strings.TrimSpace(out) != "dirty wip" {
 		t.Errorf("wip.txt in sync/%s = %q, want %q", host, out, "dirty wip")
 	}
-
-	subject := strings.TrimSpace(gitRun(t, repo, "log", "-1", "--format=%s"))
+	ref := "sync/" + host
+	subject := strings.TrimSpace(gitRun(t, origin, "log", "-1", "--format=%s", ref))
 	if want := regexp.MustCompile(`^wip: ` + regexp.QuoteMeta(host) + ` \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`); !want.MatchString(subject) {
 		t.Errorf("commit subject = %q, want 'wip: %s <UTC>'", subject, host)
 	}
-	if got := strings.TrimSpace(gitRun(t, repo, "log", "-1", "--format=%an")); got != commitName {
-		t.Errorf("commit author = %q, want %q", got, commitName)
+	if got := strings.TrimSpace(gitRun(t, origin, "log", "-1", "--format=%an <%ae>", ref)); got != commitName+" <"+commitEmail+">" {
+		t.Errorf("commit identity = %q", got)
 	}
-	if got := strings.TrimSpace(gitRun(t, repo, "log", "-1", "--format=%ae")); got != commitEmail {
-		t.Errorf("commit email = %q, want %q", got, commitEmail)
+	if got := strings.TrimSpace(gitRun(t, origin, "rev-parse", ref+"^")); got != before.head {
+		t.Errorf("snapshot parent = %s, want HEAD %s", got, before.head)
 	}
-	if log := readLog(t, home, "wip.log"); !strings.Contains(log, "ok: pushed HEAD to sync/"+host) {
+	if after := repoState(t, repo); after != before {
+		t.Errorf("the snapshot changed the repo:\n before %+v\n after  %+v", before, after)
+	}
+	if log := readLog(t, home, "wip.log"); !strings.Contains(log, "ok: pushed a snapshot (") || !strings.Contains(log, "to sync/"+host) {
 		t.Errorf("wip.log = %q, want ok push line", log)
+	}
+}
+
+// state is what the WIP snapshot must never change (D119).
+type state struct{ head, branch, index, status string }
+
+func repoState(t *testing.T, repo string) state {
+	t.Helper()
+	idx, _ := os.ReadFile(filepath.Join(repo, ".git", "index"))
+	return state{
+		head:   strings.TrimSpace(gitRun(t, repo, "rev-parse", "HEAD")),
+		branch: strings.TrimSpace(gitRun(t, repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/")),
+		index:  string(idx),
+		status: gitRun(t, repo, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"),
+	}
+}
+
+// TestSessionEndSkipsNestedRepos: the v0.9.1 field report — a project
+// with a nested repo and Claude Code's own worktrees under
+// <sub>/.claude/worktrees. HEAD, the branches and the index stay as they
+// were, and the pushed tree holds the user's change but no nested repo.
+func TestSessionEndSkipsNestedRepos(t *testing.T) {
+	repo, origin := initRepo(t, "alpha")
+	gitRun(t, repo, "-c", "user.name=tester", "-c", "user.email=tester@test", "commit", "-q", "--allow-empty", "-m", "second")
+	dirty(t, repo, "real change")
+	for _, sub := range []string{"vendor/lib", "hardware/x/.claude/worktrees/remote-control-1", ".claude/worktrees/test-2"} {
+		d := filepath.Join(repo, filepath.FromSlash(sub))
+		gitRun(t, repo, "init", "-q", d)
+		if err := os.WriteFile(filepath.Join(d, "f.txt"), []byte("nested"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, d, "add", "f.txt")
+		gitRun(t, d, "-c", "user.name=tester", "-c", "user.email=tester@test", "commit", "-q", "-m", "n")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "hardware", "x", "board.txt"), []byte("kept"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A staged-but-uncommitted change in the user's index stays theirs.
+	if err := os.WriteFile(filepath.Join(repo, "staged.txt"), []byte("staged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", "staged.txt")
+	home := t.TempDir()
+	before := repoState(t, repo)
+
+	res := SessionEnd(storage.NewLayoutAt(home), repo)
+	if !res.Pushed {
+		t.Fatalf("SessionEnd = %+v\n%s", res, readLog(t, home, "wip.log"))
+	}
+	if after := repoState(t, repo); after != before {
+		t.Errorf("the snapshot changed the repo:\n before %+v\n after  %+v", before, after)
+	}
+	files := gitRun(t, origin, "ls-tree", "-r", "--format=%(objectmode) %(path)", "sync/"+storage.HostName())
+	for _, want := range []string{"100644 wip.txt", "100644 staged.txt", "100644 hardware/x/board.txt"} {
+		if !strings.Contains(files, want) {
+			t.Errorf("pushed tree lacks %q:\n%s", want, files)
+		}
+	}
+	if strings.Contains(files, "160000") || strings.Contains(files, "vendor/lib") || strings.Contains(files, "worktrees") {
+		t.Errorf("pushed tree holds a nested repo:\n%s", files)
+	}
+	log := readLog(t, home, "wip.log")
+	if !strings.Contains(log, "skipped 3 nested repositories (") || strings.Contains(log, "embedded git repository") {
+		t.Errorf("wip.log = %q", log)
+	}
+}
+
+// TestSessionEndChainsSnapshots: HEAD no longer moves, so each snapshot
+// must still fast-forward sync/<host>: on top of an earlier snapshot, and
+// as a merge once the user committed on their branch.
+func TestSessionEndChainsSnapshots(t *testing.T) {
+	repo, origin := initRepo(t, "alpha")
+	home := t.TempDir()
+	layout := storage.NewLayoutAt(home)
+	ref := "sync/" + storage.HostName()
+	tips := []string{}
+	for i, step := range []func(){
+		func() { dirty(t, repo, "one") },
+		func() { dirty(t, repo, "two") },
+		func() {
+			gitRun(t, repo, "add", "wip.txt")
+			gitRun(t, repo, "-c", "user.name=tester", "-c", "user.email=tester@test", "commit", "-q", "-m", "user work")
+			dirty(t, repo, "three")
+		},
+	} {
+		step()
+		if res := SessionEnd(layout, repo); !res.Pushed {
+			t.Fatalf("run %d: %+v\n%s", i, res, readLog(t, home, "wip.log"))
+		}
+		tips = append(tips, strings.TrimSpace(gitRun(t, origin, "rev-parse", ref)))
+		if got := strings.TrimSpace(gitRun(t, origin, "show", ref+":wip.txt")); got != []string{"one", "two", "three"}[i] {
+			t.Errorf("run %d: wip.txt = %q", i, got)
+		}
+	}
+	if p := strings.TrimSpace(gitRun(t, origin, "rev-parse", tips[1]+"^")); p != tips[0] {
+		t.Errorf("second snapshot's parent = %s, want the first %s", p, tips[0])
+	}
+	userHead := strings.TrimSpace(gitRun(t, repo, "rev-parse", "HEAD"))
+	if ps := strings.Fields(gitRun(t, origin, "log", "-1", "--format=%P", tips[2])); len(ps) != 2 || ps[0] != userHead || ps[1] != tips[1] {
+		t.Errorf("third snapshot's parents = %v, want [%s %s]", ps, userHead, tips[1])
+	}
+	if strings.Contains(gitRun(t, repo, "log", "--format=%an", "HEAD"), commitName) {
+		t.Error("a WIP commit reached the user's branch")
 	}
 }
 
@@ -179,23 +286,37 @@ func TestSessionEndNoOriginSkips(t *testing.T) {
 	}
 }
 
-func TestSessionEndPushFailureLeavesLocalCommit(t *testing.T) {
-	repo, _ := initRepo(t, "alpha")
-	// Point origin at a path that cannot be pushed to.
-	gitRun(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "nowhere.git"))
-	dirty(t, repo, "stranded wip")
-	home := t.TempDir()
-
-	res := SessionEnd(storage.NewLayoutAt(home), repo)
-	if res.Pushed || res.Skipped != "" || !strings.Contains(res.Error, "push failed for sync/") {
-		t.Fatalf("SessionEnd = %+v, want push-failure report", res)
-	}
-	// The WIP commit must survive locally (bash kit semantics).
-	if got := strings.TrimSpace(gitRun(t, repo, "log", "-1", "--format=%an")); got != commitName {
-		t.Errorf("local WIP commit author = %q, want %q", got, commitName)
-	}
-	if log := readLog(t, home, "wip.log"); !strings.Contains(log, "error: push failed for sync/") {
-		t.Errorf("wip.log = %q, want push-failure line", log)
+func TestSessionEndRejectedPushKeepsNothing(t *testing.T) {
+	repo, origin := initRepo(t, "alpha")
+	// The remote sync branch holds history this repo has never seen and
+	// cannot fetch (a non-fast-forward the push must not force), then an
+	// unreachable origin.
+	other := filepath.Join(t.TempDir(), "other")
+	gitRun(t, filepath.Dir(other), "clone", "-q", origin, other)
+	gitRun(t, other, "-c", "user.name=tester", "-c", "user.email=tester@test", "commit", "-q", "--allow-empty", "-m", "elsewhere")
+	gitRun(t, other, "push", "-q", "origin", "HEAD:refs/heads/sync/"+storage.HostName())
+	for i, url := range []string{origin, filepath.Join(t.TempDir(), "nowhere.git")} {
+		gitRun(t, repo, "remote", "set-url", "origin", url)
+		if i == 0 {
+			// Unreachable tip: keep the fetch from succeeding.
+			gitRun(t, repo, "config", "remote.origin.uploadpack", "false")
+		}
+		dirty(t, repo, "stranded wip")
+		home := t.TempDir()
+		before := repoState(t, repo)
+		res := SessionEnd(storage.NewLayoutAt(home), repo)
+		if res.Pushed || res.Skipped != "" || !strings.Contains(res.Error, "push failed for sync/") {
+			t.Fatalf("%s: SessionEnd = %+v\n%s", url, res, readLog(t, home, "wip.log"))
+		}
+		if after := repoState(t, repo); after != before {
+			t.Errorf("%s: a rejected push changed the repo:\n before %+v\n after  %+v", url, before, after)
+		}
+		if refs := gitRun(t, repo, "for-each-ref", "--format=%(refname)", "--contains", "HEAD"); strings.Contains(gitRun(t, repo, "log", "--all", "--format=%an"), commitName) {
+			t.Errorf("%s: a WIP commit is reachable from a local ref (%s)", url, refs)
+		}
+		if log := readLog(t, home, "wip.log"); !strings.Contains(log, "error: push failed for sync/") {
+			t.Errorf("wip.log = %q, want push-failure line", log)
+		}
 	}
 }
 
@@ -248,5 +369,32 @@ func TestSyncStatusNotARepo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cannot list sync branches") {
 		t.Errorf("err = %v, want cannot-list message", err)
+	}
+}
+
+// TestFindStranded: a `wip: <host>` commit by cwm's identity at HEAD (what
+// cwm ≤ 0.9.1 left on a branch) is found with its branch; the user's own
+// commits, another host's and non-repos are not.
+func TestFindStranded(t *testing.T) {
+	host := storage.HostName()
+	old, _ := initRepo(t, "old")
+	dirty(t, old, "x")
+	gitRun(t, old, "add", "-A")
+	gitRun(t, old, "-c", "user.name="+commitName, "-c", "user.email="+commitEmail, "commit", "-q", "-m", "wip: "+host+" 2026-11-20T10:00:00Z")
+	branch := strings.TrimSpace(gitRun(t, old, "symbolic-ref", "--short", "HEAD"))
+	clean, _ := initRepo(t, "clean")
+	other, _ := initRepo(t, "other")
+	gitRun(t, other, "-c", "user.name="+commitName, "-c", "user.email="+commitEmail, "commit", "-q", "--allow-empty", "-m", "wip: elsewhere 2026-11-20T10:00:00Z")
+	got := FindStranded([]string{old, clean, other, t.TempDir(), filepath.Join(t.TempDir(), "missing"), old}, host)
+	if len(got) != 1 || got[0].Dir != old || got[0].Branch != branch {
+		t.Fatalf("FindStranded = %+v, want [%s on %s]", got, old, branch)
+	}
+	// The new SessionEnd never strands one.
+	dirty(t, clean, "y")
+	if res := SessionEnd(storage.NewLayoutAt(t.TempDir()), clean); !res.Pushed {
+		t.Fatalf("SessionEnd = %+v", res)
+	}
+	if got := FindStranded([]string{clean}, host); len(got) != 0 {
+		t.Errorf("after a v0.9.2 snapshot: %+v", got)
 	}
 }

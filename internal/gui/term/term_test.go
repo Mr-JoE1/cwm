@@ -248,3 +248,35 @@ func TestSystemOpenLogsTerminalOutput(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveDesktopHandOffGolden pins the terminal each OS opens for the
+// dashboard's desktop hand-off (D117): claude --desktop needs a terminal
+// on stdin and stdout, so the held cwm runs inside a real one.
+func TestResolveDesktopHandOffGolden(t *testing.T) {
+	argv := []string{"cwm", HoldFlag, "sessions", "resume", "44444444-dddd", "--with", "desktop"}
+	for _, tc := range []struct {
+		goos   string
+		onPath map[string]string
+		vars   map[string]string
+		want   string
+	}{
+		{"windows", map[string]string{"wt.exe": `C:\wt.exe`, "cmd.exe": `C:\cmd.exe`}, nil,
+			`C:\wt.exe|--|cwm|--hold-on-error|sessions|resume|44444444-dddd|--with|desktop`},
+		{"windows", map[string]string{"cmd.exe": `C:\cmd.exe`}, nil,
+			`C:\cmd.exe|/c|start|cwm|cwm|--hold-on-error|sessions|resume|44444444-dddd|--with|desktop`},
+		{"linux", map[string]string{"xterm": "/usr/bin/xterm"}, display,
+			`/usr/bin/xterm|-e|cwm|--hold-on-error|sessions|resume|44444444-dddd|--with|desktop`},
+	} {
+		got, err := Resolve(fakeEnv(tc.goos, tc.onPath, tc.vars), argv)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.goos, err)
+		}
+		if argvOf(got) != tc.want {
+			t.Errorf("%s:\n got %s\nwant %s", tc.goos, argvOf(got), tc.want)
+		}
+	}
+	got, err := Resolve(fakeEnv("darwin", map[string]string{"osascript": "/usr/bin/osascript"}, nil), argv)
+	if err != nil || !strings.Contains(strings.Join(got.Args, " "), "--hold-on-error sessions resume 44444444-dddd --with desktop") {
+		t.Errorf("darwin: %v %q", err, got.Args)
+	}
+}

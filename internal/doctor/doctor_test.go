@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
+	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/syncthing"
 	"github.com/Mr-JoE1/cwm/internal/testsafe"
 	"github.com/Mr-JoE1/cwm/internal/workspace"
@@ -919,3 +921,38 @@ func TestCwmPathFix(t *testing.T) {
 }
 
 const claudebinPathHint = "<PathHint>"
+
+// TestDoctorWarnsOnStrandedWIP (D119): a recorded clone whose HEAD is a WIP
+// commit cwm ≤ 0.9.1 made on the user's branch gets the undo command.
+func TestDoctorWarnsOnStrandedWIP(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH stub — behavioral coverage on linux CI (see docs/PLAN.md D22)")
+	}
+	root := healthyWorkspace(t)
+	repos := t.TempDir()
+	t.Setenv(storage.ReposRootEnv, repos)
+	alpha := filepath.Join(repos, "alpha")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repos
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main", alpha)
+	git("-C", alpha, "-c", "user.name=claude-sync", "-c", "user.email=claude-sync@localhost", "commit", "-q", "--allow-empty", "-m", "wip: "+storage.HostName()+" 2026-11-20T10:00:00Z")
+	want := "a WIP commit from cwm ≤0.9.1 sits on main in " + alpha + " — undo: git reset HEAD~1 (keeps your files)"
+	found := false
+	for _, c := range Checks(root, false) {
+		if c.Name == "wip-on-branch" {
+			found = c.Status == StatusWarn && c.Detail == want
+			if !found {
+				t.Errorf("check = %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no wip-on-branch warning")
+	}
+}

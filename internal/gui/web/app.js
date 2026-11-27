@@ -203,7 +203,7 @@
 		if (r.ok && r.data.opened) return toast("ok", "Opened " + r.data.opened, r.data.note, { cmd: r.data.command });
 		if (r.ok) {
 			toastPathHint(r.data);
-			return toast("ok", okText, "running: " + r.data.command);
+			return toast("ok", okText, r.data.note || "running: " + r.data.command);
 		}
 		if (r.status === 424) return toastNoClaude(r);
 		if (r.status === 501) {
@@ -904,6 +904,7 @@
 		"repos-tsv": ["the repo list needs attention", "cwm clones repos on other devices from repos.tsv.", ""],
 		"session-folders": ["some sessions were started outside cwm", "Plain `claude` created these folders; they do not follow you to your other devices.", "cwm sessions"],
 		"diverged-sessions": ["a session was continued on two devices", "Both copies are kept; resume picks the newest.", "cwm doctor"],
+		"wip-on-branch": ["an old WIP commit is on your branch", "cwm ≤0.9.1 committed it there; undo it, your files stay.", "git reset HEAD~1"],
 		stignore: ["the sync ignore file is out of date", "It must match the sync switches, or Syncthing shares the wrong files.", "cwm doctor --fix"],
 		syncthing: ["sync is not set up", "Optional. Syncthing keeps the workspace the same on all your devices.", "cwm pair --start"],
 		ssh: ["GitHub SSH login failed", "Private repos cannot be cloned until your SSH key works.", "ssh -T git@github.com"],
@@ -1320,7 +1321,7 @@
 			children.push(el("div", { class: "acct-actions" }, [accountLoginButton(a, "Log in", "btn-primary")]));
 		} else if (st === "done") {
 			children.push(el("div", { class: "acct-actions" }, [
-				withPair(btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"), (w) => runAccount(a, w)),
+				withPair(btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"), Object.assign((w) => runAccount(a, w), { acct: 1 })),
 				a.is_default ? null : btnDo("Make default", (b) => setDefault(a.name, b)),
 			]));
 		}
@@ -1527,7 +1528,7 @@
 		const m = el("div", { class: "menu with-menu", role: "menu", tabindex: "-1", "aria-label": "Open with" }, [el("p", { class: "menu-label", text: "open with" }),
 			...v.choices.map((c) => {
 				const b = el("button", { type: "button", class: "menu-item", role: "menuitem", disabled: c.available ? null : "", title: c.reason || c.note || c.help },
-					[el("span", { text: c.label + (c.id === v.setting ? " (default)" : "") }), el("span", { class: "with-why", text: c.reason || c.note || "" })]);
+					[el("span", { text: c.label + (run.acct && c.id === "desktop" ? " (app's own login)" : "") + (c.id === v.setting ? " (default)" : "") }), el("span", { class: "with-why", text: c.reason || c.note || "" })]);
 				b.addEventListener("click", () => { closeWith(); run(c.id); });
 				return b;
 			})]);

@@ -54,7 +54,8 @@ const ReposRootEnv = storage.ReposRootEnv
 // ReposRoot returns the canonical clone root: $CWM_REPOS_ROOT or ~/repos.
 func ReposRoot() (string, error) { return storage.ReposRoot() }
 
-// Open prepares repo for work and execs claude; it returns only on error.
+// Open prepares repo for work and execs claude; it returns only on error
+// (or after a desktop hand-off, which runs as a child: startClaude).
 // On success the process is replaced (unix) or exits with the claude exit
 // code (windows). account selects the login ("" = the configured
 // default).
@@ -115,7 +116,7 @@ func Open(repo string, mode Mode, extra []string, account string, stdout, stderr
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}
-	return execClaude(res.Path, args)
+	return startClaude(res.Path, args, extra)
 }
 
 // OpenDir execs claude in dir with extra (cross-device resume, D91): the
@@ -145,7 +146,7 @@ func OpenDir(dir string, extra []string, account string, stdout, stderr io.Write
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}
-	return execClaude(res.Path, args)
+	return startClaude(res.Path, args, extra)
 }
 
 // EnvWith carries `--with cli` from the CLI flag to the claude lookup

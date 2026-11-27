@@ -279,3 +279,33 @@ func TestUnavailableMessages(t *testing.T) {
 		t.Errorf("vscode = %s", got)
 	}
 }
+
+// TestRouteAccount is the D118 decision table: requested account ×
+// what cwm knows about the desktop app's own sign-in.
+func TestRouteAccount(t *testing.T) {
+	for _, tc := range []struct {
+		name, requested string
+		app             AppAccount
+		desktop         bool
+		note            string
+	}{
+		{"no account, unknown", "", AppAccount{}, true, ""},
+		{"no account, known", "", AppAccount{Name: "work", Known: true}, true, ""},
+		{"account, unknown", "work", AppAccount{}, false, "the Claude desktop app keeps its own sign-in, so cwm can't open work there — opened it in a terminal instead"},
+		{"account, same", "work", AppAccount{Name: "work", Known: true}, true, "the Claude desktop app uses its own sign-in, which is work"},
+		{"account, different", "work", AppAccount{Name: "default", Known: true}, false,
+			"the Claude desktop app is signed in to default — opened work in a terminal instead; switch the app's account in the app to use it there"},
+	} {
+		got := RouteAccount(tc.requested, tc.app)
+		if got.Desktop != tc.desktop || got.Note != tc.note {
+			t.Errorf("%s: %+v", tc.name, got)
+		}
+	}
+	// cwm cannot read the app's sign-in (only an encrypted token cache).
+	if DesktopAccount(Env{GOOS: "windows"}).Known {
+		t.Error("DesktopAccount claims to know the app's account")
+	}
+	if d, _ := Pick(Detect(Env{GOOS: "linux", Getenv: func(string) string { return "" }}), Desktop); !strings.Contains(d.Help, "own sign-in, not a cwm account") {
+		t.Errorf("desktop help = %q", d.Help)
+	}
+}

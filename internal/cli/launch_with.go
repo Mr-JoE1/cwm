@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,7 +76,7 @@ func (e *Env) openApp(c claudeopen.Choice, folder, id string, desktopResume func
 				fmt.Fprintf(e.Stdout, "would run in %s: claude --desktop --resume %s\n", folder, id)
 				return nil
 			}
-			return desktopResume()
+			return e.handOff(goos, folder, id, desktopResume)
 		}
 		steps = []claudeopen.Step{{Argv: claudeopen.OpenURL(goos, claudeopen.DesktopURI(folder))}}
 		done = "opened the Claude desktop app in " + orHere(folder)
@@ -89,13 +90,50 @@ func (e *Env) openApp(c claudeopen.Choice, folder, id string, desktopResume func
 		}
 		return nil
 	}
-	if err := claudeopen.Run(steps, nil); err != nil {
+	if err := runSteps(steps); err != nil {
 		return err
 	}
 	if e.Account != "" {
 		fmt.Fprintln(e.Stderr, "note: "+c.Label+" signs in on its own; --account applies to terminal launches only")
 	}
 	fmt.Fprintln(e.Stdout, done)
+	return nil
+}
+
+// runSteps starts app steps (claudeopen.Run); a seam for tests.
+var runSteps = func(steps []claudeopen.Step) error { return claudeopen.Run(steps, nil) }
+
+// handOffTTY reports whether `claude --desktop` can run here: it needs a
+// terminal on both stdin and stdout (D117). A seam for tests.
+var handOffTTY = func() bool { return isConsole(os.Stdin) && isConsole(os.Stdout) }
+
+// handOff runs `claude --desktop --resume <id>` (resume) when this process
+// has a terminal. Without one (the dashboard's no-terminal fallback, a
+// pipe) or when the hand-off fails, it opens the app in the folder
+// instead and says so; a failed hand-off still returns an error, so a
+// held terminal window stays open with the message.
+func (e *Env) handOff(goos, folder, id string, resume func() error) error {
+	tty := handOffTTY()
+	why := "no terminal to hand the session over from"
+	if tty {
+		if e.Account != "" {
+			fmt.Fprintln(e.Stderr, "note: the Claude desktop app uses its own sign-in; session "+sessionID8(id)+" ran as "+e.Account)
+		}
+		err := resume()
+		if err == nil {
+			fmt.Fprintln(e.Stdout, "handed session "+sessionID8(id)+" to the Claude desktop app")
+			return nil
+		}
+		why = err.Error()
+	}
+	if err := runSteps([]claudeopen.Step{{Argv: claudeopen.OpenURL(goos, claudeopen.DesktopURI(folder))}}); err != nil {
+		return fmt.Errorf("could not hand the session to the Claude desktop app (%s), nor open the app: %w — resume it in a terminal: claude --resume %s", why, err, id)
+	}
+	msg := "couldn't hand the session over (" + why + "); opened the Claude app in " + orHere(folder) + " — to resume it: claude --resume " + id
+	if tty {
+		return errors.New(msg)
+	}
+	fmt.Fprintln(e.Stdout, msg)
 	return nil
 }
 
