@@ -73,6 +73,7 @@ func cmdSessionsResume(e *Env, args []string) error {
 		if app {
 			e.DryRun = e.DryRun || dry
 			return e.openApp(choice, sessionFolder(sess), sess.ID, func() error {
+				e.desktopPrep(cfg, sess)
 				return launcher.Open(sess.Project, launcher.ModeNew, desktopResumeArgs(sess.ID), e.Account, e.Stdout, e.Stderr)
 			})
 		}
@@ -138,6 +139,7 @@ func cmdSessionsResume(e *Env, args []string) error {
 	}
 	if app {
 		return e.openApp(choice, plan.Local, sess.ID, func() error {
+			e.desktopPrep(cfg, sess)
 			return launcher.OpenDir(plan.Local, desktopResumeArgs(sess.ID), e.Account, e.Stdout, e.Stderr)
 		})
 	}

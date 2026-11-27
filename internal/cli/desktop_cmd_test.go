@@ -11,6 +11,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/desktopapp"
+	"github.com/Mr-JoE1/cwm/internal/sessions"
 )
 
 const desktopUUID = "11111111-aaaa-4bbb-8ccc-00000000000a"
@@ -134,5 +135,48 @@ func TestAgentDesktopShare(t *testing.T) {
 	d.tick(&w, "agent", t0.Add(2*desktopShareEvery+2))
 	if !strings.Contains(w.String(), "added 1 Code-tab entry for work\n") {
 		t.Fatalf("periodic = %q", w.String())
+	}
+}
+
+// TestDesktopPrep (D123): before a hand-off the session's own Code-tab
+// entry is shared into the app's account (only that one), and a session
+// that ran under another account gets a one-line note.
+func TestDesktopPrep(t *testing.T) {
+	profile := desktopHome(t)
+	other := filepath.Join(profile, "claude-code-sessions", "22222222-0000-0000-0000-000000000000", "orgD")
+	if err := os.WriteFile(filepath.Join(other, "local_e.json"), []byte(`{"cliSessionId":"e"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr := filepath.Join(t.TempDir(), "d.jsonl")
+	if err := os.WriteFile(tr, []byte(`{"type":"session-owner","accountUuid":"22222222-0000-0000-0000-000000000000"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := claudepaths.NewLayout()
+	cfg, err := config.Load(l.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb strings.Builder
+	e := &Env{Stdout: &out, Stderr: &errb}
+	e.desktopPrep(cfg, sessions.Session{ID: "d", Path: tr})
+	list := filepath.Join(profile, "claude-code-sessions", desktopUUID, "orgW")
+	if _, err := os.Stat(filepath.Join(list, "local_d.json")); err != nil {
+		t.Fatalf("session entry not shared: %v (%q)", err, out.String())
+	}
+	if _, err := os.Stat(filepath.Join(list, "local_e.json")); err == nil {
+		t.Fatal("shared another session's entry")
+	}
+	if !strings.Contains(out.String(), "added 1 Code-tab entry for work") ||
+		!strings.Contains(errb.String(), "note: the Claude app is signed in as work, but this session ran as another account") {
+		t.Fatalf("out=%q err=%q", out.String(), errb.String())
+	}
+	// Same account: no note.
+	if err := os.WriteFile(tr, []byte(`{"type":"session-owner","accountUuid":"`+desktopUUID+`"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	errb.Reset()
+	e.desktopPrep(cfg, sessions.Session{ID: "d", Path: tr})
+	if errb.Len() != 0 {
+		t.Fatalf("note for the same account: %q", errb.String())
 	}
 }

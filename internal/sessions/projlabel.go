@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -174,3 +175,32 @@ func ProjectLabels(wsProjectsDir string) map[string]Label {
 // TranscriptCwd is the working directory a transcript records ("" when
 // none): where `claude --resume` must run for the session to be found.
 func TranscriptCwd(path string) string { return transcriptCwd(path) }
+
+// TranscriptOwner is the account uuid of a transcript's last
+// session-owner entry ("" = none recorded), the account the session ran
+// under (D62).
+func TranscriptOwner(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	marker := []byte(`"session-owner"`)
+	owner := ""
+	r := bufio.NewReaderSize(f, 64<<10)
+	for {
+		line, err := r.ReadBytes('\n')
+		if bytes.Contains(line, marker) {
+			var e struct {
+				Type        string `json:"type"`
+				AccountUUID string `json:"accountUuid"`
+			}
+			if json.Unmarshal(line, &e) == nil && e.Type == "session-owner" && e.AccountUUID != "" {
+				owner = e.AccountUUID
+			}
+		}
+		if err != nil {
+			return owner
+		}
+	}
+}

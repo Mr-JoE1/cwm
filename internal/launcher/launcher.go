@@ -116,7 +116,7 @@ func Open(repo string, mode Mode, extra []string, account string, stdout, stderr
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}
-	return startClaude(res.Path, args, extra)
+	return startClaude(layout, res.Path, args, extra)
 }
 
 // OpenDir execs claude in dir with extra (cross-device resume, D91): the
@@ -146,7 +146,7 @@ func OpenDir(dir string, extra []string, account string, stdout, stderr io.Write
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}
-	return startClaude(res.Path, args, extra)
+	return startClaude(layout, res.Path, args, extra)
 }
 
 // EnvWith carries `--with cli` from the CLI flag to the claude lookup

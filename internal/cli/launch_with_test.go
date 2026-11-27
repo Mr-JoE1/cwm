@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/config"
@@ -152,6 +153,29 @@ func TestRunDesktopRoute(t *testing.T) {
 		}
 		if strings.Contains(errb.String(), "signs in on its own") {
 			t.Errorf("%s: stale D118 note: %q", tc.name, errb.String())
+		}
+	}
+}
+
+// TestHandOffLingers (D123): a window the dashboard opened stays a moment
+// after a successful hand-off (claude's "Opening session …" stays
+// readable); the user's own terminal does not wait.
+func TestHandOffLingers(t *testing.T) {
+	oldTTY, oldRun, oldHeld, oldLinger := handOffTTY, runSteps, handOffHeld, handOffLinger
+	t.Cleanup(func() { handOffTTY, runSteps, handOffHeld, handOffLinger = oldTTY, oldRun, oldHeld, oldLinger })
+	handOffTTY = func() bool { return true }
+	runSteps = func([]claudeopen.Step) error { return nil }
+	handOffLinger = 10 * time.Millisecond
+	c := claudeopen.Choice{ID: claudeopen.Desktop, Label: "Claude desktop app", Available: true, Resume: true}
+	for _, held := range []bool{true, false} {
+		handOffHeld = func() bool { return held }
+		var out strings.Builder
+		e := &Env{Stdout: &out, Stderr: &out}
+		if err := e.openApp(c, "/x", "44444444-dddd", func() error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "this window closes in"); got != held {
+			t.Errorf("held=%v: %q", held, out.String())
 		}
 	}
 }
