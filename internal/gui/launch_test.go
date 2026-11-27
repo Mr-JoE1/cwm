@@ -151,9 +151,10 @@ func TestDesktopHandOffRunsInATerminal(t *testing.T) {
 	}
 }
 
-// TestAccountStartNeverClaimsDesktop (D118): Start claude for an account
-// with the desktop option opens a terminal (auto) unless the app is known
-// to be signed in to that account, and the toast says why.
+// TestAccountStartNeverClaimsDesktop (D122): Start claude for an account
+// with the desktop option opens the app only when the app is signed in to
+// that account; every other state opens a terminal (auto), and the toast
+// says why. One row per decision-table state.
 func TestAccountStartNeverClaimsDesktop(t *testing.T) {
 	f, l, bg := launchFixture(t, allChoices)
 	writeFile(t, filepath.Join(f.root, "config.toml"), "mode = \"capture\"\ndefault_account = \"work\"\n[launch]\nclaude = \"desktop\"\n[[account]]\nname = \"default\"\n[[account]]\nname = \"work\"\n")
@@ -163,9 +164,11 @@ func TestAccountStartNeverClaimsDesktop(t *testing.T) {
 		terminal bool
 		note     string
 	}{
-		{"unknown", claudeopen.AppAccount{}, true, "keeps its own sign-in"},
-		{"different", claudeopen.AppAccount{Name: "default", Known: true}, true, "signed in to default — opened work in a terminal instead"},
-		{"same", claudeopen.AppAccount{Name: "work", Known: true}, false, "its own sign-in, which is work"},
+		{"same", claudeopen.AppAccount{State: claudeopen.AppAccountNamed, Name: "work"}, false, "opened the Claude app (signed in as work)"},
+		{"different", claudeopen.AppAccount{State: claudeopen.AppAccountNamed, Name: "default"}, true, "the Claude app is signed in as default — opened work in a terminal instead. To use the app, switch its account in the app"},
+		{"other", claudeopen.AppAccount{State: claudeopen.AppOther}, true, "signed in as another account — opened work in a terminal instead"},
+		{"signed out", claudeopen.AppAccount{State: claudeopen.AppSignedOut}, true, "signed in as nobody — opened work in a terminal instead"},
+		{"unknown", claudeopen.AppAccount{}, true, "signed in as another account — opened work in a terminal instead"},
 	} {
 		l.calls, *bg = nil, nil
 		f.srv.opts.DesktopAccount = func() claudeopen.AppAccount { return tc.app }

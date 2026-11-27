@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/accounts"
+	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/config"
 )
 
@@ -401,4 +402,10 @@ func entries(dir string) []string {
 // login uuid, accounts.UUIDMap).
 func ForConfig(cfg *config.Config) Status {
 	return Detect(System(), accounts.UUIDMap(cfg))
+}
+
+// AppAccount is the status in the launch router's terms
+// (claudeopen.RouteAccount).
+func (s Status) AppAccount() claudeopen.AppAccount {
+	return claudeopen.AppAccount{State: string(s.State), Name: s.Account}
 }
