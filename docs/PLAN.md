@@ -3,6 +3,93 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-27 (v0.9.2 — desktop hand-off, desktop sign-in, WIP snapshot; SPEC-V0.9 "v0.9.2")
+
+- **D117: the desktop hand-off runs in a real terminal (supersedes D113's
+  "no terminal for the apps" for this one step).** `claude --desktop`
+  needs a terminal on both stdin and stdout. Redirected stdout gives
+  "can't run non-interactively"; redirected stdin gives `stdin_not_tty`;
+  stderr does not matter. We probed Claude Code 2.1.319 under a pty, one
+  redirected stream at a time.
+  - **Why a terminal (option a) and not a hidden console (option b).**
+    Go's `os/exec` on Windows always passes standard handles, and nil
+    means NUL. `CREATE_NEW_CONSOLE` with `SW_HIDE` would still hand claude
+    a non-console stdout. The terminal path (wt.exe, `cmd /c start`, the
+    D27 launchers) is the one Auto already proves.
+  - **The dashboard.** It opens `cwm --hold-on-error sessions resume <id>
+    --with desktop` in a terminal and toasts "a terminal window hands the
+    session to the app (it uses its own sign-in) and closes when it is
+    done". Only folder-only opens and VS Code still run in the background.
+  - **The CLI.** `openApp` runs the hand-off only when stdin and stdout are
+    consoles: GetConsoleMode on Windows, a character device other than
+    /dev/null elsewhere. The launcher runs `claude --desktop` as a child
+    with this process's own handles (`launcher.HandOffCmd`), never by
+    exec, so it returns.
+  - **Fallback.** When there is no terminal, or the hand-off fails, it
+    opens `claude://code/new?folder=<dir>` and prints `claude --resume
+    <id>`. A failure exits non-zero, so the held window keeps the message.
+    So when the dashboard can open no terminal, its background run lands
+    on the folder link and that becomes the toast.
+- **D118: the desktop app's own sign-in is never claimed for a cwm account.**
+  - **Where it lives.** The app stores its login in `%APPDATA%\Claude`
+    (the Store build: `Packages\Claude_*\LocalCache\Roaming\Claude`;
+    macOS: `~/Library/Application Support/Claude`). The only record is the
+    DPAPI/Keychain-encrypted `oauth:tokenCache` and cookies, which are
+    secrets cwm never reads, with no plain account field. So
+    `claudeopen.DesktopAccount` always answers "unknown".
+  - **The rule.** `RouteAccount`: an account launch (the dashboard's Start
+    claude for an account, `cwm run --account`) that would use desktop
+    goes to auto, with a note. It uses desktop only when no account was
+    asked for, or the app is known to be signed in to that account. When
+    the app is known to be signed in to another, the note names it and
+    says to switch accounts in the app.
+  - **The text.** The desktop option's help adds "Uses the app's own
+    sign-in, not a cwm account"; the account ▾ menu labels it "(app's own
+    login)". A plain toast now shows a launch's note instead of
+    "running: …".
+  - **Resume.** Resume via desktop is allowed. With `--account`, the CLI
+    notes that the app uses its own sign-in.
+- **D119: the WIP snapshot never moves HEAD, the index or the working tree
+  (supersedes D5's "commit everything").**
+  - **How the snapshot is built.** SessionEnd seeds a temporary
+    `GIT_INDEX_FILE` with a copy of the user's index (stat cache only),
+    then `read-tree -m HEAD` and `add -A` through a pathspec file. The
+    pathspec excludes:
+    - every untracked nested repo or worktree (git's `ls-files --others`
+      lists those as `dir/`);
+    - `**/.claude/worktrees/**`.
+
+    It then drops staged gitlinks HEAD lacks, runs `write-tree`, and
+    `commit-tree` as claude-sync. `status` runs with `--no-optional-locks`.
+  - **The push.** `git push origin <sha>:refs/heads/sync/<host>`,
+    non-force. A rejected push keeps no ref (only a loose object) and logs
+    "nothing kept locally — your files are untouched".
+  - **Deviation: chaining.** Since HEAD no longer moves, a second
+    snapshot on the same HEAD would never fast-forward the first. So the
+    parent is:
+    - the remote tip, when it descends from HEAD;
+    - HEAD, when the tip is behind it or there is none;
+    - both (a merge, tree = the working tree), when the user's branch
+      moved on.
+
+    The tip comes from `ls-remote`, plus one fetch if its object is
+    missing. Every push stays a non-force fast-forward, and an unknown tip
+    falls back to HEAD and reports a rejection as before.
+  - **Doctor.** `wip-on-branch` warns when HEAD of a repos.tsv clone
+    (under the repos root) or of the cwd is a `wip: <thishost> …` commit
+    by claude-sync: "a WIP commit from cwm ≤0.9.1 sits on <branch> — undo:
+    git reset HEAD~1 (keeps your files)". It makes one bounded git call
+    per repo and shows nothing when there is none.
+  - **Consumers.** These are unchanged: `git pull origin sync/<host>`, the
+    launcher's sync hints (origin/sync/*) and the Handoff tab (it lists
+    uncommitted work, which now stays uncommitted).
+  - **The legacy bash kit.** `hooks/session-end.sh` is still the old
+    behaviour, kept untouched with its test suite. It is used only by the
+    legacy bootstrap.sh.
+- **D120: v0.9.2 ships when the gate and CI are green (release pending).**
+  The web change is three lines (+~150 B). The branch is pushed but not
+  tagged.
+
 ## 2026-11-27 (v0.9.1 — Store app, launch setting, table fix, Effects; SPEC-V0.9 "v0.9.1")
 
 - **D112: the Microsoft Store build of the Claude desktop app is its own

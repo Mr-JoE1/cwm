@@ -301,3 +301,56 @@ v0.9.1 is a patch release on v0.9.0. It covers Microsoft Store support (D112), i
   - `code.cmd <folder>` followed by the URI when VS Code was not running (the URI can reach the window before the folder finishes loading);
   - `claude --desktop --resume` on a Windows Store install.
 
+
+---
+
+# v0.9.2 (as implemented)
+
+v0.9.2 is a bug-fix release on v0.9.1. It fixes three problems from a real Windows 11 machine running cwm 0.9.1. That machine has a standalone claude 2.1.332, the Store desktop app with Claude Code 2.1.330, and the VS Code extension. It has two accounts, `default` and `work`, with `default_account = work` and `launch.claude = desktop`.
+
+## Release notes (v0.9.2)
+
+### Fixed
+
+- **Resume in the Claude desktop app works from the dashboard (D117).** It used to fail with "--desktop … can't run non-interactively (… or redirected output)". The reason: the dashboard ran `claude --desktop --resume <id>` as a background child with captured output.
+  - **The fix.** The hand-off now opens in a terminal window, the same way Auto does. The window closes itself when the hand-off succeeds.
+  - **When it can't hand off.** If no terminal can be opened, or the hand-off fails, cwm opens the app in the session's folder. It also shows `claude --resume <id>` for you to copy, and says what happened.
+  - **From the CLI.** `cwm sessions resume <id> --with desktop` from your own terminal works as before.
+- **Start claude for an account never opens the desktop app as someone else (D118).** The Claude desktop app has its own sign-in, and cwm's accounts don't reach it.
+  - **What happens now.** When Start claude, or `cwm run --account <name>`, would use the desktop app, cwm opens that account in a terminal instead. The toast explains why: "the Claude desktop app keeps its own sign-in, so cwm can't open work there — opened it in a terminal instead".
+  - **Labels.** In Settings, the desktop option says it "uses the app's own sign-in, not a cwm account". On an account's Start button, the ▾ menu marks it "(app's own login)".
+  - **Resume is unchanged.** Resume in the desktop app is still allowed; the toast notes that the app uses its own sign-in.
+- **The WIP auto-push no longer touches your branch (D119).** In cwm ≤ 0.9.1, the SessionEnd hook ran `git add -A` and committed `wip: <host> <time>` onto your current branch. That swept in nested repositories, including Claude Code's own `.claude/worktrees/…`, as gitlinks. When the push then failed, the commit stayed on your branch.
+  - **How the snapshot works now.** It is built in a temporary index and committed with `git commit-tree`, so your HEAD, index and files are never changed. It is pushed to `sync/<host>`, non-force, as before. A rejected push leaves nothing behind except a line in `logs/wip.log`.
+  - **What it skips.** Nested repositories and worktrees, Claude Code's `.claude/worktrees/`, and any gitlink your HEAD doesn't already have. The log says "skipped N nested repositories (…)".
+  - **Old commits.** `cwm doctor` warns when a repo's HEAD is a WIP commit that cwm ≤ 0.9.1 left there. The warning gives the undo: `git reset HEAD~1`, which keeps your files.
+  - **Picking up on another device** works the same way: `git pull origin sync/<host>`.
+
+## Research notes (v0.9.2)
+
+### What `claude --desktop` checks (D117)
+
+- **Method.** We read the strings in Claude Code 2.1.319 (Linux, the copy on the build box) and ran it in a temp HOME, under `script` for a pty, with no login. Each run redirected one stream.
+- **Results:**
+  - Redirecting **stdout** gives "--desktop opens the Claude Desktop app and can't run non-interactively (`--print`, `--sdk-url`, `--init-only`, or redirected output)". That is the reported error.
+  - Redirecting **stdin** gives `stdin_not_tty`: "--desktop doesn't take piped or redirected input yet".
+  - Redirecting **stderr** is fine; the run reaches the platform check ("isn't available on this platform. It works on macOS and Windows (x64)").
+- **Conclusion.** Both stdin and stdout must be terminals.
+- **Why a terminal, not a hidden console.** Go's `os/exec` on Windows always passes standard handles. A nil `Stdin`/`Stdout` is the NUL device, never the console, so `CREATE_NEW_CONSOLE` with `SW_HIDE` would still fail. A real terminal (wt.exe, or `cmd /c start`) works, and it is what Auto already uses.
+
+### Where the desktop app keeps its sign-in (D118)
+
+- **Where it lives:**
+  - Windows installer build: `%APPDATA%\Claude\`, with `config.json`, Local Storage and Cookies.
+  - Microsoft Store build: the same tree under `%LOCALAPPDATA%\Packages\Claude_<hash>\LocalCache\Roaming\Claude\`.
+  - macOS: `~/Library/Application Support/Claude/`.
+- **What records the sign-in.** Only `oauth:tokenCache` in `config.json`. Anthropic's data-storage docs say tokens there are encrypted with the OS secure store (DPAPI or Keychain), and the cookies are secrets too. We found no plain account id or email field.
+- **Conclusion.** cwm reads none of it, so it cannot tell which account the app uses.
+- **The decision table** (`claudeopen.RouteAccount`, tested):
+
+  | requested account | app's account | opens in |
+  |---|---|---|
+  | none | any | the desktop app |
+  | `work` | unknown (always, today) | a terminal as `work` |
+  | `work` | known, `work` | the desktop app |
+  | `work` | known, another | a terminal as `work`, and the toast names the other account |
