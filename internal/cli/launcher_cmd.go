@@ -10,7 +10,6 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
-	"github.com/Mr-JoE1/cwm/internal/desktopapp"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 )
 
@@ -147,5 +146,5 @@ func (e *Env) runDesktop(cfg *config.Config, account string, choice claudeopen.C
 // desktopAccount is who the desktop app is signed in to (a seam for
 // tests).
 var desktopAccount = func(cfg *config.Config) claudeopen.AppAccount {
-	return desktopapp.ForConfig(cfg).AppAccount()
+	return desktopStatus(cfg).AppAccount()
 }

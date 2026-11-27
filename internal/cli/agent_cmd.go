@@ -258,11 +258,13 @@ func runAgent(e *Env, o agentOpts) error {
 		defer close(maintainDone)
 		last := 0
 		wasPaused := false
+		var share desktopSharer
 		tick := func() {
 			// D101: a migration (dashboard or `cwm migrate`) holds the tick.
 			ran := pauser.RunTick(func() {
 				rep, err := maintainOnce(time.Now())
 				logMaintain(e.Stdout, name, rep, err, &last)
+				share.tick(e.Stdout, name, time.Now())
 			})
 			if !ran && !wasPaused {
 				_, why := pauser.Paused()
