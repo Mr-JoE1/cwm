@@ -12,6 +12,7 @@ import (
 
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/desktopapp"
 	"github.com/Mr-JoE1/cwm/internal/doctor"
 	"github.com/Mr-JoE1/cwm/internal/service"
 	"github.com/Mr-JoE1/cwm/internal/status"
@@ -311,5 +312,35 @@ func TestBuildProjectsAreAliased(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(got), "jdoe") {
 		t.Errorf("--show-projects still must not show the user name:\n%s", got)
+	}
+}
+
+// TestDesktopSection (D125): state, account by name, entry counts, the
+// handoff.log tail; no uuid survives.
+func TestDesktopSection(t *testing.T) {
+	root := t.TempDir()
+	l := storage.NewLayoutAt(root)
+	if err := os.MkdirAll(l.LogsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(l.LogsDir(), "handoff.log"), []byte("2026-11-27T10:00:00Z claude --desktop --resume 44444444-dddd-4444-dddd-444444444444 (in /x) exit 0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := Sources{Layout: l, Desktop: func() desktopapp.Status {
+		return desktopapp.Status{State: desktopapp.StateAccount, Account: "work", Root: "/u/AppData/Roaming/Claude",
+			Lists: []desktopapp.Count{{Name: "work", Entries: 2, Signed: true}, {Entries: 1}}}
+	}}
+	got := Extract(Build(src), "desktop app")
+	for _, want := range []string{"signed in as account work", "account:  work", "list:     work: 2 entries (signed in)", "list:     <uuid>: 1 entries",
+		"--- handoff.log (last 1 lines)", "--resume <uuid> (in /x) exit 0"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("desktop section lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "44444444") {
+		t.Errorf("uuid in desktop section:\n%s", got)
+	}
+	if got := Extract(Build(Sources{}), "desktop app"); !strings.Contains(got, "not checked") {
+		t.Errorf("nil Desktop: %q", got)
 	}
 }

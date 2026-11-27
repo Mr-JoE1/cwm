@@ -18,6 +18,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/desktopapp"
 	"github.com/Mr-JoE1/cwm/internal/mcp"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/upkeep"
@@ -345,6 +346,21 @@ func checkVault(r *checkList, l *storage.Layout, cfg *config.Config) {
 		return
 	}
 	r.warn("vault", "the default account %s has no login — log in again: cwm account login %s", cfg.DefaultAccount, cfg.DefaultAccount)
+}
+
+// desktopDetect reads the Claude desktop app's profile (a seam for
+// tests).
+var desktopDetect = desktopapp.ForConfig
+
+// checkDesktop is the desktop app line (D125): who the app is signed in
+// to and its Code-tab entries per account, by cwm name — never a uuid.
+// On Linux, which has no desktop app, it shows only when a profile exists.
+func checkDesktop(r *checkList, cfg *config.Config) {
+	st := desktopDetect(cfg)
+	if st.State == desktopapp.StateNone && hostOS != "windows" && hostOS != "darwin" {
+		return
+	}
+	r.ok("desktop-app", "desktop app: %s", st.Line())
 }
 
 // vaultHas is accounts.Has; a seam so tests never query a Keychain.
