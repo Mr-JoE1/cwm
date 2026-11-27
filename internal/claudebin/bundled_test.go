@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -61,7 +62,7 @@ func TestBundledDesktopMSIXVirtualisedAndSquirrel(t *testing.T) {
 	w, p := winWorld(t)
 	w.fileWith(t, p+"AppData/Local/Packages/Claude_abc123/LocalCache/Roaming/Claude/claude-code/2.1.250/claude.exe", false, versionText("2.1.250"))
 	res, err := Resolve(w.env("windows"), "")
-	if err != nil || res.Source != SourceDesktop || res.Version != "2.1.250" {
+	if err != nil || res.Source != SourceStore || res.Version != "2.1.250" {
 		t.Fatalf("MSIX LocalCache: got %+v, %v", res, err)
 	}
 
@@ -352,4 +353,143 @@ func TestBundledEveryFamilyProbed(t *testing.T) {
 	if !strings.Contains(got, "desktop newest") || !strings.Contains(got, "anthropic.claude-code-2.1.312-win32-x64") {
 		t.Fatalf("bundled probed = %s", got)
 	}
+}
+
+// The Microsoft Store build (D112), as seen on a Windows 11 machine:
+// Claude-Data\claude_<hash>\claude-code\<ver>\<buildid>\claude.exe.
+const storeRel = "AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/claude-code/"
+
+func TestBundledStoreLayout(t *testing.T) {
+	w, p := winWorld(t)
+	want := w.fileWith(t, p+storeRel+"2.1.330/9424831ad51c/claude.exe", false, versionText("2.1.330"))
+	w.fileWith(t, p+storeRel+"2.1.300/0a1b2c3d4e5f/claude.exe", false, versionText("2.1.300"))
+	res, err := Resolve(w.env("windows"), "")
+	if err != nil || res.Path != want || res.Source != SourceStore || res.OnPath {
+		t.Fatalf("got %+v, %v; want %s from %s", res, err, want, SourceStore)
+	}
+	if res.Bundle != "the Claude desktop app (Microsoft Store)" || !res.Source.Bundled() {
+		t.Errorf("bundle = %q", res.Bundle)
+	}
+	if l := SourceStore.Label(); l != "bundled with the Claude desktop app (Microsoft Store)" {
+		t.Errorf("label = %q", l)
+	}
+	// <ver>\claude.exe directly is a Store layout too.
+	w2, p2 := winWorld(t)
+	flat := w2.fileWith(t, p2+storeRel+"2.1.331/claude.exe", false, versionText("2.1.331"))
+	if res, err := Resolve(w2.env("windows"), ""); err != nil || res.Path != flat {
+		t.Fatalf("flat: got %+v, %v", res, err)
+	}
+}
+
+func TestBundledStoreNewestBuildByMtime(t *testing.T) {
+	w, p := winWorld(t)
+	// By name "fff…" sorts last and "000…" first; the newest file must win.
+	older := w.fileWith(t, p+storeRel+"2.1.330/ffffffffffff/claude.exe", false, versionText("2.1.330"))
+	newer := w.fileWith(t, p+storeRel+"2.1.330/000000000000/claude.exe", false, versionText("2.1.330"))
+	mid := w.fileWith(t, p+storeRel+"2.1.330/777777777777/claude.exe", false, versionText("2.1.330"))
+	now := time.Now()
+	for f, age := range map[string]time.Duration{older: 72 * time.Hour, mid: 24 * time.Hour, newer: 0} {
+		if err := os.Chtimes(f, now.Add(-age), now.Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Survey(w.env("windows"), "")
+	if err != nil || res.Path != newer {
+		t.Fatalf("got %s, %v; want the newest build %s", res.Path, err, newer)
+	}
+	// The second probe of the family is the next newest, never the oldest.
+	var store []string
+	for _, c := range res.Candidates {
+		if c.Source == SourceStore {
+			store = append(store, c.Path)
+		}
+	}
+	if len(store) != 2 || store[1] != mid {
+		t.Errorf("store probes = %v, want [%s %s]", store, newer, mid)
+	}
+}
+
+func TestBundledStoreAndClassicTogether(t *testing.T) {
+	w, p := winWorld(t)
+	classic := w.fileWith(t, p+"AppData/Roaming/Claude/claude-code/2.1.320/claude.exe", false, versionText("2.1.320"))
+	store := w.fileWith(t, p+storeRel+"2.1.330/9424831ad51c/claude.exe", false, versionText("2.1.330"))
+	res, err := Survey(w.env("windows"), "")
+	if err != nil || res.Path != store || res.Source != SourceStore {
+		t.Fatalf("got %+v, %v; want the newer Store copy", res, err)
+	}
+	if !strings.Contains(res.Why, "Microsoft Store") || !strings.Contains(res.Why, "2.1.320") {
+		t.Errorf("why = %q", res.Why)
+	}
+	seen := false
+	for _, c := range res.Candidates {
+		seen = seen || (c.Path == classic && c.Source == SourceDesktop)
+	}
+	if !seen {
+		t.Errorf("classic copy not probed: %+v", res.Candidates)
+	}
+	// Same version: the classic and the Store copies tie; either is the
+	// desktop app, so the editor extension never wins the tie.
+	w2, p2 := winWorld(t)
+	w2.fileWith(t, p2+".vscode/extensions/anthropic.claude-code-2.1.330-win32-x64/resources/native-binary/claude.exe", false, versionText("2.1.330"))
+	w2.fileWith(t, p2+storeRel+"2.1.330/9424831ad51c/claude.exe", false, versionText("2.1.330"))
+	if res, err := Resolve(w2.env("windows"), ""); err != nil || res.Source != SourceStore {
+		t.Fatalf("tie: got %+v, %v", res, err)
+	}
+}
+
+func TestBundledStoreNeverProbesWindowsApps(t *testing.T) {
+	w, p := winWorld(t)
+	pf := filepath.Join(w.root, "Program Files")
+	w.vars["ProgramFiles"] = pf
+	w.vars["ProgramW6432"] = pf
+	app := w.fileWith(t, "Program Files/WindowsApps/Claude_6.28899.6.0_x64__pzs8sxrjxfjjc/app/Claude.exe", false, versionText("9.9.9"))
+	w.fileWith(t, "Program Files/WindowsApps/Claude_6.28899.6.0_x64__pzs8sxrjxfjjc/app/claude.exe", false, versionText("9.9.9"))
+	w.fileWith(t, p+"AppData/Local/Packages/Claude_pzs8sxrjxfjjc/Settings/x", false, "")
+	res, err := Survey(w.env("windows"), "")
+	var nf *NotFoundError
+	if err == nil || !errors.As(err, &nf) {
+		t.Fatalf("want not found, got %+v, %v", res, err)
+	}
+	for _, c := range nf.Rejected {
+		if strings.HasPrefix(c.Path, pf) {
+			t.Errorf("probed the desktop app itself: %s", c.Path)
+		}
+	}
+	for _, d := range append(nf.Desktop, nf.Searched...) {
+		if strings.HasPrefix(d, pf) {
+			t.Errorf("searched %s (looking for %s)", d, app)
+		}
+	}
+	if !slicesContains(nf.Notes, StoreInstalledNote) {
+		t.Errorf("notes = %q, want the Store-installed note", nf.Notes)
+	}
+}
+
+func TestBundledStoreInstalledNote(t *testing.T) {
+	w, p := winWorld(t)
+	if n := BundleNotes(w.env("windows")); slicesContains(n, StoreInstalledNote) {
+		t.Errorf("no Store package, yet note: %q", n)
+	}
+	w.fileWith(t, p+"AppData/Local/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/config.json", false, "{}")
+	if n := BundleNotes(w.env("windows")); !slicesContains(n, StoreInstalledNote) {
+		t.Errorf("Store package without claude-code: notes = %q", n)
+	}
+	// Once Claude Code is downloaded the note goes away; a standalone
+	// CLI elsewhere does not matter.
+	w.fileWith(t, p+storeRel+"2.1.330/9424831ad51c/claude.exe", false, versionText("2.1.330"))
+	if n := BundleNotes(w.env("windows")); slicesContains(n, StoreInstalledNote) {
+		t.Errorf("Store copy present, yet note: %q", n)
+	}
+	if n := BundleNotes(w.env("linux")); slicesContains(n, StoreInstalledNote) {
+		t.Errorf("linux: %q", n)
+	}
+}
+
+func slicesContains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

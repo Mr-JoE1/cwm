@@ -88,7 +88,7 @@
 	--text:#0b1220;
 	--text-strong:#050a14;
 	--muted:#4a5568;
-	--faint:#616f84;
+	--faint:#5a687c;
 	--accent:#007a4d;
 	--accent-fill:#007a4d;
 	--accent-ink:#ffffff;
@@ -355,16 +355,28 @@ td.status, th.status { width:1%;white-space:nowrap }
 tr.reveal, .check.reveal { animation:row-in 360ms var(--ease) both;animation-delay:calc(var(--i, 0) * 28ms) }
 
 /* sessions (P5): prompt first, day groups, resume on hover/focus */
-.sessions .s-prompt { color:var(--text-strong);max-width:560px }
+.sessions .s-prompt { color:var(--text-strong) }
 .sessions .s-proj { font:var(--fs-md)/1.4 var(--font-mono);color:var(--muted);white-space:nowrap }
 .sessions .s-branch { max-width:220px }
 @media (min-width: 721px) and (max-width: 1100px) {
 	.tab { padding:12px 7px 10px }
 	.tab-pal kbd { display:none }
-	.sessions .s-prompt { min-width:11em }
-	.sessions .s-branch { max-width:120px }
-	.sessions th:nth-child(5), .sessions .s-id { display:none }
+	/* the day rows span every column, so ID collapses to 0 instead of display:none */
+	.sessions .c-id, .sessions .s-id { visibility:hidden;padding:0 }
 }
+/* #2: one line per row, fixed columns, the full prompt in the title */
+@media (min-width: 721px) {
+	.sessions { table-layout:fixed }
+	.sessions .c-proj { width:15% }
+	.sessions .c-br { width:17% }
+	.sessions .c-msgs { width:76px }
+	.sessions .c-id { width:104px }
+	.sessions .c-when { width:84px }
+	.sessions .c-act { width:136px }
+	.sessions .s-proj, .s-ptext { overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+}
+@media (min-width: 721px) and (max-width: 1100px) { .sessions .c-proj { width:20% } .sessions .c-br { width:15% } .sessions .c-id { width:0 } }
+td.actions > .btn, .with-btn { vertical-align:middle }
 .sessions .branch { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted) }
 .sessions .branch::before { content:"" }
 .sessions .s-msgs, .sessions .s-when { color:var(--muted);white-space:nowrap }
@@ -1007,6 +1019,7 @@ button.heat-cell:focus-visible { outline:2px solid var(--accent-2);outline-offse
 	/* C1: a long folder name ellipsizes instead of widening the page */
 	.sessions .s-proj { min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
 	.sessions .s-prompt { min-width:0;overflow-wrap:anywhere }
+	.s-ptext, .cont-body .cont-prompt { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;overflow-wrap:anywhere }
 	/* branch: basis 0, ellipsizes first, so the time never wraps */
 	.sessions .s-branch { flex:1 1 0;max-width:max-content }
 	.sessions .s-msgs, .sessions .s-when { flex:none }
@@ -1155,11 +1168,9 @@ label.set-row { cursor:pointer }
 .s-resume .i { width:14px;height:14px }
 .kpi-bar { display:flex;align-items:center;gap:var(--s3);margin:0 0 var(--s3) }
 .kpi-bar-l { color:var(--muted);font:600 var(--fs-sm)/1 var(--font-mono) }
-.stack { display:flex;gap:2px;height:14px;border-radius:999px;overflow:hidden;background:var(--sk-a);margin:4px 0 6px }
+.stack { display:flex;gap:2px;height:14px;border-radius:999px;overflow:hidden;background:var(--sk-a);margin:4px 0 12px }
 .stack > span { display:block;height:100%;flex:0 0 0 }
 .stack > span.has-v { min-width:4px }
-.stack-labels { display:flex;justify-content:space-between;gap:var(--s3);margin:0 0 12px;color:var(--muted);font:500 var(--fs-sm)/1.4 var(--font-mono) }
-.stack-l { display:inline-flex;align-items:center }
 .stack-legend { list-style:none;margin:0;padding:0;display:grid;gap:6px }
 .stack-legend li { display:grid;grid-template-columns:auto minmax(0, 1fr) auto;align-items:center;gap:2px 8px }
 .stack-legend .hb-sub { grid-column:2 / -1;margin:0 }
@@ -1203,11 +1214,10 @@ label.set-row { cursor:pointer }
 /* v0.9 polish: commands in a list share one width, wrap only between words, hang the "$" */
 .cmd-w { white-space:nowrap }
 .fix .cmd { flex:0 1 640px;width:auto }
-.attn-body .cmd-text, .fix .cmd-text { display:block;align-self:center;white-space:pre-wrap;overflow-wrap:normal;overflow-x:auto;padding-left:calc(10px + 2ch);text-indent:-2ch }
+.attn-body .cmd-text, .fix .cmd-text, .launch-warn .cmd-text { display:block;align-self:center;white-space:pre-wrap;overflow-wrap:normal;overflow-x:auto;padding-left:calc(10px + 2ch);text-indent:-2ch }
 .fix-note { margin:var(--s2) 0 0;color:var(--muted);font:var(--fs-sm)/1.4 var(--font-mono) }
 .health-note { padding:0 var(--s4) var(--s3) }
 .attn-sum { display:flex;align-items:baseline;gap:var(--s2);margin:0 0 var(--s2);color:var(--text);font:600 var(--fs-md)/1.5 var(--font-mono) }
-.attn-sum .boot { font-size:var(--fs-sm) }
 .sessions .is-untitled-row { font:inherit;color:var(--muted) }
 .untitled-id { display:none }
 /* Activity bottom grid: named areas, no row three-quarters empty */
@@ -1221,7 +1231,6 @@ label.set-row { cursor:pointer }
 .sc-trend .trend-box { flex:1;grid-template-rows:minmax(110px, 1fr) auto }
 .sc-trend .trend { height:100% }
 .sc-trend .trend-ticks { height:auto;margin:-6px 0 }
-.stack-l.is-end { margin-left:auto }
 @media (min-width: 1100px) {
 	.stats-cols { grid-template-columns:repeat(3, minmax(0, 1fr));grid-template-areas:"p m t" "p k t" }
 	.stats-cols.has-acct { grid-template-areas:"p m k" "p a t" }
@@ -1256,3 +1265,49 @@ label.set-row { cursor:pointer }
 	.kpi-bar { flex-wrap:wrap }
 	.kpi-bar-l { flex-basis:100% }
 }
+
+/* launch.claude (D113): ▾ "open with" next to Resume / Start claude, and its Settings row */
+.with-pair { display:inline-flex;align-items:center;gap:4px }
+.with-btn { width:24px;height:28px;font:var(--fs-sm)/1 var(--font-mono);border-radius:var(--r-sm) }
+.with-menu { position:fixed;right:auto;min-width:240px;max-width:min(340px, calc(100vw - 16px)) }
+.with-menu .menu-item { display:grid;justify-content:start;gap:2px;padding:6px 10px;line-height:1.3 }
+.with-menu .menu-item[disabled] { color:var(--muted);cursor:default;background:none }
+.with-why { color:var(--muted);font:var(--fs-sm)/1.35 var(--font-sans) }
+.set-col { flex-direction:column;align-items:stretch }
+.launch-opts { display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:8px;min-width:0 }
+.launch-opt { display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer }
+.launch-opt input { appearance:none;flex:none;width:16px;height:16px;margin:2px 0 0;border:2px solid var(--control-line);border-radius:50%;cursor:inherit }
+.launch-opt input:checked { border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--surface-solid) }
+.launch-opt input:focus-visible { outline:2px solid var(--accent);outline-offset:2px }
+.launch-opt.is-na, .launch-opt.is-na * { cursor:not-allowed }
+.launch-opt.is-na .set-key { color:var(--muted);font-weight:400 }
+.launch-opt.is-na input { border-style:dashed }
+.launch-opt.is-na input:checked { border-color:var(--warn);background:none;box-shadow:none }
+.launch-why { display:flex;gap:6px;margin-top:4px;color:var(--muted);font-size:var(--fs-sm) }
+.launch-why .boot, .launch-warn .boot { font-size:var(--fs-sm) }
+.launch-warn { display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:8px;padding:6px 10px;border-left:2px solid var(--warn);background:var(--warn-soft);color:var(--text) }
+.launch-warn .cmd { margin:0 }
+@media (max-width: 720px) { .with-btn { display:none } }
+
+/* v0.9.1 F10 Effects: off = plain, subtle = the look without motion, full = all */
+[data-fx="off"] { --glow:none;--accent-glow:transparent }
+[data-fx="off"] .scan { display:none }
+:root:not([data-fx="full"]) h1.path::after, :root:not([data-fx="full"]) .reveal { animation:none }
+/* F6 HUD chrome: corner brackets and a ┌─ strip, Home and Activity cards only */
+:root:not([data-fx="off"]) :is(.home-card, .stats-card) { position:relative }
+:root:not([data-fx="off"]) :is(.home-card, .stats-card)::before, :root:not([data-fx="off"]) :is(.home-card, .stats-card)::after {
+	content:"";position:absolute;width:12px;height:12px;border:0 solid var(--accent-2);pointer-events:none
+}
+:root:not([data-fx="off"]) :is(.home-card, .stats-card)::before { top:-1px;left:-1px;border-width:2px 0 0 2px;border-top-left-radius:var(--r-lg) }
+:root:not([data-fx="off"]) :is(.home-card, .stats-card)::after { right:-1px;bottom:-1px;border-width:0 2px 2px 0;border-bottom-right-radius:var(--r-lg) }
+:root:not([data-fx="off"]) :is(.home-card, .stats-card) .card-title::before { content:"┌─ ";color:var(--accent-2);font-family:var(--font-mono) }
+/* F7 segmented LED meters; the busiest heatmap days glow in the dark */
+:root:not([data-fx="off"]) :is(.bar, .stack) > span { mask-image:repeating-linear-gradient(90deg, #000 0 5px, transparent 5px 7px) }
+:root:not([data-fx="off"]) .heat-cell { border-radius:1px }
+[data-theme="dark"]:not([data-fx="off"]) .heat-cell[data-l="4"] { box-shadow:0 0 6px var(--accent-glow) }
+/* F9 */
+::selection { background:var(--accent-fill);color:var(--accent-ink) }
+html { scrollbar-width:thin;scrollbar-color:var(--accent-2) transparent }
+/* F8 boot log */
+.bootlog { position:fixed;left:16px;bottom:48px;z-index:30;margin:0;padding:10px 14px;list-style:none;background:var(--surface-solid);border:1px solid var(--line-strong);border-radius:var(--r-sm);box-shadow:var(--shadow);color:var(--text);font:var(--fs-sm)/1.7 var(--font-mono);pointer-events:none }
+.bootlog li { animation:row-in 160ms var(--ease) both }

@@ -170,3 +170,7 @@ func ProjectLabels(wsProjectsDir string) map[string]Label {
 	}
 	return Labels(names, func(n string) string { return projectCwd(filepath.Join(wsProjectsDir, n)) })
 }
+
+// TranscriptCwd is the working directory a transcript records ("" when
+// none): where `claude --resume` must run for the session to be found.
+func TranscriptCwd(path string) string { return transcriptCwd(path) }

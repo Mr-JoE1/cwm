@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
@@ -110,7 +111,7 @@ func Open(repo string, mode Mode, extra []string, account string, stdout, stderr
 	if err != nil {
 		return err
 	}
-	res, err := claudebin.Find(layout)
+	res, err := findClaude(layout)
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}
@@ -140,11 +141,26 @@ func OpenDir(dir string, extra []string, account string, stdout, stderr io.Write
 	if err != nil {
 		return err
 	}
-	res, err := claudebin.Find(layout)
+	res, err := findClaude(layout)
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}
 	return execClaude(res.Path, args)
+}
+
+// EnvWith carries `--with cli` from the CLI flag to the claude lookup
+// (D113): set in-process by `cwm sessions resume` and `cwm run`.
+const EnvWith = "CWM_LAUNCH_WITH"
+
+// findClaude is claudebin.Find, refusing a bundled copy when the launch
+// asked for a standalone CLI.
+func findClaude(layout *storage.Layout) (claudebin.Result, error) {
+	res, err := claudebin.Find(layout)
+	if err == nil && os.Getenv(EnvWith) == config.LaunchCLI && res.Source.Bundled() {
+		return claudebin.Result{}, fmt.Errorf("no standalone Claude Code CLI found (only the copy bundled with %s, at %s; --with cli never uses it) — install it with: %s",
+			strings.TrimPrefix(res.Bundle, "the "), res.Path, claudebin.InstallCommand(runtime.GOOS))
+	}
+	return res, err
 }
 
 // Clone clones url into dir (clone on demand, as Open does).
@@ -223,7 +239,7 @@ func Run(account string, extra []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := claudebin.Find(layout)
+	res, err := findClaude(layout)
 	if err != nil {
 		return fmt.Errorf("launcher: %w", err)
 	}

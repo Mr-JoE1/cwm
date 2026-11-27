@@ -35,6 +35,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/agent"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
+	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/debugbundle"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
@@ -88,6 +89,12 @@ type Options struct {
 	// FindClaude resolves claude for the wizard and the Add-account
 	// precheck (D49); nil = claudebin.Lookup (poll) / claudebin.Find (precheck).
 	FindClaude func() (claudebin.Result, error)
+	// Launchers detects the launch.claude options (D113; nil = the real
+	// machine). Background runs a non-interactive cwm command (the vscode
+	// and desktop launches, which need no terminal) and returns its
+	// output (nil = exec CwmPath).
+	Launchers  func() []claudeopen.Choice
+	Background func(argv []string) (string, error)
 	// DebugSources seeds GET /api/debug with what only the CLI can build
 	// (service status needs its environment); the server adds itself,
 	// its API errors and anything left unset (D52).
@@ -479,6 +486,7 @@ func (s *Server) routes() map[string]route {
 		"/api/migrate/preview":      {post: s.apiMigratePreview},
 		"/api/migrate/apply":        {post: s.apiMigrateApply},
 		"/api/accounts/run":         {post: s.apiAccountsRun},
+		"/api/launchers":            {get: s.apiLaunchers},
 	}
 }
 

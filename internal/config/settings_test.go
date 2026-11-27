@@ -213,3 +213,31 @@ func TestDisplayMigratesStatsToHomeOnce(t *testing.T) {
 		t.Errorf("missing file: %v, %v", wrote, err)
 	}
 }
+
+func TestLaunchClaudeSetting(t *testing.T) {
+	c := Default()
+	if v, _ := c.Get("launch.claude"); v != "auto" {
+		t.Fatalf("default = %q", v)
+	}
+	for _, v := range []string{"cli", "vscode", "desktop", "auto"} {
+		if err := c.Set("launch.claude", v); err != nil {
+			t.Fatalf("set %s: %v", v, err)
+		}
+		if got, _ := c.Get("launch.claude"); got != v {
+			t.Errorf("get = %q, want %q", got, v)
+		}
+	}
+	for _, v := range []string{"", "code", "AUTO", "cli,vscode"} {
+		if err := c.Set("launch.claude", v); err == nil {
+			t.Errorf("set %q accepted", v)
+		}
+	}
+	bad := &Config{Launch: Launch{Claude: "terminal"}}
+	if err := bad.normalize(); err == nil || !strings.Contains(err.Error(), "launch.claude") {
+		t.Errorf("normalize bad = %v", err)
+	}
+	old := &Config{}
+	if err := old.normalize(); err != nil || old.Launch.Claude != "auto" {
+		t.Errorf("a config without [launch] = %q, %v", old.Launch.Claude, err)
+	}
+}

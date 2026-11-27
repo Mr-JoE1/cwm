@@ -18,9 +18,13 @@ import (
 //
 // Layouts (publicly reported; the probe decides, never the location):
 //   - desktop app, Windows MSIX: %APPDATA%\Claude\claude-code\<ver>\claude.exe
-//     (also under the MSIX package's virtualised LocalCache\Roaming, where
-//     the file really lives when the app runs virtualised); D103 also
-//     looks one and two levels below <ver>;
+//     D103 also looks one and two levels below <ver>;
+//   - desktop app, Microsoft Store (D112, source desktop-app-store):
+//     %LOCALAPPDATA%\Claude-Data\claude_<publisherhash>\claude-code\<ver>\<buildid>\claude.exe
+//     (seen on a Windows 11 machine; <ver>\claude.exe is looked for too), and
+//     the package's virtualised %LOCALAPPDATA%\Packages\<pkg>\LocalCache\Roaming\Claude\claude-code.
+//     The app itself (C:\Program Files\WindowsApps\Claude_<ver>_x64__<hash>\app\Claude.exe)
+//     is the desktop app, not Claude Code: no pattern reaches WindowsApps;
 //   - desktop app, legacy Squirrel: %LOCALAPPDATA%\AnthropicClaude\app-<ver>\…\claude.exe,
 //     except app-<ver>\claude.exe itself, which is the desktop app;
 //   - desktop app, macOS: ~/Library/Application Support/Claude/claude-code/<ver>/claude.app/Contents/MacOS/claude
@@ -71,12 +75,24 @@ func bundleFamilies(env Env) []bundleFamily {
 	switch env.GOOS {
 	case "windows":
 		var pats []string
-		for _, base := range desktopBases(env) {
-			pats = append(pats, desktopPatterns(base, exe)...)
+		if roaming := env.Getenv("APPDATA"); roaming != "" {
+			pats = desktopPatterns(filepath.Join(roaming, "Claude", "claude-code"), exe)
 		}
 		local := env.Getenv("LOCALAPPDATA")
 		if len(pats) > 0 {
 			fams = append(fams, bundleFamily{src: SourceDesktop, patterns: pats, version: claudeCodeVer})
+		}
+		if local != "" {
+			var st []string
+			for i, base := range storeBases(local) {
+				if i == 0 {
+					// Claude-Data: <ver>\claude.exe or <ver>\<buildid>\claude.exe.
+					st = append(st, filepath.Join(base, "*", exe), filepath.Join(base, "*", "*", exe))
+					continue
+				}
+				st = append(st, desktopPatterns(base, exe)...)
+			}
+			fams = append(fams, bundleFamily{src: SourceStore, patterns: st, version: claudeCodeVer})
 		}
 		if local != "" {
 			// Squirrel nests the CLI an unknown depth below app-<ver>;
@@ -128,7 +144,7 @@ func desktopBases(env Env) []string {
 			out = append(out, filepath.Join(roaming, "Claude", "claude-code"))
 		}
 		if local := env.Getenv("LOCALAPPDATA"); local != "" {
-			out = append(out, filepath.Join(local, "Packages", "*Claude*", "LocalCache", "Roaming", "Claude", "claude-code"))
+			out = append(out, storeBases(local)...)
 		}
 	case "darwin":
 		if env.Home != "" {
@@ -141,6 +157,19 @@ func desktopBases(env Env) []string {
 	}
 	return out
 }
+
+// storeBases are the Microsoft Store app's claude-code folders (D112):
+// Claude-Data first, then the package's virtualised Roaming.
+func storeBases(local string) []string {
+	return []string{
+		filepath.Join(local, "Claude-Data", "claude_*", "claude-code"),
+		filepath.Join(local, "Packages", "*Claude*", "LocalCache", "Roaming", "Claude", "claude-code"),
+	}
+}
+
+// StoreInstalledNote is the debug-bundle line for a Store app that has not
+// downloaded Claude Code yet (D112).
+const StoreInstalledNote = "Claude desktop app (Store) installed; it downloads Claude Code the first time its Code tab runs a local session"
 
 // desktopPatterns look for the executable in <base>/<ver>/ and up to two
 // levels below it (<ver>/bin/claude.exe, <ver>/<x>/<y>/claude.exe, D103):
@@ -198,17 +227,27 @@ func bundledCandidates(env Env) []sourced {
 			}
 		}
 		ver := map[string]bundleVersion{}
+		mt := map[string]int64{}
 		for _, m := range matches {
 			ver[m] = parseBundleVersion(f.version(m))
+			if fi, err := env.stat(m); err == nil {
+				mt[m] = fi.ModTime().UnixNano()
+			}
 		}
 		// Highest version first; within one version the shallowest path
-		// (<ver>/claude.exe before <ver>/bin/claude.exe).
+		// (<ver>/claude.exe before <ver>/bin/claude.exe), then the newest
+		// file: several <ver>/<buildid> folders are builds of one version,
+		// and their names are hashes, not an order (D112).
 		sort.SliceStable(matches, func(i, j int) bool {
 			a, b := ver[matches[i]], ver[matches[j]]
 			if a.newer(b) || b.newer(a) {
 				return a.newer(b)
 			}
-			return strings.Count(matches[i], string(filepath.Separator)) < strings.Count(matches[j], string(filepath.Separator))
+			di, dj := strings.Count(matches[i], string(filepath.Separator)), strings.Count(matches[j], string(filepath.Separator))
+			if di != dj {
+				return di < dj
+			}
+			return mt[matches[i]] > mt[matches[j]]
 		})
 		var fam []sourced
 		for i, m := range matches {
@@ -247,7 +286,7 @@ func chooseBundled(hits []bundledHit) (bundledHit, string) {
 		switch {
 		case a.newer(b):
 			best = h
-		case !b.newer(a) && h.c.src == SourceDesktop && best.c.src != SourceDesktop:
+		case !b.newer(a) && h.c.src.desktop() && !best.c.src.desktop():
 			best = h
 		}
 	}
@@ -266,7 +305,7 @@ func chooseBundled(hits []bundledHit) (bundledHit, string) {
 		others = append(others, BundleName(h.c.src, h.c.path)+" has "+orUnknown(h.pr.Version))
 	}
 	name := BundleName(best.c.src, best.c.path)
-	if tie && best.c.src == SourceDesktop {
+	if tie && best.c.src.desktop() {
 		return best, fmt.Sprintf("chosen: %s's copy (%s); %s — on a tie the desktop app's copy is preferred, it is more stable than an editor extension's",
 			name, orUnknown(best.pr.Version), strings.Join(others, ", "))
 	}
@@ -294,6 +333,9 @@ func BundleNotes(env Env) []string {
 	}
 	home := env.searchHome()
 	var notes []string
+	if env.GOOS == "windows" && storeWithoutCopy(env, exe) {
+		notes = append(notes, StoreInstalledNote)
+	}
 	for _, base := range desktopBases(env) {
 		dirs, err := env.Glob(filepath.Join(base, "*"))
 		if err != nil || len(dirs) == 0 {
@@ -346,6 +388,28 @@ func BundleNotes(env Env) []string {
 		notes = append(notes, fmt.Sprintf("desktop app dir found (%s) but no %s inside; %s", ShortPath(home, newest), exe, listing))
 	}
 	return notes
+}
+
+// storeWithoutCopy: the Store package folder exists (a cheap stand-in for
+// Get-AppxPackage, which takes seconds) but no Store-family claude-code
+// folder holds an executable yet.
+func storeWithoutCopy(env Env, exe string) bool {
+	local := env.Getenv("LOCALAPPDATA")
+	if local == "" {
+		return false
+	}
+	pkgs, err := env.Glob(filepath.Join(local, "Packages", "Claude_*"))
+	if err != nil || len(pkgs) == 0 {
+		return false
+	}
+	for _, base := range storeBases(local) {
+		for _, pat := range append(desktopPatterns(base, exe), filepath.Join(base, "*", "*", exe)) {
+			if m, err := env.Glob(pat); err == nil && len(m) > 0 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // globEscape quotes the glob metacharacters of a literal path (a version
@@ -465,6 +529,8 @@ func BundleName(src Source, path string) string {
 	switch src {
 	case SourceDesktop:
 		return "the Claude desktop app"
+	case SourceStore:
+		return "the Claude desktop app (Microsoft Store)"
 	case SourceExtension:
 		p := strings.ToLower(filepath.ToSlash(path))
 		for _, e := range editorDirs {
@@ -481,7 +547,10 @@ func BundleName(src Source, path string) string {
 }
 
 // Bundled reports whether s is one of the app-bundled sources (D98).
-func (s Source) Bundled() bool { return s == SourceDesktop || s == SourceExtension }
+func (s Source) Bundled() bool { return s.desktop() || s == SourceExtension }
+
+// desktop: a copy bundled with the Claude desktop app, either build.
+func (s Source) desktop() bool { return s == SourceDesktop || s == SourceStore }
 
 // OtherBundled lists the other verified app-bundled copies the lookup
 // probed besides the chosen one, as "<app> <version>" without the

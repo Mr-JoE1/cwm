@@ -211,6 +211,93 @@ The fixed status line and bottom bar appear mid-page in full-page captures: that
 
 ## Out of scope (next)
 
-- **v0.9.1 (P2):** HUD card chrome, segmented meters, the boot log, small touches, the Effects setting (F6–F10).
+- **v0.9.1 (P2):** HUD card chrome, segmented meters, the boot log, small touches, the Effects setting (F6–F10). Done; see the v0.9.1 section below.
 - **v0.10:** the in-dashboard terminal.
 - **v1.0:** the statusline, removal of the bash kit, a docs site.
+
+---
+
+# v0.9.1 (as implemented)
+
+v0.9.1 is a patch release on v0.9.0. It covers Microsoft Store support (D112), issue #3 (D113), issue #2 (D115), the v0.9.0 leftovers, and the P2 items of the UX brief (F6–F10, D114).
+
+## Release notes (v0.9.1)
+
+### New
+
+- **The Microsoft Store Claude desktop app.**
+  - cwm finds the Claude Code that the Store build downloads, under `%LOCALAPPDATA%\Claude-Data\claude_<hash>\claude-code\<ver>\<build>\claude.exe`.
+  - Reports call it "the Claude desktop app (Microsoft Store)".
+  - When one version has several build folders, the newest by mtime wins.
+  - The app itself (`WindowsApps\…\Claude.exe`) is never run.
+  - When the Store app is installed but hasn't fetched Claude Code yet, the debug report says so.
+- **Choose which Claude opens a session (#3).** The `launch.claude` setting is `auto`, `cli`, `vscode` or `desktop`, and you set it in Settings → Opening sessions or with `cwm config set launch.claude <v>`.
+  - `auto` is the default. It opens the claude that doctor shows, by full path, so it works with no `claude` on PATH.
+  - `cli` uses a standalone install only.
+  - `vscode` opens the session's folder in VS Code (or Cursor, Windsurf, VSCodium) and resumes it in a Claude Code tab.
+  - `desktop` hands the session to the Claude app (`claude --desktop --resume`). Where that's not available, it opens the app in the folder and says it can't resume the session.
+  - An option that can't work on this machine is shown disabled, with the reason.
+  - A ▾ next to Resume and Start claude picks another option for one click. On touch, long-press; with a keyboard, use the context-menu key on a row.
+  - `cwm sessions resume <id>` and `cwm run` take `--with <option>`.
+- **Effects: Off, Subtle or Full** (in the menu, the phone sheet and Settings → Display). This replaces the motion toggle, and your old on/off choice carries over as Full/Off.
+  - Subtle keeps the look without motion. Reduced motion caps Effects at Subtle.
+  - Full adds:
+    - HUD corners on Home and Activity cards;
+    - segmented LED meters and a glow on the busiest heatmap days;
+    - KPIs that count up;
+    - a short boot log the first time you open the dashboard in a browser session. It shows only what the agent really answered.
+
+### Fixed
+
+- **The sessions table is symmetric (#2).** Columns have fixed widths, so every row and day group lines up. A long prompt is one line with an ellipsis, and the full prompt is in the tooltip. Phone cards and Home's Continue show at most two lines.
+- **Account status.** Home's Account tile and the status line no longer say only "logged in" when claude is missing. They now read "logged in · claude not found" and link to Health.
+- **Agent uptime.** The Agent tile and the status line show the same uptime, from one tick.
+- **Wrapping.** In the Home tiles, the status line and Needs attention, each "·" clause stays whole and the "·" stays with the clause before it, so a line breaks only after "· ". The Agent tile reads "port N · localhost only".
+- **Opening sessions.** An option that can't work looks disabled (muted title, dashed radio, not-allowed cursor, `aria-disabled`) and gives its reason on its own `[ SKIP ]` line. When the selected option can't work, the section says so, and for `auto` it shows this OS's install command with a Copy button.
+- **Needs attention.** The summary line is only the counts; the `[FAILED]` tag is on the first item alone.
+- **Prompts.** A prompt cut by Claude Code's index reads "three…", not "three …" (dashboard and `cwm sessions`).
+- **Token kinds.** The card has one legend; the duplicate share row is gone.
+- **Light-theme labels.** Small labels in the light theme are measured in `contrast-check`: all are ≥ 5:1, and `--faint` is a little darker. `contrast-check --all` works again.
+
+## Audit (v0.9.1, demo data)
+
+- **Compare.** `capture.mjs --compare` against the v0.9.0 final audit covers 72 views, with no regressions. Every phone `vw` equals the device width, with 0 lowContrast, 0 noName and 0 console errors.
+- **Assets.** Code is 261.5 KB raw and 71.6 KB gzip, within the 260 KiB / 75 KiB budget. Fonts are 32.3 KB.
+- **Contrast.** contrast-check checks 208 pairs and 0 fail.
+- **Deviations:**
+  - The F9 glitch and the palette-prompt filter were cut for budget (D114).
+  - The ▾ menu is hidden on phones, where long-press opens it instead.
+  - P4d needed no change: no phone target is under 44 px apart from the heatmap cells.
+  - QA found one defect: at 320 px the Agent tile left a "·" alone on its own line. The polish pass reworded the tile to "port N · localhost only".
+- **Polish pass.** Code is 263.6 KB raw and 72.1 KB gzip. contrast-check checks 212 pairs and 0 fail; the new pairs are the launcher radio outline (≥ 3:1) and the not-available reason.
+
+## Research notes
+
+### The Microsoft Store desktop app (D112)
+
+- **What a real machine showed.** Windows 11, Store package `Claude_6.28899.6.0_x64__<publisherhash>`. Its running Claude Code was
+  `%LOCALAPPDATA%\Claude-Data\claude_<publisherhash>\claude-code\2.1.330\<buildid>\claude.exe`.
+- **What is not Claude Code.** `C:\Program Files\WindowsApps\Claude_<ver>_x64__<hash>\app\Claude.exe` is the desktop app itself. cwm never probes it, since starting it opens the app.
+- **The package data dir.** `%LOCALAPPDATA%\Packages\Claude_<hash>\LocalCache\Roaming\Claude` is where a virtualised MSIX app's `%APPDATA%` really lives. cwm searches `claude-code` there too, with the same depth bound as D103.
+- **Which copy wins.** Several build folders under one version are ordered by mtime, newest first. Store and classic (`%APPDATA%\Claude\claude-code`) copies can both exist. The newer Claude Code wins, and on a tie either counts as the desktop app.
+- **A fresh install.** A freshly installed Store app has no Claude Code yet. It downloads it the first time its Code tab runs a local session, and the debug bundle says so.
+
+### Which Claude opens a session (D113, issue #3)
+
+- **The VS Code extension.** We inspected `anthropic.claude-code` 2.1.332.
+  - **The handler.** `extension.js` registers one URI handler, `/open?session=<id>&prompt=<text>` (plus `/install-plugin`).
+  - **How the id is checked.** The session id must be non-empty, with no `/`, `\`, `..` or NUL, and is resumed "from the folder open in VS Code". An unknown id starts a new conversation.
+  - **What it can't do.** There is no folder parameter, and no command takes an id from outside. `activationEvents` has `onStartupFinished` but not `onUri`.
+  - **Sources.** Docs: code.claude.com/docs/en/vs-code ("Launch a VS Code tab from other tools"). The handler arrived in 2.1.72 (anthropics/claude-code#32687).
+- **The Claude desktop app.** It registers `claude://`.
+  - **The routes.** `claude://claude.ai/new`, `claude://claude.ai/chat/<id>`, `claude://code/new?folder=<abs>&q=<text>` and `claude://cowork/new`. A folder from a link is always confirmed in the app.
+  - **No resume link.** "The Code and Cowork routes don't accept an ID for resuming an existing session" (support.claude.com, "Open Claude Desktop with a link").
+  - **The CLI route.** `claude --desktop --resume <id>` hands a CLI session to the app. It needs Claude Code ≥ 2.1.285, macOS or x64 Windows, and a subscription login.
+- **The decision.** `launch.claude = auto | cli | vscode | desktop` (see the release notes and PLAN D113).
+  - **Argv vectors** (tests pin them per OS):
+    - `vscode`: `[<editor cli>, <folder>]`, waited, then `[xdg-open|open, <scheme>://anthropic.claude-code/open?session=<id>]`, or `[rundll32.exe, url.dll,FileProtocolHandler, <uri>]` on Windows.
+    - `desktop`: `cwm sessions resume <id> --with desktop`, which runs `claude --desktop --resume <id>` in the session's folder, or the OS opener on `claude://code/new?folder=<abs>`.
+- **Unverified on a real machine.** These are flagged as risks:
+  - `code.cmd <folder>` followed by the URI when VS Code was not running (the URI can reach the window before the folder finishes loading);
+  - `claude --desktop --resume` on a Windows Store install.
+

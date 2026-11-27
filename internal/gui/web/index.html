@@ -63,7 +63,8 @@
 				<button type="button" class="seg-btn" data-theme-set="dark" aria-pressed="false" title="Theme: dark">Dark</button>
 				<button type="button" class="seg-btn" data-theme-set="light" aria-pressed="false" title="Theme: light">Light</button>
 			</div>
-			<button type="button" class="menu-item" data-motion-toggle aria-pressed="true"><span class="toggle-box" aria-hidden="true"></span>motion</button>
+			<p class="menu-label">effects</p>
+			<div class="seg seg-text" role="group" aria-label="Effects" id="fx-seg"><button type="button" class="seg-btn" data-fx-set="off" aria-pressed="false">Off</button><button type="button" class="seg-btn" data-fx-set="subtle" aria-pressed="false">Subtle</button><button type="button" class="seg-btn" data-fx-set="full" aria-pressed="false">Full</button></div>
 			<button type="button" class="menu-item" data-debug-copy>Copy debug logs</button>
 			<button type="button" class="menu-item" data-bug-report>Report a bug</button>
 			<button type="button" class="menu-item" data-palette-open>Command palette <kbd>ctrl k</kbd></button>
@@ -235,7 +236,7 @@
 				<kbd class="filter-key" aria-hidden="true">/</kbd>
 			</div>
 		</div>
-		<p class="hint">Every session in the synced workspace, newest first. <strong>Resume</strong> (or Enter on a row) opens a terminal running it; the repo clones on demand.</p>
+		<p class="hint">Every session in the synced workspace, newest first. <strong>Resume</strong> (or Enter on a row) opens it with the Claude chosen in Settings (▾ picks another); the repo clones on demand.</p>
 		<div class="content" data-content="sessions"></div>
 	</section>
 
@@ -353,7 +354,7 @@
 		<dt><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between days in the Activity heatmap</dd>
 		<dt><kbd>/</kbd></dt><dd>Filter sessions</dd>
 		<dt><kbd>t</kbd></dt><dd>Cycle theme (system → dark → light)</dd>
-		<dt><kbd>b</kbd></dt><dd>Motion (animated background) on/off</dd>
+		<dt><kbd>b</kbd></dt><dd>Effects off / back to full (menu: off, subtle, full)</dd>
 		<dt><kbd>r</kbd></dt><dd>Refresh the current tab</dd>
 		<dt><kbd>d</kbd></dt><dd>Copy debug logs</dd>
 		<dt><kbd>?</kbd></dt><dd>This help</dd>
@@ -373,7 +374,8 @@
 	</div>
 	<p class="menu-label">theme</p>
 	<div data-theme-seg></div>
-	<button type="button" class="menu-item" data-motion-toggle aria-pressed="true"><span class="toggle-box" aria-hidden="true"></span>motion</button>
+	<p class="menu-label">effects</p>
+	<div data-fx-seg></div>
 	<button type="button" class="menu-item" data-about-open>About cwm</button>
 	<button type="button" class="menu-item" data-debug-copy>Copy debug logs</button>
 	<button type="button" class="menu-item" id="sheet-close">Close</button>

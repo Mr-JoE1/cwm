@@ -57,8 +57,9 @@ const (
 	// well-known install folder or the npm prefix). v0.8.0 called it
 	// "discovered".
 	SourceStandalone Source = "standalone"
-	SourceDesktop    Source = "desktop-app"      // bundled with the Claude desktop app (D98)
-	SourceExtension  Source = "vscode-extension" // bundled with the editor extension (D98)
+	SourceDesktop    Source = "desktop-app"       // bundled with the Claude desktop app (D98)
+	SourceStore      Source = "desktop-app-store" // bundled with the Microsoft Store build of it (D112)
+	SourceExtension  Source = "vscode-extension"  // bundled with the editor extension (D98)
 )
 
 // Result is a resolved, verified claude executable.
@@ -725,6 +726,8 @@ func (s Source) Label() string {
 		return "standalone install, found in a well-known install folder"
 	case SourceDesktop:
 		return "bundled with the Claude desktop app"
+	case SourceStore:
+		return "bundled with the Claude desktop app (Microsoft Store)"
 	case SourceExtension:
 		return "bundled with the VS Code extension"
 	}

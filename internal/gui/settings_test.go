@@ -253,7 +253,7 @@ func TestAccountsRunAndRunningNow(t *testing.T) {
 		t.Fatalf("run = %d %s", rec.Code, rec.Body.String())
 	}
 	last := l.calls[len(l.calls)-1]
-	if !slices.Equal(last[len(last)-3:], []string{"run", "--account", "home"}) {
+	if !slices.Equal(last[len(last)-5:], []string{"run", "--account", "home", "--with", "auto"}) {
 		t.Fatalf("argv = %v", last)
 	}
 }

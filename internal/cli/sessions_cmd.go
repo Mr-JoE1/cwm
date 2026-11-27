@@ -273,7 +273,7 @@ func clipPrompt(s string) string {
 	if len(r) <= sessionsPromptMax {
 		return s
 	}
-	return string(r[:sessionsPromptMax-3]) + "..."
+	return strings.TrimRight(string(r[:sessionsPromptMax-3]), " ") + "..."
 }
 
 // relativeTime renders "3h ago" / "2d ago" style ages, falling back to a

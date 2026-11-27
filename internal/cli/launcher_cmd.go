@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/claudeopen"
+	"github.com/Mr-JoE1/cwm/internal/claudepaths"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 )
 
@@ -55,8 +58,16 @@ func (e *Env) runDirect(repo string, rest []string) int {
 func cmdRun(e *Env, args []string) error {
 	account := e.Account
 	var extra []string
+	with := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if v, next, ok, err := withFlag(args, i); ok {
+			if err != nil {
+				return err
+			}
+			with, i = v, next
+			continue
+		}
 		switch {
 		case a == "--":
 			extra = append(extra, args[i+1:]...)
@@ -70,7 +81,7 @@ func cmdRun(e *Env, args []string) error {
 		case strings.HasPrefix(a, "--account="):
 			account = strings.TrimPrefix(a, "--account=")
 		case a == "-h" || a == "--help":
-			fmt.Fprint(e.Stdout, "usage: cwm run [--account <name>] [-- claude args]\n\n"+
+			fmt.Fprint(e.Stdout, "usage: cwm run [--account <name>] [--with auto|cli|vscode|desktop] [-- claude args]\n\n"+
 				"  Starts claude in the current directory. The default account uses the\n"+
 				"  workspace directly; another account runs in parallel from its\n"+
 				"  login-only dir, sharing every session, memory and setting.\n")
@@ -78,6 +89,22 @@ func cmdRun(e *Env, args []string) error {
 		default:
 			return fmt.Errorf("cwm run: unexpected %q (claude arguments go after --: cwm run -- %s)", a, a)
 		}
+	}
+	layout, err := claudepaths.NewLayout()
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(layout.ConfigPath())
+	if err != nil {
+		return err
+	}
+	choice, err := launchChoice(layout, cfg, with)
+	if err != nil {
+		return err
+	}
+	if choice.ID == claudeopen.VSCode || choice.ID == claudeopen.Desktop {
+		e.Account = account
+		return e.openApp(choice, runFolder(), "", nil)
 	}
 	if e.DryRun {
 		who := account

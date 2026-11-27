@@ -584,7 +584,7 @@ func TestResumeCaptureModeFollowsTheSession(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resume = %d\n%s", rec.Code, rec.Body.String())
 	}
-	want := fakeCwm + "|--hold-on-error|sessions|resume|44444444-dddd"
+	want := fakeCwm + "|--hold-on-error|sessions|resume|44444444-dddd|--with|auto"
 	if len(l.calls) != 1 || strings.Join(l.calls[0], "|") != want {
 		t.Fatalf("launcher argv = %q, want %s", l.calls, want)
 	}

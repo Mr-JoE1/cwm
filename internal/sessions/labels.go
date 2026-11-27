@@ -3,6 +3,7 @@ package sessions
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Claude Code records a slash command as XML-ish envelopes in the user
@@ -73,10 +74,19 @@ func ProjectLabel(slug string) string {
 // summary, else "(no prompt)".
 func ListPrompt(s Session) string {
 	if s.FirstPrompt != "" && s.FirstPrompt != noPrompt {
-		return s.FirstPrompt
+		return TidyEllipsis(s.FirstPrompt)
 	}
 	if s.Summary != "" {
-		return s.Summary
+		return TidyEllipsis(s.Summary)
 	}
 	return noPrompt
+}
+
+// TidyEllipsis drops the whitespace before a trailing "…" (Claude Code's
+// index cuts prompts as "three …"), so the text reads "three…".
+func TidyEllipsis(t string) string {
+	if c, ok := strings.CutSuffix(t, "…"); ok {
+		return strings.TrimRightFunc(c, unicode.IsSpace) + "…"
+	}
+	return t
 }

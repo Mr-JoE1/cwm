@@ -137,6 +137,23 @@ type Display struct {
 	Schema int `toml:"schema,omitempty"`
 }
 
+// Launch is the [launch] table (D113): which Claude the dashboard's
+// Resume and Start buttons, `cwm sessions resume` and `cwm run` open.
+type Launch struct {
+	Claude string `toml:"claude"`
+}
+
+// The launch.claude values (internal/claudeopen implements them).
+const (
+	LaunchAuto    = "auto"
+	LaunchCLI     = "cli"
+	LaunchVSCode  = "vscode"
+	LaunchDesktop = "desktop"
+)
+
+// LaunchChoices are the launch.claude values in display order.
+var LaunchChoices = []string{LaunchAuto, LaunchCLI, LaunchVSCode, LaunchDesktop}
+
 // DefaultDisplay shows every tab and opens on Home.
 func DefaultDisplay() Display {
 	return Display{HiddenTabs: []string{}, DefaultTab: "home", HomeActivity: true, Schema: DisplaySchema}
@@ -206,6 +223,12 @@ func (c *Config) normalize() error {
 	default:
 		return fmt.Errorf("invalid features.update_check %q (want manual or off)", c.Features.UpdateCheck)
 	}
+	if c.Launch.Claude == "" {
+		c.Launch.Claude = LaunchAuto
+	}
+	if !slices.Contains(LaunchChoices, c.Launch.Claude) {
+		return fmt.Errorf("invalid launch.claude %q (want %s)", c.Launch.Claude, strings.Join(LaunchChoices, ", "))
+	}
 	if c.Display.HiddenTabs == nil {
 		c.Display.HiddenTabs = []string{}
 	}
@@ -270,6 +293,7 @@ func Keys() []KeyInfo {
 		KeyInfo{Name: "display.hidden_tabs", Kind: KindList, Choices: tabsExceptSettings(), Default: "", Help: "tabs the dashboard hides (a comma-separated list from the CLI)"},
 		KeyInfo{Name: "display.default_tab", Kind: KindEnum, Choices: Tabs, Default: "home", Help: "the tab the dashboard opens on"},
 		KeyInfo{Name: "display.home_activity", Kind: KindBool, Default: "true", Help: "show the Activity section (sessions, tokens, heatmap) on Home"},
+		KeyInfo{Name: "launch.claude", Kind: KindEnum, Choices: LaunchChoices, Default: LaunchAuto, Help: "which Claude Resume and Start open: auto (the claude doctor picks, in a terminal), cli (a standalone install only), vscode (the editor's Claude Code tab), desktop (the Claude app)"},
 		KeyInfo{Name: "link_mode", Kind: KindEnum, Choices: []string{LinkModeAuto, LinkModeSymlink, LinkModeJunction, LinkModeCopy}, Default: LinkModeAuto, Help: "how login-only account dirs link shared items"},
 	)
 	return keys
@@ -326,6 +350,8 @@ func (c *Config) Get(name string) (string, error) {
 		return c.Display.DefaultTab, nil
 	case "display.home_activity":
 		return strconv.FormatBool(c.Display.HomeActivity), nil
+	case "launch.claude":
+		return c.Launch.Claude, nil
 	case "link_mode":
 		return c.LinkMode, nil
 	}
@@ -385,6 +411,8 @@ func (c *Config) Set(name, value string) error {
 		next.Display.DefaultTab = value
 	case "display.home_activity":
 		next.Display.HomeActivity = b
+	case "launch.claude":
+		next.Launch.Claude = value
 	case "link_mode":
 		next.LinkMode = value
 	default:

@@ -70,6 +70,7 @@ type Config struct {
 	Sync     map[string]bool `toml:"sync"`
 	Features Features        `toml:"features"`
 	Display  Display         `toml:"display"`
+	Launch   Launch          `toml:"launch"`
 
 	Accounts []Account `toml:"account"`
 
@@ -88,6 +89,7 @@ func Default() *Config {
 		Sync:     DefaultSync(),
 		Features: DefaultFeatures(),
 		Display:  DefaultDisplay(),
+		Launch:   Launch{Claude: LaunchAuto},
 	}
 }
 

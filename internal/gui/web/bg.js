@@ -146,6 +146,7 @@
 	}
 
 	function on() { return root.getAttribute("data-bg") !== "off"; }
+	function still() { return reduce.matches || root.getAttribute("data-fx") === "subtle"; }
 
 	function stop() {
 		if (raf) cancelAnimationFrame(raf);
@@ -158,8 +159,8 @@
 			ctx.clearRect(0, 0, w, h);
 			return;
 		}
-		if (reduce.matches) {
-			draw(0); // one still frame: the look without the motion
+		if (still()) {
+			draw(0); // one still frame: the look without the motion (reduced motion, Effects: subtle)
 			return;
 		}
 		if (!document.hidden) {
@@ -172,7 +173,7 @@
 	function wake() {
 		lastInput = performance.now();
 		if (root.hasAttribute("data-idle")) root.removeAttribute("data-idle");
-		if (!raf && on() && !reduce.matches && !document.hidden) raf = requestAnimationFrame(frame);
+		if (!raf && on() && !still() && !document.hidden) raf = requestAnimationFrame(frame);
 	}
 	for (const type of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart", "scroll"]) {
 		window.addEventListener(type, wake, { passive: true, capture: true });
@@ -186,7 +187,7 @@
 	document.addEventListener("visibilitychange", sync);
 	if (reduce.addEventListener) reduce.addEventListener("change", sync);
 	new MutationObserver(() => { readPalette(); sync(); })
-		.observe(root, { attributes: true, attributeFilter: ["data-theme", "data-bg"] });
+		.observe(root, { attributes: true, attributeFilter: ["data-theme", "data-bg", "data-fx"] });
 
 	readPalette();
 	resize();

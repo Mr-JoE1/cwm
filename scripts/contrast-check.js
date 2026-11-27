@@ -11,7 +11,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const cssPath = process.argv[2] || path.join(__dirname, "..", "internal", "gui", "web", "app.css");
+const cssPath = process.argv.slice(2).find((a) => !a.startsWith("--")) || path.join(__dirname, "..", "internal", "gui", "web", "app.css");
 const css = fs.readFileSync(cssPath, "utf8");
 
 function block(selector) {
@@ -79,7 +79,7 @@ function check(theme, vars) {
   surf.band = flat("band", surf.surface); // band rows sit on a card
   const add = (kind, fg, on, fgc, bgc, min) => {
     const r = ratio(fgc, bgc);
-    rows.push({ theme, kind, pair: fg + " on " + on, ratio: r, min, ok: r >= min });
+    rows.push({ theme, kind, fg, pair: kind === "element" ? on : fg + " on " + on, ratio: r, min, ok: r >= min });
   };
   for (const s of SURFACES) {
     for (const t of TEXT) add("text", t, s, flat(t, surf[s]), surf[s], 4.5);
@@ -121,6 +121,14 @@ function check(theme, vars) {
     add("chart", m, "surface", flat(m, surf.surface), surf.surface, 3.0);
   }
   add("chart", "heat-4", "heat-0", flat("heat-4"), flat("heat-0"), 3.0);
+  // v0.9.1 (P4e): the small labels the owner found pale in light mode, by
+  // element and the token/surface each one really uses.
+  for (const [el, tok, on] of [["Totals for", "muted", "surface"], ["copy hint (fix-note)", "muted", "surface"], ["heatmap month/day labels", "muted", "surface"],
+    ["heatmap legend", "muted", "surface"], ["trend axis labels", "muted", "surface"], ["menu label / unknown", "faint", "surface-solid"], ["day-row label", "faint", "bg"], ["launcher not-available reason", "muted", "surface"]]) {
+    add("element", el, tok + " on " + on, flat(tok, surf[on]), surf[on], 4.5);
+  }
+  // v0.9.1 polish: an unselected launcher radio's outline (a control, 3:1)
+  add("element", "launcher radio outline", "control-line on surface", flat("control-line", surf.surface), surf.surface, 3.0);
   return rows;
 }
 
@@ -130,11 +138,11 @@ for (const [theme, sel] of [["dark", ':root, [data-theme="dark"]'], ["light", '[
   all.push(...check(theme, block(sel)));
 }
 const pad = (s, n) => (s + " ".repeat(n)).slice(0, n);
-console.log(pad("theme", 6) + " " + pad("kind", 8) + " " + pad("pair", 34) + " ratio   min   result");
+console.log(pad("theme", 6) + " " + pad("kind", 8) + " " + pad("pair", 46) + " ratio   min   result");
 for (const r of all) {
   if (!r.ok) failed++;
-  if (process.argv.includes("--all") || !r.ok || r.kind !== "text" || /^(muted|faint|text) on (surface|band)$/.test(r.pair)) {
-    console.log(pad(r.theme, 6) + " " + pad(r.kind, 8) + " " + pad(r.pair, 34) + " " + pad(r.ratio.toFixed(2), 7) + " " + pad(r.min.toFixed(1), 5) + " " + (r.ok ? "pass" : "FAIL"));
+  if (process.argv.includes("--all") || !r.ok || (r.kind !== "text" && r.kind !== "element") || /^(muted|faint|text) on (surface|band)$/.test(r.pair)) {
+    console.log(pad(r.theme, 6) + " " + pad(r.kind, 8) + " " + pad(r.kind === "element" ? r.fg + " (" + r.pair + ")" : r.pair, 46) + " " + pad(r.ratio.toFixed(2), 7) + " " + pad(r.min.toFixed(1), 5) + " " + (r.ok ? "pass" : "FAIL"));
   }
 }
 console.log(all.length + " pairs checked, " + failed + " failed" + (process.argv.includes("--all") ? "" : " (--all lists every pair)"));

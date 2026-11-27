@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
@@ -23,16 +24,24 @@ import (
 // (D91), and claude starts in that clone (cloned on demand). Otherwise it
 // is the D20 passthrough `cwm open <project> new --resume <id>`.
 func cmdSessionsResume(e *Env, args []string) error {
-	var id string
+	var id, with string
 	dry, asJSON := e.DryRun, false
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if v, next, ok, err := withFlag(args, i); ok {
+			if err != nil {
+				return err
+			}
+			with, i = v, next
+			continue
+		}
 		switch {
 		case a == "--dry-run":
 			dry = true
 		case a == "--json":
 			asJSON = true
 		case strings.HasPrefix(a, "-"):
-			return fmt.Errorf("unknown sessions resume flag %q (usage: cwm sessions resume <id> [--dry-run] [--json])", a)
+			return fmt.Errorf("unknown sessions resume flag %q (usage: cwm sessions resume <id> [--with auto|cli|vscode|desktop] [--dry-run] [--json])", a)
 		case id != "":
 			return fmt.Errorf("unexpected argument %q (usage: cwm sessions resume <id>)", a)
 		default:
@@ -55,7 +64,18 @@ func cmdSessionsResume(e *Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	choice, err := launchChoice(layout, cfg, with)
+	if err != nil {
+		return err
+	}
+	app := choice.ID == claudeopen.VSCode || choice.ID == claudeopen.Desktop
 	if !upkeep.MirrorEnabled(cfg) {
+		if app {
+			e.DryRun = e.DryRun || dry
+			return e.openApp(choice, sessionFolder(sess), sess.ID, func() error {
+				return launcher.Open(sess.Project, launcher.ModeNew, desktopResumeArgs(sess.ID), e.Account, e.Stdout, e.Stderr)
+			})
+		}
 		if dry {
 			fmt.Fprintf(e.Stdout, "would run: cwm %s\n", strings.Join(launcher.ResumeCLIArgs(sess.Project, sess.ID), " "))
 			return nil
@@ -83,6 +103,10 @@ func cmdSessionsResume(e *Env, args []string) error {
 	}
 	if plan.Diverged {
 		fmt.Fprintf(e.Stderr, "cwm: session %s was continued on two devices; both copies are kept (cwm doctor) — resuming the newest\n", sessionID8(sess.ID))
+	}
+	if dry && app {
+		e.DryRun = true
+		return e.openApp(choice, plan.Local, sess.ID, nil)
 	}
 	if dry {
 		if !asJSON {
@@ -112,8 +136,29 @@ func cmdSessionsResume(e *Env, args []string) error {
 	if res.Wrote && !asJSON {
 		fmt.Fprintf(e.Stdout, "mirrored session %s for %s\n", sessionID8(sess.ID), plan.Local)
 	}
+	if app {
+		return e.openApp(choice, plan.Local, sess.ID, func() error {
+			return launcher.OpenDir(plan.Local, desktopResumeArgs(sess.ID), e.Account, e.Stdout, e.Stderr)
+		})
+	}
 	_, extra := launcher.ResumeArgs(sess.ID)
 	return launcher.OpenDir(plan.Local, extra, e.Account, e.Stdout, e.Stderr)
+}
+
+// desktopResumeArgs hands a session to the Claude desktop app (D113).
+func desktopResumeArgs(id string) []string { return []string{"--desktop", "--resume", id} }
+
+// sessionFolder is where a session ran, when that folder exists here
+// ("" otherwise: the editor or the app then opens without one).
+func sessionFolder(s sessions.Session) string {
+	cwd := s.Cwd
+	if cwd == "" {
+		cwd = sessions.TranscriptCwd(s.Path)
+	}
+	if fi, err := os.Stat(cwd); cwd != "" && err == nil && fi.IsDir() {
+		return cwd
+	}
+	return ""
 }
 
 // resolveSessionID finds a session by full id or unique prefix.

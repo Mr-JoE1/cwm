@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
@@ -57,6 +58,11 @@ type launchResult struct {
 	// dashboard offers the PATH command with a Copy button.
 	ClaudePath string `json:"claudePath,omitempty"`
 	PathHint   string `json:"pathHint,omitempty"`
+	// Opened names the app a launch opened instead of a terminal (D113:
+	// "VS Code", "Claude desktop app"); Note is what it said, or what it
+	// cannot do.
+	Opened string `json:"opened,omitempty"`
+	Note   string `json:"note,omitempty"`
 }
 
 // decodeBody reads exactly one JSON object into v; unknown fields,
@@ -188,6 +194,8 @@ type resumeRequest struct {
 	// Account resumes as another account, in parallel (v0.8, D80; ""
 	// = the default). It must be a configured account.
 	Account string `json:"account,omitempty"`
+	// With overrides launch.claude for this click (D113).
+	With string `json:"with,omitempty"`
 }
 
 // apiResume opens a terminal on the D20 passthrough for a session that is
@@ -200,6 +208,9 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 	}
 	if !sessionIDRe.MatchString(req.ID) {
 		return nil, http.StatusBadRequest, fmt.Errorf("invalid session id %q", req.ID)
+	}
+	if req.With != "" && !claudeopen.Valid(req.With) {
+		return nil, http.StatusBadRequest, fmt.Errorf("invalid with %q (want %s)", req.With, strings.Join(claudeopen.Options, ", "))
 	}
 	if _, err := status.RequireWorkspace(s.opts.Layout); err != nil {
 		return nil, http.StatusConflict, err
@@ -236,9 +247,15 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 	if !ok {
 		return nil, http.StatusNotFound, fmt.Errorf("unknown session %q in project %q", req.ID, req.Project)
 	}
-	argv := launcher.ResumeCLIArgs(sess.Project, sess.ID)
-	if mirror {
-		argv = []string{"sessions", "resume", sess.ID}
+	choice, code, err := s.launchWith(req.With)
+	if err != nil {
+		return nil, code, err
+	}
+	// auto keeps the D20 passthrough outside capture mode; every other
+	// option goes through `cwm sessions resume <id> --with <x>`.
+	argv := []string{"sessions", "resume", sess.ID}
+	if !mirror && choice.ID == claudeopen.Auto {
+		argv = launcher.ResumeCLIArgs(sess.Project, sess.ID)
 	}
 	if req.Account != "" {
 		cfg, err := config.Load(s.opts.Layout.ConfigPath())
@@ -250,15 +267,18 @@ func (s *Server) apiResume(r *http.Request) (any, int, error) {
 		}
 		argv = append([]string{"--account", req.Account}, argv...)
 	}
-	res, code, err := s.claudePrecheck()
-	if err != nil {
-		return nil, code, err
+	if argv[len(argv)-2] != "resume" { // the passthrough has no --with
+		res, code, err := s.claudePrecheck()
+		if err != nil {
+			return nil, code, err
+		}
+		body, code, err := s.launch(argv...)
+		if err != nil {
+			return nil, code, err
+		}
+		return s.withClaudeHint(body, res), code, nil
 	}
-	body, code, err := s.launch(argv...)
-	if err != nil {
-		return nil, code, err
-	}
-	return s.withClaudeHint(body, res), code, nil
+	return s.launchVia(choice, argv, sess.ID)
 }
 
 type pairRequest struct {

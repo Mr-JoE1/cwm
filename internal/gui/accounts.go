@@ -326,8 +326,15 @@ func (s *Server) apiAccountsRemove(r *http.Request) (any, int, error) {
 // `cwm run --account <name>` — the default account in the workspace root,
 // any other one in parallel from its login-only dir (D80).
 func (s *Server) apiAccountsRun(r *http.Request) (any, int, error) {
-	var req accountNameRequest
+	var req struct {
+		Name string `json:"name"`
+		With string `json:"with,omitempty"` // D113
+	}
 	if code, err := decodeBody(r, &req); err != nil {
+		return nil, code, err
+	}
+	choice, code, err := s.launchWith(req.With)
+	if err != nil {
 		return nil, code, err
 	}
 	cfg, err := config.Load(s.opts.Layout.ConfigPath())
@@ -337,15 +344,7 @@ func (s *Server) apiAccountsRun(r *http.Request) (any, int, error) {
 	if _, ok := cfg.Account(req.Name); !ok {
 		return nil, http.StatusNotFound, fmt.Errorf("unknown account %q", req.Name)
 	}
-	res, code, err := s.claudePrecheck()
-	if err != nil {
-		return nil, code, err
-	}
-	body, code, err := s.launch("run", "--account", req.Name)
-	if err != nil {
-		return nil, code, err
-	}
-	return s.withClaudeHint(body, res), code, nil
+	return s.launchVia(choice, []string{"run", "--account", req.Name}, "")
 }
 
 // switcher is the default-account switch seam (Options.Switcher).

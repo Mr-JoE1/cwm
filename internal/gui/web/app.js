@@ -200,6 +200,7 @@
 	}
 
 	function toastLaunch(r, okText) {
+		if (r.ok && r.data.opened) return toast("ok", "Opened " + r.data.opened, r.data.note, { cmd: r.data.command });
 		if (r.ok) {
 			toastPathHint(r.data);
 			return toast("ok", okText, "running: " + r.data.command);
@@ -463,7 +464,8 @@
 		}
 		// B3: no empty columns — branch and messages only when some row has them
 		const hasBranch = list.some((s) => s.branch), hasMsgs = list.some((s) => s.messages);
-		const cols = [["Prompt"], ["Project"], hasBranch && ["Branch"], hasMsgs && ["Msgs", "num"], ["ID"], ["When", "num"], [""]].filter(Boolean);
+		// #2: fixed column widths (table-layout:fixed) so every row and day group lines up
+		const cols = [["Prompt"], ["Project", "c-proj"], hasBranch && ["Branch", "c-br"], hasMsgs && ["Msgs", "num c-msgs"], ["ID", "c-id"], ["When", "num c-when"], ["", "c-act"]].filter(Boolean);
 		const head = el("thead", null, [el("tr", null, cols.map((c) => el("th", { scope: "col", class: c[1] || null, text: c[0] })))]);
 		const body = el("tbody");
 		let group = "";
@@ -483,6 +485,7 @@
 				el("td", { class: "num s-when", title: longStamp(s.modified), text: clockTime(s.modified) }),
 				resumeCell(s),
 			]);
+			tr.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openWith(tr.querySelector(".s-resume"), (w) => resumeSession(s, tr.querySelector(".s-resume"), w)); });
 			tr.addEventListener("keydown", (ev) => {
 				if (ev.target !== tr) return;
 				if (ev.key === "Enter") { ev.preventDefault(); tr.querySelector(".s-resume").click(); }
@@ -502,20 +505,20 @@
 	function resumeCell(s) {
 		// B6: the row is the tab stop (Enter resumes); the button stays clickable
 		const btn = el("button", { type: "button", class: "btn btn-small s-resume", tabindex: "-1" }, [svgUse("i-play"), el("span", { class: "s-resume-t", text: "Resume" })]);
-		btn.title = "Open a terminal window resuming this session";
+		btn.title = "Resume this session";
 		btn.setAttribute("aria-label", "Resume session " + s.id.slice(0, 8) + " of " + projectLabel(s.project).text);
 		btn.addEventListener("click", () => resumeSession(s, btn));
-		return el("td", { class: "actions" }, [btn]);
+		return el("td", { class: "actions" }, [btn, withBtn(btn, (w) => resumeSession(s, btn, w), "-1")]);
 	}
 
-	async function resumeSession(s, btn) {
+	async function resumeSession(s, btn, w) {
 		let old = [];
 		if (btn) {
 			btn.disabled = true;
 			old = [...btn.childNodes];
 			btn.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "Opening…");
 		}
-		const r = await post("/api/sessions/resume", { project: s.project, id: s.id });
+		const r = await post("/api/sessions/resume", { project: s.project, id: s.id, with: w });
 		if (btn) {
 			btn.disabled = false;
 			btn.replaceChildren(...old);
@@ -649,10 +652,10 @@
 		},
 
 		async settings(silent) {
-			const r = await loadSettings();
+			const [r, lv] = await Promise.all([loadSettings(), launchers(!silent)]);
 			if (!r.ok) return loadError("settings", r, silent, "Could not load settings.");
-			if (!changed("settings", r.data)) return;
-			renderSettings(r.data);
+			if (!changed("settings", [r.data, lv])) return;
+			renderSettings(r.data, lv);
 		},
 
 		async accounts(silent) {
@@ -702,9 +705,11 @@
 		return el("span", { class: "boot boot-" + lvl, "aria-hidden": "true", text: BOOT[lvl] });
 	}
 
+	// a wrap only ever falls after "· ", never inside a clause
+	const units = (t, a = String(t).split(/\s· /)) => a[1] ? a.map((c) => c.replace(/ /g, "\u00a0")).join("\u00a0· ") : a[0];
 	function tile(lvl, label, value, sub, go) {
 		const kids = [el("span", { class: "tile-head" }, [tag(lvl), el("span", { class: "tile-label", text: label })]),
-			el("span", { class: "tile-value", text: value }), sub ? el("span", { class: "tile-sub", text: sub }) : null];
+			el("span", { class: "tile-value", text: units(value) }), sub ? el("span", { class: "tile-sub", text: units(sub) }) : null];
 		const aria = label + ": " + SR_STATUS[lvl] + " " + value + (sub ? ", " + sub : "");
 		const fn = typeof go === "function";
 		const node = el(fn ? "button" : "a", fn ? { type: "button", class: "tile tile-" + lvl, "aria-label": aria } : { class: "tile tile-" + lvl, href: "#" + go, "aria-label": aria }, kids);
@@ -721,6 +726,7 @@
 		if (doc.ok && Array.isArray(doc.data)) {
 			healthBadge(doc.data);
 			const h = healthSum(doc.data);
+			bootLine(h.lvl, "health: " + h.text.replace(/\u00a0/g, " "));
 			tiles.push(tile(h.lvl, "Health", h.bad ? h.text : "all checks passed", h.sub, "health"));
 		} else tiles.push(tile("warn", "Health", "unknown", doc.error, "health"));
 		if (dev.ok && dev.data && !Array.isArray(dev.data)) tiles.push(tile("skip", "Sync", "not set up", "optional · pair a device", "devices"));
@@ -738,14 +744,20 @@
 			if (!d) tiles.push(tile("warn", "Account", "no account yet", "add one on Accounts", "accounts"));
 			else {
 				const st = d.login_status || "never";
-				tiles.push(tile(st === "done" ? "ok" : st === "failed" ? "fail" : "warn", "Account", d.name, (LOGIN_PILL[st] || ["", st])[1], "accounts"));
+				// P4a: logged in means little when claude itself is missing
+				const noCl = doc.ok && Array.isArray(doc.data) && doc.data.some((c) => c.name === "claude" && level(c) === "fail");
+				tiles.push(noCl && st === "done" ? tile("warn", "Account", d.name, "logged in · claude not found", "health")
+					: tile(st === "done" ? "ok" : st === "failed" ? "fail" : "warn", "Account", d.name, (LOGIN_PILL[st] || ["", st])[1], "accounts"));
 			}
 		} else tiles.push(tile("warn", "Account", "unknown", acc.error, "accounts"));
 		if (ag.ok && ag.data) {
 			agentInfo = ag.data;
 			const bind = ag.data.bind || "127.0.0.1";
 			const local = bind === "127.0.0.1" || bind === "localhost" || bind === "::1";
-			tiles.push(tile(local ? "ok" : "warn", "Agent", "up " + uptime(ag.data.started), (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + ag.data.port + (local ? " · localhost only" : " · network"), openAbout));
+			if (!upNow) upNow = uptime(ag.data.started);
+			const at = tile(local ? "ok" : "warn", "Agent", "up " + upNow, local ? "port " + ag.data.port + " · localhost only" : (bind.includes(":") ? "[" + bind + "]" : bind) + ":" + ag.data.port + " · network", openAbout);
+			at.querySelector(".tile-value").setAttribute("data-up", "");
+			tiles.push(at);
 		} else tiles.push(tile("warn", "Agent", "unknown", ag.error, openAbout));
 		if (changed("home-status", tiles.map((t) => t.getAttribute("aria-label")))) show("home-status", el("div", { class: "tiles" }, tiles));
 		if (!doc.ok) return loadError("home-attention", doc, silent, "Could not run the health checks.");
@@ -768,7 +780,7 @@
 		if (!groups.length) return show("home-attention", emptyState("Nothing needs attention", "Every health check passed."));
 		const h = healthSum(list);
 		const copyOnly = groups.slice(0, 3).some((g) => g.cmd && !(g.cmd === "cwm doctor --fix" && g.names.every((x) => FIXABLE.has(x))));
-		show("home-attention", el("div", null, [h.bad ? el("p", { class: "attn-sum" }, [tag(h.lvl), " ", h.text]) : null, el("ul", { class: "attn" }, [...groups.slice(0, 3).map((g) => el("li", { class: "attn-item attn-" + g.level }, [
+		show("home-attention", el("div", null, [h.bad ? el("p", { class: "attn-sum", text: h.text }) : null, el("ul", { class: "attn" }, [...groups.slice(0, 3).map((g) => el("li", { class: "attn-item attn-" + g.level }, [
 			tag(g.level),
 			el("div", { class: "attn-body" }, [
 				el("span", { class: "attn-title" }, [el("span", { class: "sr-only", text: SR_STATUS[g.level] + " " }), g.title]),
@@ -791,16 +803,18 @@
 		if (!r.ok) return loadError("home-continue", r, silent, "Could not load sessions.");
 		sessionsCache = r.data || [];
 		const top = sessionsCache.slice(0, 5);
+		bootLine("ok", plural(sessionsCache.length, "session") + " in the workspace");
 		if (!changed("home-continue", top)) return;
 		if (!top.length) return show("home-continue", emptyState("No sessions yet", "Open a repo with `cwm open <name>` to start one."));
 		show("home-continue", el("ul", { class: "cont" }, top.map((s) => {
 			const pl = projectLabel(s.project);
 			const btn = el("button", { type: "button", class: "btn btn-small btn-primary", text: "Resume", "aria-label": "Resume " + promptText(s) + " in " + pl.text });
 			btn.addEventListener("click", () => resumeSession(s, btn));
+			btn.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openWith(btn, (w) => resumeSession(s, btn, w)); });
 			return el("li", { class: "cont-item" }, [
 				el("div", { class: "cont-body" }, [promptNode(s, "cont-prompt"),
 					el("span", { class: "cont-meta" }, [el("span", { class: "cont-proj", title: pl.title, text: midCut(pl.text, 28) }), " · ", el("span", { title: longStamp(s.modified), text: relTime(s.modified) })])]),
-				btn,
+				el("span", { class: "with-pair" }, [btn, withBtn(btn, (w) => resumeSession(s, btn, w))]),
 			]);
 		})));
 	}
@@ -826,7 +840,7 @@
 		const cmd = /<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/.exec(s) || /<command-message>\s*([^<\s]+)\s*<\/command-message>/.exec(s);
 		const rest = s.replace(/<(command-message|command-name|command-args|skill-format|local-command-stdout)>[\s\S]*?<\/\1>/g, " ").replace(/\s+/g, " ").trim();
 		if (cmd) return "/" + cmd[1] + (rest ? " " + rest : "");
-		return rest === "(no prompt)" ? "" : rest;
+		return rest === "(no prompt)" ? "" : rest.replace(/ …$/, "…");
 	}
 
 	function promptText(s) {
@@ -836,7 +850,7 @@
 	function promptNode(s, cls, idCol) {
 		const real = cleanPrompt(s.firstPrompt) || cleanPrompt(s.summary);
 		if (!real && idCol) return el("span", { class: cls + " is-untitled is-untitled-row" }, ["untitled", el("span", { class: "untitled-id", text: " · " + String(s.id || "").slice(0, 8) })]);
-		return el("span", { class: cls + (real ? "" : " is-untitled"), title: s.firstPrompt || s.summary || "", text: promptText(s) });
+		return el("span", { class: cls + (real ? "" : " is-untitled"), title: real || "", text: promptText(s) });
 	}
 
 	// A project folder name is the session's cwd with every separator as
@@ -867,7 +881,7 @@
 		const a = [...String(t)];
 		if (a.length <= n) return String(t);
 		const head = Math.ceil((n - 1) / 2);
-		return a.slice(0, head).join("") + "…" + a.slice(a.length - (n - 1 - head)).join("");
+		return a.slice(0, head).join("").trimEnd() + "…" + a.slice(a.length - (n - 1 - head)).join("");
 	}
 
 	// --- health: a boot log, problems first (D72)
@@ -916,7 +930,7 @@
 		const bad = n.fail + n.warn, counted = bad + n.ok;
 		const parts = [n.fail ? n.fail + " failed" : "", n.warn ? plural(n.warn, "warning") : ""].filter(Boolean);
 		return { lvl: n.fail ? "fail" : n.warn ? "warn" : "ok", bad: bad, counted: counted, passed: n.ok,
-			text: bad ? parts.join(" \u00b7\u00a0") : "all " + counted + " checks passed", sub: n.ok + " of " + counted + " checks passed" };
+			text: bad ? units(parts.join(" · ")) : "all " + counted + " checks passed", sub: n.ok + " of " + counted + " checks passed" };
 	}
 
 	function fixCommand(c, fallback) {
@@ -1306,7 +1320,7 @@
 			children.push(el("div", { class: "acct-actions" }, [accountLoginButton(a, "Log in", "btn-primary")]));
 		} else if (st === "done") {
 			children.push(el("div", { class: "acct-actions" }, [
-				btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"),
+				withPair(btnDo(a.is_default ? "Start claude" : "Run in parallel", () => runAccount(a), a.is_default ? "" : "btn-primary"), (w) => runAccount(a, w)),
 				a.is_default ? null : btnDo("Make default", (b) => setDefault(a.name, b)),
 			]));
 		}
@@ -1396,8 +1410,8 @@
 		await load("accounts", true);
 	}
 
-	async function runAccount(a) {
-		const r = await post("/api/accounts/run", { name: a.name });
+	async function runAccount(a, w) {
+		const r = await post("/api/accounts/run", { name: a.name, with: w });
 		if (r.status === 424) return toastNoClaude(r);
 		if (r.status === 501) return toast("info", "No terminal window could be opened", "Run it yourself in a terminal:", { cmd: r.command, sticky: true });
 		toastLaunch(r, a.is_default ? "Started claude as “" + a.name + "”" : "Started “" + a.name + "” in parallel");
@@ -1481,11 +1495,87 @@
 		});
 	}
 
+	// --- launch.claude (D113, issue #3): which Claude Resume and Start open
+
+	let launchP = null, launchAt = 0;
+	function launchers(fresh) {
+		if (fresh || !launchP || Date.now() - launchAt > 30000) { launchAt = Date.now(); launchP = api("/api/launchers").then((r) => r.ok ? r.data : null); }
+		return launchP;
+	}
+
+	function withBtn(main, run, tab) {
+		const b = el("button", { type: "button", class: "icon-btn with-btn", tabindex: tab, "aria-haspopup": "menu", "aria-label": "Open with…", title: "Open with…", text: "▾" });
+		b.addEventListener("click", (ev) => { ev.stopPropagation(); openWith(b, run); });
+		main.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openWith(b, run); });
+		return b;
+	}
+	const withPair = (main, run) => el("span", { class: "with-pair" }, [main, withBtn(main, run)]);
+
+	let withMenu = null;
+	function closeWith(refocus) {
+		if (!withMenu) return;
+		const m = withMenu;
+		withMenu = null;
+		m.remove();
+		if (refocus && m.back && m.back.isConnected) m.back.focus();
+	}
+
+	async function openWith(btn, run) {
+		const v = await launchers();
+		closeWith();
+		if (!v || !btn) return;
+		const m = el("div", { class: "menu with-menu", role: "menu", tabindex: "-1", "aria-label": "Open with" }, [el("p", { class: "menu-label", text: "open with" }),
+			...v.choices.map((c) => {
+				const b = el("button", { type: "button", class: "menu-item", role: "menuitem", disabled: c.available ? null : "", title: c.reason || c.note || c.help },
+					[el("span", { text: c.label + (c.id === v.setting ? " (default)" : "") }), el("span", { class: "with-why", text: c.reason || c.note || "" })]);
+				b.addEventListener("click", () => { closeWith(); run(c.id); });
+				return b;
+			})]);
+		m.back = btn;
+		m.addEventListener("keydown", (ev) => {
+			if (ev.key === "Escape") { ev.stopPropagation(); closeWith(true); }
+			if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+				ev.preventDefault();
+				const items = [...m.querySelectorAll("button:not([disabled])")], i = items.indexOf(document.activeElement);
+				const n = items[(i + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
+				if (n) n.focus();
+			}
+		});
+		document.body.appendChild(m);
+		const r = btn.getBoundingClientRect();
+		m.style.top = Math.min(r.bottom + 4, innerHeight - m.offsetHeight - 8) + "px";
+		m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8)) + "px";
+		withMenu = m;
+		(m.querySelector("button:not([disabled])") || m).focus();
+	}
+	document.addEventListener("click", (ev) => { if (withMenu && !withMenu.contains(ev.target)) closeWith(); });
+	addEventListener("scroll", () => closeWith(), true);
+
+	function launchSetting(row, v) {
+		const box = el("div", { class: "launch-opts", role: "radiogroup", "aria-label": "Open sessions with" }, (v ? v.choices : []).map((c) => {
+			const input = el("input", { type: "radio", name: "launch-claude", value: c.id, disabled: c.available || c.id === row.value ? null : "", "aria-disabled": c.available ? null : "true" });
+			input.checked = c.id === row.value;
+			input.addEventListener("change", () => setSetting(row.key, c.id, input));
+			return el("label", { class: "launch-opt" + (c.available ? "" : " is-na") }, [input, el("span", { class: "set-text" }, [
+				el("span", { class: "set-key", text: c.label }),
+				el("span", { class: "set-help" }, [richText(c.help)]),
+				c.available ? c.note && el("span", { class: "set-help", text: c.note })
+					: el("span", { class: "launch-why" }, [tag("skip"), el("span", { class: "sr-only", text: "not available: " }), c.reason])])]);
+		}));
+		const r = setRow(Object.assign({}, row, { help: "the default for every Resume and Start claude button" }), box, "launch.claude", "div");
+		r.classList.add("set-col");
+		const sel = v && v.choices.find((c) => c.id === row.value);
+		if (sel && !sel.available) r.append(el("div", { class: "launch-warn", role: "note" }, sel.id === "auto" ? [tag("warn"), "No Claude Code found on this machine — Resume can't start a session. Install:", commandBox(v.install), "or open the Claude app's Code tab once."]
+			: [tag("warn"), sel.label + " can't open sessions here: " + sel.reason + "."]));
+		return r;
+	}
+
 	// --- settings (v0.8, D95): every `cwm config` key, PUT /api/settings
 
 	const PREVIEW = new Set(["features.autostart", "features.open_dashboard_at_login", "features.private_sync"]);
 	const GROUPS = [["sync", "Sync items", "What follows you to your other devices. Off only stops syncing it; nothing is deleted."],
-		["features", "Features", "What cwm does for you."], ["display", "Display", "This dashboard."], ["advanced", "Advanced", ""]];
+		["features", "Features", "What cwm does for you."], ["launch", "Opening sessions", ["Which Claude the ", el("strong", { text: "Resume" }), " and ", el("strong", { text: "Start claude" }), " buttons open. ▾ next to a button (long-press on touch) picks another one for that click."]],
+		["display", "Display", "This dashboard."], ["advanced", "Advanced", ""]];
 	const MODES = {
 		capture: "~/.claude is the workspace: every Claude Code run on this machine is captured and synced — plain claude, the IDE extensions, the desktop app.",
 		isolated: "~/.cwm/workspace is the workspace: only sessions started through cwm use it; ~/.claude is left alone.",
@@ -1538,11 +1628,11 @@
 		]);
 	}
 
-	const cardHead = (title, hint, ctl) => el("div", { class: "card-head" }, [el("div", null, [el("h2", { class: "card-title", text: title }), hint ? el("p", { class: "hint", text: hint }) : null]), ctl]);
+	const cardHead = (title, hint, ctl) => el("div", { class: "card-head" }, [el("div", null, [el("h2", { class: "card-title", text: title }), hint ? el("p", { class: "hint" }, [hint].flat()) : null]), ctl]);
 	// a path may wrap only after a separator
 	const pathText = (s) => s.split(/(?<=[/\\])/).flatMap((p, i) => i ? [el("wbr"), p] : [p]);
 
-	function renderSettings(v) {
+	function renderSettings(v, lv) {
 		const kv = (k, val) => [el("dt", { text: k }), el("dd", null, [el("code", null, pathText(val))])];
 		const seg = el("div", { class: "seg seg-text", role: "group", "aria-label": "Workspace mode" }, ["capture", "isolated"].map((m) => {
 			const b = el("button", { type: "button", class: "seg-btn", "aria-pressed": String(v.mode === m), text: m });
@@ -1563,7 +1653,8 @@
 			if (!rows.length) continue;
 			const items = [];
 			for (const row of rows) {
-				if (row.key === "display.hidden_tabs") {
+				if (row.key === "launch.claude") items.push(launchSetting(row, lv));
+				else if (row.key === "display.hidden_tabs") {
 					const hidden = row.value.split(",").filter(Boolean);
 					const box = el("div", { class: "set-tabs", role: "group", "aria-label": "Visible tabs" }, row.choices.map((t) => {
 						const on = !hidden.includes(t);
@@ -1575,6 +1666,8 @@
 					items.push(setRow(row, box, "Visible tabs", "div"));
 				} else items.push(setRow(row, row.kind === "bool" ? switchBtn(row) : choice(row, row.choices || [])));
 			}
+			if (g === "display") items.push(el("div", { class: "set-row" }, [el("span", { class: "set-text" }, [el("span", { class: "set-key", text: "Effects" }),
+				el("span", { class: "set-help", text: "off, subtle (no motion) or full · this browser only · b toggles" })]), fxSeg()]));
 			out.push(el("div", { class: "card" + (g === "sync" || g === "features" ? "" : " set-wide") }, [cardHead(title, hint), ...items]));
 		}
 		show("settings", el("div", { class: "set-grid" }, out));
@@ -1990,19 +2083,57 @@
 		toast("info", "Theme: " + next + (next === "system" ? " (" + (systemLight.matches ? "light" : "dark") + ")" : ""));
 	}
 
-	function applyBg(on, persist) {
-		root.setAttribute("data-bg", on ? "on" : "off");
-		document.querySelectorAll("[data-motion-toggle]").forEach((btn) => {
-			btn.setAttribute("aria-pressed", String(on));
-			btn.title = "Motion: animated background " + (on ? "on" : "off") + (reduceMotion.matches ? " (reduced motion: still image)" : "") + " (b)";
+	// F10 Effects: off (plain), subtle (the look, no motion), full. data-bg
+	// and cwm-bg keep their old on/off meaning; reduced motion caps at subtle.
+	function applyFx(fx, persist) {
+		if (fx !== "off" && fx !== "subtle") fx = "full";
+		root.setAttribute("data-fx", fx);
+		root.setAttribute("data-bg", fx === "off" ? "off" : "on");
+		document.querySelectorAll("[data-fx-set]").forEach((b) => {
+			b.setAttribute("aria-pressed", String(b.dataset.fxSet === fx));
+			b.title = "Effects: " + b.dataset.fxSet + (reduceMotion.matches && b.dataset.fxSet === "full" ? " (reduced motion: no animation)" : "") + " · b toggles";
 		});
-		if (persist) store("cwm-bg", on ? "on" : "off");
+		if (persist) { store("cwm-fx", fx); store("cwm-bg", fx === "off" ? "off" : "on"); }
 	}
 
+	const fxSeg = () => {
+		const c = $("fx-seg").cloneNode(true);
+		c.removeAttribute("id");
+		c.querySelectorAll("[data-fx-set]").forEach((b) => b.addEventListener("click", () => applyFx(b.dataset.fxSet, true)));
+		return c;
+	};
+
 	function toggleMotion() {
-		const on = root.getAttribute("data-bg") === "off";
-		applyBg(on, true);
-		toast("info", "Motion " + (on ? "on" : "off"));
+		const fx = root.getAttribute("data-fx") === "off" ? "full" : "off";
+		applyFx(fx, true);
+		toast("info", "Effects " + fx);
+	}
+
+	// F8: a boot log on the first load of a browser session (Effects: full),
+	// only lines from real responses, gone after 700 ms or any key
+	let bootBox = null, bootOn = false;
+	try { bootOn = root.getAttribute("data-fx") === "full" && !sessionStorage.getItem("cwm-boot"); } catch (e) { /* no storage: no boot log */ }
+	function bootLine(lvl, text) {
+		if (!bootOn || bootBox === false) return;
+		if (!bootBox) {
+			try { sessionStorage.setItem("cwm-boot", "1"); } catch (e) { /* shown anyway */ }
+			bootBox = el("ol", { class: "bootlog", "aria-hidden": "true" });
+			document.body.appendChild(bootBox);
+			const end = () => { if (bootBox) bootBox.remove(); bootBox = false; removeEventListener("keydown", end, true); };
+			addEventListener("keydown", end, true);
+			setTimeout(end, 700);
+		}
+		bootBox.appendChild(el("li", null, [tag(lvl), " " + text]));
+	}
+
+	// F9: KPI values count up (Effects: full, no reduced motion)
+	function countUp(n) {
+		const m = /^(\d+(?:\.\d+)?)(\D*)$/.exec(n.textContent);
+		if (!m || root.getAttribute("data-fx") !== "full" || reduceMotion.matches) return n;
+		const end = +m[1], dec = (m[1].split(".")[1] || "").length, t0 = performance.now();
+		const tick = (t) => { const p = Math.min(1, (t - t0) / 600); n.textContent = (end * (1 - Math.pow(1 - p, 3))).toFixed(dec) + m[2]; if (p < 1) requestAnimationFrame(tick); };
+		requestAnimationFrame(tick);
+		return n;
 	}
 
 	function wireToggles() {
@@ -2016,8 +2147,10 @@
 			if ((root.getAttribute("data-theme-pref") || "system") === "system") applyTheme("system", false);
 		};
 		if (systemLight.addEventListener) systemLight.addEventListener("change", onSystem);
-		applyBg(root.getAttribute("data-bg") !== "off", false);
-		document.querySelectorAll("[data-motion-toggle]").forEach((b) => b.addEventListener("click", toggleMotion));
+		const fs = $("fx-seg");
+		document.querySelectorAll("[data-fx-seg]").forEach((n) => n.replaceWith(fxSeg()));
+		applyFx(root.getAttribute("data-fx"), false);
+		fs.querySelectorAll("[data-fx-set]").forEach((b) => b.addEventListener("click", () => applyFx(b.dataset.fxSet, true)));
 	}
 
 	// --- live updates: SSE when the server has /api/events, else polling
@@ -2256,7 +2389,7 @@
 		act("Theme: auto", "t", () => applyTheme("system", true));
 		act("Theme: dark", "t", () => applyTheme("dark", true));
 		act("Theme: light", "t", () => applyTheme("light", true));
-		act("Motion on/off", "b", toggleMotion);
+		act("Effects on/off", "b", toggleMotion);
 		act("Refresh", "r", () => refreshNow(true));
 		act("Copy debug logs", "d", copyDebugLogs);
 		act("Filter sessions", "/", () => { activate("sessions"); $("sessions-filter").focus(); });
@@ -2292,7 +2425,7 @@
 		list.replaceChildren(...palItems.map((e, i) => {
 			const li = el("li", { role: "option", id: "pal-" + i, class: "pal-item pal-" + e.kind, "aria-selected": String(i === palAt) }, [
 				el("span", { class: "pal-kind", text: e.kind }),
-				el("span", { class: "pal-label" }, [e.label, e.sub ? el("span", { class: "pal-sub", text: e.sub }) : null]),
+				el("span", { class: "pal-label", title: e.sub || null }, [e.label, e.sub ? el("span", { class: "pal-sub", text: e.sub }) : null]),
 				e.hint ? el("span", { class: "pal-key", text: e.hint }) : null,
 			]);
 			li.addEventListener("mousemove", () => { if (palAt !== i) { palAt = i; markPalette(); } });
@@ -2496,7 +2629,7 @@
 	function kpi(label, value, sub, title, note) {
 		return el("div", { class: "kpi" }, [
 			el("div", { class: "kpi-label", text: label }),
-			el("div", { class: "kpi-value", text: value, title: title || null }),
+			countUp(el("div", { class: "kpi-value", text: value, title: title || null })),
 			sub ? el("div", { class: "kpi-sub", text: sub }) : null,
 			note ? el("div", { class: "kpi-note" }, note) : null,
 		]);
@@ -2658,7 +2791,7 @@
 	}
 
 	// H2: input/output and cache differ by orders of magnitude: one 100% bar;
-	// the small part keeps a minimum width and its share is printed beside it
+	// the small part keeps a minimum width; the legend prints each share
 	function tokenSplit(tok) {
 		const card = el("div", { class: "card stats-card sc-kinds" }, [el("h2", { class: "card-title", text: "Token kinds" })]);
 		const all = Math.max(1, tok.total);
@@ -2674,10 +2807,7 @@
 			seg.style.flexGrow = String(pct(v));
 			bar.appendChild(seg);
 		}
-		card.appendChild(bar);
-		const small = rows.filter(([, v]) => v && pct(v) < 15);
-		if (small.length) card.appendChild(el("div", { class: "stack-labels", "aria-hidden": "true" }, small.map(([name, v, , cls]) =>
-			el("span", { class: "stack-l" + (cls === rows[1][3] ? " is-end" : "") }, [el("span", { class: "sw " + cls }), share(v) + " " + name.toLowerCase()]))));
+		card.appendChild(bar); // P4f: the legend below carries every share (no second label row)
 		card.appendChild(el("ul", { class: "stack-legend" }, rows.map(([name, v, sub, cls]) => el("li", null, [
 			el("span", { class: "sw " + cls, "aria-hidden": "true" }), el("span", { class: "hb-name", text: name }),
 			el("span", { class: "hb-val", text: share(v), title: nf.format(v) + " tokens" }),
@@ -2877,11 +3007,12 @@
 		return "v" + ver;
 	}
 
+	let upNow = "";
 	function uptime(fromISO) {
 		const t = new Date(fromISO).getTime();
 		if (isNaN(t)) return "";
 		const s = Math.max(0, Math.floor((Date.now() - t) / 1000)), m = Math.floor(s / 60), h = Math.floor(m / 60);
-		if (s < 60) return s + "s";
+		if (s < 60) return "<1m";
 		if (m < 60) return m + "m";
 		if (h < 24) return h + "h" + String(m % 60).padStart(2, "0") + "m";
 		return Math.floor(h / 24) + "d" + (h % 24) + "h";
@@ -2895,7 +3026,7 @@
 		const b = $(id);
 		b.hidden = false;
 		b.className = "sl-seg sl-" + lvl;
-		b.replaceChildren(slTag(lvl), text);
+		b.replaceChildren(slTag(lvl), units(text));
 		b.setAttribute("aria-label", label);
 		b.title = label;
 	}
@@ -2907,7 +3038,8 @@
 		const d = list.find((a) => a.is_default);
 		if (!d) return slSeg("sl-acct", "warn", "no account", "Accounts: no account yet");
 		const st = d.login_status || "never";
-		slSeg("sl-acct", st === "done" ? "ok" : st === "failed" ? "fail" : "warn", "account " + d.name, "Default account " + d.name + ": " + (LOGIN_PILL[st] || ["", st])[1]);
+		const noCl = st === "done" && state && state.claude && !state.claude.found;
+		slSeg("sl-acct", noCl ? "warn" : st === "done" ? "ok" : st === "failed" ? "fail" : "warn", "account " + d.name, "Default account " + d.name + ": " + (noCl ? "logged in · claude not found" : (LOGIN_PILL[st] || ["", st])[1]));
 	}
 	function slSync(r) {
 		if (!r.ok) return slSeg("sl-sync", r.status === 503 ? "warn" : "skip", "sync ?", "Devices: Syncthing is not reachable");
@@ -2929,7 +3061,14 @@
 		const t = new Date();
 		$("sl-clock").textContent = String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
 		if (agentInfo) {
-			$("sl-up").textContent = "agent up " + uptime(agentInfo.started);
+			// P4b: one tick feeds the status line and Home's Agent tile
+			upNow = uptime(agentInfo.started);
+			document.querySelectorAll("[data-up]").forEach((n) => {
+				n.textContent = "up " + upNow;
+				const t = n.closest(".tile");
+				t.setAttribute("aria-label", t.getAttribute("aria-label").replace(/up [^,]+/, "up " + upNow));
+			});
+			$("sl-up").textContent = "agent up " + upNow;
 			$("sl-up").title = "The cwm agent started " + longStamp(agentInfo.started);
 		}
 		setTimeout(slClock, (60 - t.getSeconds()) * 1000 + 50);
@@ -2940,6 +3079,7 @@
 		if (v.ok && v.data) {
 			$("sl-version").textContent = "cwm " + versionLabel(v.data);
 			verText = "cwm " + v.data.version + " (" + v.data.os + "/" + v.data.arch + ", " + (v.data.commit || "unknown") + ")";
+			bootLine("ok", verText);
 		}
 		if (a.ok && a.data) {
 			agentInfo = a.data;
@@ -2951,6 +3091,7 @@
 			listen.title = local ? "Localhost only" : "Reachable from the network over plain HTTP";
 			listen.setAttribute("aria-label", "Listening on " + addr + ", " + listen.title.toLowerCase());
 			listen.classList.toggle("sl-warn", !local);
+			bootLine(local ? "ok" : "warn", "agent listening on " + addr);
 		}
 		slClock();
 		slFeeds(true);

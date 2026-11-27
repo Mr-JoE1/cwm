@@ -80,8 +80,8 @@ Claude Code keeps your sessions, memory, skills and MCP setup in one config fold
     <td width="33%" valign="top"><h4>🔄 Device sync</h4><p>Peer-to-peer over Syncthing, from an allow-list you switch per item. <code>cwm pair</code> does the setup. Credentials never sync.</p></td>
   </tr>
   <tr>
-    <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click, even when the repo sits at a different path on this machine; it clones if it's missing.</p></td>
-    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Home (status, where you left off, what needs attention, activity), Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, make default, run in parallel, remove) and Settings, with a live status line and a Ctrl-K command palette. Dark/light themes, keys 1–8, phone layout with a bottom bar.</p></td>
+    <td valign="top"><h4>🗂️ Session browser</h4><p>Every session from every device in one list. Resume in one click, even when the repo sits at a different path on this machine; it clones if it's missing. Pick which Claude opens it: a terminal, VS Code's Claude Code tab or the Claude desktop app (<code>launch.claude</code>).</p></td>
+    <td valign="top"><h4>🖥️ Web dashboard</h4><p>Home (status, where you left off, what needs attention, activity), Sessions, Projects, Devices, handoff, Health, Accounts (add, log in, make default, run in parallel, remove) and Settings, with a live status line and a Ctrl-K command palette. Dark/light themes, Effects off/subtle/full, keys 1–8, phone layout with a bottom bar.</p></td>
     <td valign="top"><h4>⚡ Always on</h4><p>A small per-user agent starts at login and serves a bookmarkable dashboard. No admin rights.</p></td>
   </tr>
   <tr>
@@ -151,6 +151,7 @@ cwm sessions --pick           # every session, newest first: pick one to resume
 cwm pair                      # pair this device with another one
 cwm doctor                    # health checks
 cwm config list               # every setting (the dashboard's Settings tab edits the same keys)
+cwm config set launch.claude vscode   # Resume opens VS Code's Claude Code tab (auto | cli | vscode | desktop)
 ```
 
 cwm finds Claude Code even when its folder isn't on `PATH` yet (right after its installer, for example), remembers it as `claude_path` in `config.toml`, and prints the command that puts it on `PATH`. With only the Claude desktop app or the VS Code extension installed, neither of which puts `claude` on `PATH`, cwm uses the copy bundled with them (desktop app first), looks it up again each time because its folder changes with every app update, and recommends the standalone CLI. To use a specific binary, set `CWM_CLAUDE=/path/to/claude`.

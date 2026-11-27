@@ -3,6 +3,117 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-27 (v0.9.1 — Store app, launch setting, table fix, Effects; SPEC-V0.9 "v0.9.1")
+
+- **D112: the Microsoft Store build of the Claude desktop app is its own
+  bundled family, `desktop-app-store`.** Data from a Windows 11 machine
+  with the Store app (package `Claude_<ver>_x64__<publisherhash>`): its
+  Claude Code ran from
+  `%LOCALAPPDATA%\Claude-Data\claude_<publisherhash>\claude-code\<ver>\<buildid>\claude.exe`.
+  The family globs `Claude-Data\claude_*\claude-code\<ver>\{claude.exe,
+  */claude.exe}` plus the package's virtualised
+  `Packages\*Claude*\LocalCache\Roaming\Claude\claude-code` (moved here
+  from the classic family; same depth bound as D103). Reports call it "the
+  Claude desktop app (Microsoft Store)"; on a version tie it counts as the
+  desktop app (D103). The app's own `C:\Program Files\WindowsApps\…\app\Claude.exe`
+  is the desktop app, not Claude Code, and no pattern reaches WindowsApps.
+  Within one version, several `<buildid>` folders are ordered by file
+  mtime, newest first (their names are hashes). When
+  `%LOCALAPPDATA%\Packages\Claude_*` exists (a cheap stand-in for
+  `Get-AppxPackage`, which takes seconds) but no Store copy does, the debug
+  bundle says the app downloads Claude Code the first time its Code tab runs
+  a local session.
+- **D113: `launch.claude` picks which Claude opens sessions (issue #3).**
+  The values are `auto | cli | vscode | desktop`, and the default is
+  `auto`. It applies to the dashboard's Resume and Start claude, to
+  `cwm sessions resume` and to `cwm run`. Each of those takes
+  `--with <x>` for one launch, and the dashboard takes the same as a
+  per-click ▾ menu (long-press or the context-menu key on a row).
+  `cwm open` stays the plain passthrough.
+  - **`auto`** is what cwm always did: a terminal running cwm, which
+    execs the claude the resolver picks by absolute path (D49/D98/D103).
+    So with P1 a machine with only bundled copies works and needs no
+    `claude` on PATH.
+  - **`cli`** is the same, but it refuses a bundled copy and gives the
+    install command.
+  - **Research for `vscode`.** We inspected the extension package
+    `anthropic.claude-code` 2.1.332 (open-vsx).
+    - It registers a URI handler for `/open?session=<id>&prompt=<text>`,
+      documented at code.claude.com/docs/en/vs-code. The session resumes
+      "from the folder open in VS Code".
+    - There is no folder parameter, and the stock CLI has no `--command`.
+  - **So `vscode`** runs `<editor cli> <folder>` and waits for it (at most
+    10 s). Then it opens `<scheme>://anthropic.claude-code/open?session=<id>`
+    with the OS URL opener: rundll32 `url.dll,FileProtocolHandler` on
+    Windows, `open` on macOS, `xdg-open` elsewhere. None of these goes
+    through cmd.exe.
+    - The editor is the first of VS Code, Insiders, Cursor, Windsurf and
+      VSCodium whose extensions folder holds the extension.
+    - Without its CLI, or when a folder holds a character cmd.exe would
+      mangle (code.cmd is a batch file), the folder opens by
+      `<scheme>://file/<path>/`.
+    - The toast also offers `claude --resume <id>` to copy, in case the
+      editor starts a new conversation.
+    - It needs capture mode, because the extension reads `~/.claude`.
+  - **Research for `desktop`.** The desktop app's `claude://` links
+    (support.claude.com article 14729294) have no resume-by-id for Code
+    sessions. Only `claude://code/new?folder=<abs>` opens a new Code session
+    in a folder.
+    - Claude Code ≥ 2.1.285 has `claude --desktop --resume <id>`, which
+      hands a CLI session to the app. It works on macOS and x64 Windows
+      only.
+  - **So `desktop`** runs that through cwm (account env, the session's
+    folder) where it exists. Elsewhere it opens the folder link, labelled
+    "opens the Claude app in the session's folder (it can't resume this
+    session directly)".
+  - **No terminal for the apps.** The dashboard runs `vscode` and `desktop`
+    as a background `cwm … --with <x>` (90 s cap, `GIT_TERMINAL_PROMPT=0`,
+    no console window).
+  - **Unavailable options.** An option that cannot work here is shown
+    disabled with the reason (not installed, needs capture mode, no
+    graphical session, only bundled copies). A launch that asks for one
+    anyway gets 424.
+  - **Validation.** `with` is checked against the allow-list (otherwise
+    400). Argv is always an array, and a session id reaches a URI only
+    query-escaped. `GET /api/launchers` serves the detection.
+- **D114: Effects is Off, Subtle or Full, and it replaces the motion toggle
+  (F10). The F6–F9 look hangs off it.**
+  - **Storage and hooks.** `html[data-fx]` comes from localStorage
+    `cwm-fx`. When that is unset it is read from the old `cwm-bg`: on → full,
+    off → off. `data-bg` and `cwm-bg` keep their on/off meaning (off only
+    when Effects is off), so bg.js and old preferences work unchanged. The
+    "b" key toggles between Off and Full.
+  - **Subtle** is the look without motion: a still background frame,
+    scanlines, glow, HUD chrome and LED meters. It has no caret blink, no
+    row reveal, no count-up and no boot log.
+  - **Reduced motion** caps Full at Subtle: CSS stops every animation, and
+    the JS effects check the media query.
+  - **The F6–F9 pieces:**
+    - F6 corner brackets and a "┌─" strip, on Home and Activity cards only;
+    - F7 segmented bar and stack fills (`mask-image`), and the busiest
+      heatmap days glow in the dark theme;
+    - F9 `::selection` in the accent fill, a thin scrollbar, and KPIs that
+      count up;
+    - F8 a boot log once per browser session (sessionStorage), at most
+      700 ms, any key skips it. It holds only lines from responses that
+      really arrived: version, listen address, health, session count.
+  - **Cut (budget).** F9's logo/offline glitch and the palette prompt in
+    the filter. The filter already reads "> filter by …".
+- **D115: the sessions table has fixed column widths (issue #2).** It uses
+  `table-layout:fixed` from 721 px up, with one-line prompts, an ellipsis
+  and the full prompt in the title.
+  - On tablets the ID column collapses to width 0 rather than
+    `display:none`. Otherwise the day rows' colspan, which counts it, adds a
+    phantom column.
+  - Phone cards and Home's Continue clamp the prompt to two lines.
+- **D116: v0.9.1 ships when the audit holds against v0.9.0 (release pending).**
+  A full capture of demo data compared with the v0.9.0 final audit shows 0
+  regressions: every `vw` equals the device width, with 0 lowContrast, 0
+  noName and 0 console errors across 72 views. Assets are 261.5 KB raw and
+  71.6 KB gzip (budget 260 KiB / 75 KiB). The branch is pushed but not tagged.
+  - The Agent tile's "· localhost only" may wrap before the "·", so at
+    320 px the "·" is never left alone on a line.
+
 ## 2026-11-26 (v0.9.0 — dashboard UX, SPEC-V0.9)
 
 - **D105: Home replaces the Stats tab; 8 tabs, Home first.** The tabs are
