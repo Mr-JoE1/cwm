@@ -75,7 +75,8 @@ func (s *Server) launchWith(with string) (claudeopen.Choice, int, error) {
 // launchVia opens args (a cwm command line without the program) the way
 // the option needs: auto and cli in a terminal, after the claude
 // precheck; vscode and desktop as a background cwm run, since they open
-// an app and need no terminal. resumeID ("" = none) is the session, for
+// an app and need no terminal — except the desktop hand-off of a
+// session, which does (D117). resumeID ("" = none) is the session, for
 // the copyable fallback.
 func (s *Server) launchVia(c claudeopen.Choice, args []string, resumeID string) (any, int, error) {
 	args = append(args, "--with", c.ID)
@@ -90,6 +91,19 @@ func (s *Server) launchVia(c claudeopen.Choice, args []string, resumeID string) 
 		}
 		return s.withClaudeHint(body, res), code, nil
 	}
+	if c.ID == claudeopen.Desktop && c.Resume && resumeID != "" {
+		// claude --desktop needs a terminal on stdin and stdout (D117), so
+		// the hand-off runs in one, like auto; the window closes itself
+		// when it succeeds and holds the message when it fails.
+		body, _, err := s.launch(args...)
+		if err == nil {
+			lr := body.(launchResult)
+			lr.Opened, lr.Note = c.Label, NoteHandOffTerminal
+			return lr, http.StatusOK, nil
+		}
+		// No terminal: the background run finds no TTY either and opens
+		// the app in the session's folder, which it reports.
+	}
 	out, err := s.background(args)
 	if err != nil {
 		return nil, http.StatusInternalServerError, &commandError{err: fmt.Errorf("could not open %s: %w", c.Label, err), command: resumeCommand(resumeID)}
@@ -100,6 +114,9 @@ func (s *Server) launchVia(c claudeopen.Choice, args []string, resumeID string) 
 	}
 	return lr, http.StatusOK, nil
 }
+
+// NoteHandOffTerminal is the toast note of a desktop hand-off (D117).
+const NoteHandOffTerminal = "a terminal window hands the session to the app and closes when it is done"
 
 // resumeCommand is the copy-paste fallback shown with an app launch.
 func resumeCommand(id string) string {
