@@ -139,7 +139,7 @@ func Detect(env Env) []Choice {
 		{ID: VSCode, Label: "VS Code", Resume: true,
 			Help: "Opens the session's folder in VS Code (or the editor with the Claude Code extension) and resumes it in a Claude Code tab."},
 		{ID: Desktop, Label: "Claude desktop app",
-			Help: "Hands the session to the Claude desktop app (`claude --desktop --resume`). Uses the app's own sign-in, not a cwm account."},
+			Help: "Hands the session to the Claude desktop app (`claude --desktop --resume`). Uses the app's own sign-in: an account opens there only when the app is signed in to it."},
 	}
 	set := func(i int, ok bool, reason string) {
 		out[i].Available = ok
@@ -424,20 +424,35 @@ func EditorSteps(goos string, ed Editor, folder, id string) []Step {
 	return append(steps, Step{Argv: OpenURL(goos, SessionURI(ed.Scheme, id))})
 }
 
-// AppAccount is who the Claude desktop app is signed in to, as far as cwm
-// can tell (Known = false: it cannot).
+// The app's sign-in states (desktopapp.State; v0.9.3, D122).
+const (
+	AppAccountNamed = "account"
+	AppOther        = "other"
+	AppSignedOut    = "signed-out"
+	AppNone         = "none"
+)
+
+// AppAccount is who the Claude desktop app is signed in to, as
+// desktopapp reads it from the app's profile: State is AppAccountNamed
+// (Name is the cwm account), AppOther, AppSignedOut, AppNone, or anything
+// else ("" = not read, unknown).
 type AppAccount struct {
+	State string
 	Name  string
-	Known bool
 }
 
-// DesktopAccount reads the desktop app's sign-in. The app keeps it apart
-// from Claude Code (D118): %APPDATA%\Claude, the Store package's
-// LocalCache\Roaming\Claude, ~/Library/Application Support/Claude. The
-// only sign-in record there is the OS-encrypted oauth:tokenCache in
-// config.json — a secret cwm never reads — and no plain account or email
-// field, so cwm cannot tell and says so.
-func DesktopAccount(Env) AppAccount { return AppAccount{} }
+// Who names the app's account in a message: the cwm account, "nobody"
+// (signed out, no profile) or "another account" (one cwm doesn't know, or
+// unknown).
+func (a AppAccount) Who() string {
+	switch a.State {
+	case AppAccountNamed:
+		return a.Name
+	case AppSignedOut, AppNone:
+		return "nobody"
+	}
+	return "another account"
+}
 
 // AccountRoute is where an account launch that would use the desktop app
 // goes: the app (Desktop) or the terminal launcher (auto), and the note
@@ -447,20 +462,18 @@ type AccountRoute struct {
 	Note    string
 }
 
-// RouteAccount decides an account launch with the desktop option (D118).
-// cwm's account env never reaches the app, so it is used only when no
-// account was asked for or the app is known to be signed in to that one;
-// otherwise the account opens in a terminal. requested "" = none.
+// RouteAccount decides an account launch with the desktop option (D122,
+// superseding D118's "unknown" row). The app has its own sign-in, so it
+// is used only when no account was asked for or the app is signed in to
+// exactly that account; any other state opens the account in a terminal.
+// requested "" = none.
 func RouteAccount(requested string, app AppAccount) AccountRoute {
 	switch {
 	case requested == "":
 		return AccountRoute{Desktop: true}
-	case app.Known && app.Name == requested:
-		return AccountRoute{Desktop: true, Note: "the Claude desktop app uses its own sign-in, which is " + requested}
-	case app.Known:
-		return AccountRoute{Note: "the Claude desktop app is signed in to " + app.Name + " — opened " + requested +
-			" in a terminal instead; switch the app's account in the app to use it there"}
+	case app.State == AppAccountNamed && app.Name == requested:
+		return AccountRoute{Desktop: true, Note: "opened the Claude app (signed in as " + requested + ")"}
 	}
-	return AccountRoute{Note: "the Claude desktop app keeps its own sign-in, so cwm can't open " + requested +
-		" there — opened it in a terminal instead"}
+	return AccountRoute{Note: "the Claude app is signed in as " + app.Who() + " — opened " + requested +
+		" in a terminal instead. To use the app, switch its account in the app (cwm can switch it for you in a later version)"}
 }

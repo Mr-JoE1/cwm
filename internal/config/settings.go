@@ -110,14 +110,17 @@ type Features struct {
 	// PathMirror keeps sessions from other devices resumable here when the
 	// same repo sits at a different path (D91); capture mode only.
 	PathMirror bool `toml:"path_mirror"`
+	// DesktopSessionShare adds the other accounts' Code-tab entries to the
+	// list of the account the Claude desktop app is signed in to (D124).
+	DesktopSessionShare bool `toml:"desktop_session_share"`
 }
 
 // DefaultFeatures matches what v0.7 did without any switch: hooks wired,
 // handoff pushed, stats scanned, the agent autostarted by the installer,
 // no browser at login, public Syncthing discovery, a manual update check;
-// v0.8 adds path mirroring, on.
+// v0.8 adds path mirroring, on; v0.9.3 Code-tab sharing, on.
 func DefaultFeatures() Features {
-	return Features{Hooks: true, HandoffPush: true, Stats: true, Autostart: true, UpdateCheck: UpdateCheckManual, PathMirror: true}
+	return Features{Hooks: true, HandoffPush: true, Stats: true, Autostart: true, UpdateCheck: UpdateCheckManual, PathMirror: true, DesktopSessionShare: true}
 }
 
 // Tabs are the dashboard tab ids, in order. v0.9 (D105): Home replaced
@@ -290,6 +293,7 @@ func Keys() []KeyInfo {
 		KeyInfo{Name: "features.private_sync", Kind: KindBool, Default: "false", Help: "Syncthing without global discovery or relays; pair devices by address"},
 		KeyInfo{Name: "features.update_check", Kind: KindEnum, Choices: []string{UpdateCheckManual, UpdateCheckOff}, Default: UpdateCheckManual, Help: "manual: a check-for-updates button in About; off: no button, never asks"},
 		KeyInfo{Name: "features.path_mirror", Kind: KindBool, Default: "true", Help: "capture mode: copy sessions from other devices under this machine's folder for the same repo, so plain claude --resume finds them"},
+		KeyInfo{Name: "features.desktop_session_share", Kind: KindBool, Default: "true", Help: "list every account's Claude-app Code-tab sessions under the account the app is signed in to (add-only; index entries only)"},
 		KeyInfo{Name: "display.hidden_tabs", Kind: KindList, Choices: tabsExceptSettings(), Default: "", Help: "tabs the dashboard hides (a comma-separated list from the CLI)"},
 		KeyInfo{Name: "display.default_tab", Kind: KindEnum, Choices: Tabs, Default: "home", Help: "the tab the dashboard opens on"},
 		KeyInfo{Name: "display.home_activity", Kind: KindBool, Default: "true", Help: "show the Activity section (sessions, tokens, heatmap) on Home"},
@@ -344,6 +348,8 @@ func (c *Config) Get(name string) (string, error) {
 		return f.UpdateCheck, nil
 	case "features.path_mirror":
 		return strconv.FormatBool(f.PathMirror), nil
+	case "features.desktop_session_share":
+		return strconv.FormatBool(f.DesktopSessionShare), nil
 	case "display.hidden_tabs":
 		return strings.Join(c.Display.HiddenTabs, ","), nil
 	case "display.default_tab":
@@ -405,6 +411,8 @@ func (c *Config) Set(name, value string) error {
 		f.UpdateCheck = value
 	case "features.path_mirror":
 		f.PathMirror = b
+	case "features.desktop_session_share":
+		f.DesktopSessionShare = b
 	case "display.hidden_tabs":
 		next.Display.HiddenTabs = splitList(value)
 	case "display.default_tab":

@@ -13,6 +13,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/desktopapp"
 	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/status"
 	"github.com/Mr-JoE1/cwm/internal/storage"
@@ -347,9 +348,9 @@ func (s *Server) apiAccountsRun(r *http.Request) (any, int, error) {
 	}
 	note := ""
 	if choice.ID == claudeopen.Desktop {
-		// The app keeps its own sign-in (D118): unless it is known to be
+		// The app has its own sign-in (D122): unless it is signed in to
 		// this account, the account opens in a terminal (auto).
-		r := claudeopen.RouteAccount(req.Name, s.desktopAccount())
+		r := claudeopen.RouteAccount(req.Name, s.desktopAccount(cfg))
 		if note = r.Note; !r.Desktop {
 			choice = claudeopen.Choice{ID: claudeopen.Auto, Label: "Auto", Available: true, Resume: true}
 		}
@@ -362,11 +363,11 @@ func (s *Server) apiAccountsRun(r *http.Request) (any, int, error) {
 	return body, code, err
 }
 
-func (s *Server) desktopAccount() claudeopen.AppAccount {
+func (s *Server) desktopAccount(cfg *config.Config) claudeopen.AppAccount {
 	if s.opts.DesktopAccount != nil {
 		return s.opts.DesktopAccount()
 	}
-	return claudeopen.DesktopAccount(claudeopen.SystemEnv(nil, true))
+	return desktopapp.ForConfig(cfg).AppAccount()
 }
 
 // switcher is the default-account switch seam (Options.Switcher).

@@ -28,6 +28,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/desktopapp"
 	"github.com/Mr-JoE1/cwm/internal/doctor"
 	"github.com/Mr-JoE1/cwm/internal/service"
 	"github.com/Mr-JoE1/cwm/internal/status"
@@ -70,6 +71,8 @@ type Sources struct {
 	SyncClient func() (syncengine.Client, error)
 	// Doctor runs the local checks (never the SSH probe).
 	Doctor func() []doctor.Check
+	// Desktop reads the Claude desktop app's profile (nil = not checked).
+	Desktop func() desktopapp.Status
 	// APIErrors are the agent's recent API errors, oldest first. nil with
 	// APIErrorsNote explains where they live (the CLI has none).
 	APIErrors     []APIError
@@ -193,6 +196,7 @@ func (src Sources) sections(now time.Time) []Section {
 		{"workspace", src.workspaceSection()},
 		{"syncthing", src.syncSection()},
 		{"doctor", src.doctorSection()},
+		{"desktop app", src.desktopSection()},
 		{"logs", src.logsSection()},
 		{"recent API errors", src.apiErrorsSection()},
 	}
@@ -482,6 +486,54 @@ func (src Sources) doctorSection() string {
 	return b.String()
 }
 
+// uuidRe matches a uuid; the desktop section shows none (D125).
+var uuidRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+
+// handOffTail is how many handoff.log lines the desktop section shows.
+const handOffTail = 10
+
+// desktopSection is the Claude desktop app as cwm reads it (D125): the
+// profile root, the sign-in state by cwm account name, the Code-tab entry
+// counts and the tail of logs/handoff.log. Any uuid reads <uuid>.
+func (src Sources) desktopSection() string {
+	if src.Desktop == nil {
+		return "not checked"
+	}
+	st := src.Desktop()
+	var b strings.Builder
+	fmt.Fprintf(&b, "state:    %s\n", st.Line())
+	if st.Root != "" {
+		fmt.Fprintf(&b, "profile:  %s\n", st.Root)
+		fmt.Fprintf(&b, "running:  %v (cookie store locked; Windows only)\n", st.Running)
+	}
+	if st.State == desktopapp.StateAccount {
+		fmt.Fprintf(&b, "account:  %s\n", st.Account)
+	}
+	for _, c := range st.Lists {
+		n := c.Name
+		if n == "" {
+			n = "<uuid>"
+		}
+		mark := ""
+		if c.Signed {
+			mark = " (signed in)"
+		}
+		fmt.Fprintf(&b, "list:     %s: %d entries%s\n", n, c.Entries, mark)
+	}
+	if src.Layout != nil {
+		p := filepath.Join(src.Layout.LogsDir(), "handoff.log")
+		if lines, err := tailFile(p, handOffTail); err == nil && len(lines) > 0 {
+			fmt.Fprintf(&b, "--- handoff.log (last %d lines)\n", len(lines))
+			for _, l := range lines {
+				b.WriteString(l + "\n")
+			}
+		} else {
+			b.WriteString("handoff.log: no hand-offs yet\n")
+		}
+	}
+	return uuidRe.ReplaceAllString(b.String(), "<uuid>")
+}
+
 func (src Sources) logsSection() string {
 	if src.Layout == nil {
 		return "not available"
@@ -637,4 +689,16 @@ func shortErr(err error) string {
 		return pe.Err.Error()
 	}
 	return err.Error()
+}
+
+// DesktopFor reads the desktop app with l's config.toml accounts, for
+// Sources.Desktop.
+func DesktopFor(l *storage.Layout) func() desktopapp.Status {
+	return func() desktopapp.Status {
+		cfg, err := config.Load(l.ConfigPath())
+		if err != nil {
+			cfg = nil
+		}
+		return desktopapp.ForConfig(cfg)
+	}
 }

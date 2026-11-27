@@ -341,6 +341,7 @@ func Checks(root string, netProbe bool) []Check {
 	checkBridge(&r, resolved, cfg)
 	checkHooks(&r, resolved, cfg)
 	checkVault(&r, resolved, cfg)
+	checkDesktop(&r, cfg)
 	checkUnknownItems(&r, resolved, cfg)
 
 	// 10. WIP log tail

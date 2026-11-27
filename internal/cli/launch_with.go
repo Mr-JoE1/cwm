@@ -6,11 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudebin"
 	"github.com/Mr-JoE1/cwm/internal/claudeopen"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/desktopapp"
+	"github.com/Mr-JoE1/cwm/internal/gui/term"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
+	"github.com/Mr-JoE1/cwm/internal/sessions"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 )
 
@@ -107,6 +112,43 @@ var runSteps = func(steps []claudeopen.Step) error { return claudeopen.Run(steps
 // terminal on both stdin and stdout (D117). A seam for tests.
 var handOffTTY = func() bool { return isConsole(os.Stdin) && isConsole(os.Stdout) }
 
+// handOffLinger is how long a dashboard-opened window stays after a
+// successful hand-off, so its messages can be read.
+var handOffLinger = 4 * time.Second
+
+// handOffHeld: this window was opened by the dashboard (term.HoldFlag or
+// term.HoldEnv), so it closes on its own when cwm exits.
+var handOffHeld = func() bool { return holdRequested.Load() || os.Getenv(term.HoldEnv) == "1" }
+
+// desktopPrep runs right before a desktop hand-off (D123): it shares the
+// session's Code-tab entry into the list of the account the app is
+// signed in to (D124), and notes when the app is signed in to another
+// account than the one the session ran under.
+func (e *Env) desktopPrep(cfg *config.Config, sess sessions.Session) {
+	st := desktopStatus(cfg)
+	if st.State == desktopapp.StateNone {
+		return
+	}
+	if cfg.Features.DesktopSessionShare {
+		_, line, err := desktopapp.Sync(st, desktopapp.ShareOptions{Session: sess.ID})
+		if line != "" {
+			fmt.Fprintln(e.Stdout, line)
+		}
+		if err != nil {
+			fmt.Fprintln(e.Stderr, "note: Code-tab sharing: "+err.Error())
+		}
+	}
+	owner := sessions.TranscriptOwner(sess.Path)
+	if owner == "" || owner == st.UUID() {
+		return
+	}
+	ran := accounts.UUIDMap(cfg)[owner]
+	if ran == "" {
+		ran = "another account"
+	}
+	fmt.Fprintln(e.Stderr, "note: the Claude app is signed in as "+st.Who()+", but this session ran as "+ran)
+}
+
 // handOff runs `claude --desktop --resume <id>` (resume) when this process
 // has a terminal. Without one (the dashboard's no-terminal fallback, a
 // pipe) or when the hand-off fails, it opens the app in the folder
@@ -116,12 +158,15 @@ func (e *Env) handOff(goos, folder, id string, resume func() error) error {
 	tty := handOffTTY()
 	why := "no terminal to hand the session over from"
 	if tty {
-		if e.Account != "" {
-			fmt.Fprintln(e.Stderr, "note: the Claude desktop app uses its own sign-in; session "+sessionID8(id)+" ran as "+e.Account)
-		}
 		err := resume()
 		if err == nil {
 			fmt.Fprintln(e.Stdout, "handed session "+sessionID8(id)+" to the Claude desktop app")
+			if handOffHeld() {
+				// A window the dashboard opened would close with claude's
+				// "Opening session …" unread (D123).
+				fmt.Fprintf(e.Stdout, "this window closes in %d s\n", int(handOffLinger/time.Second))
+				time.Sleep(handOffLinger)
+			}
 			return nil
 		}
 		why = err.Error()

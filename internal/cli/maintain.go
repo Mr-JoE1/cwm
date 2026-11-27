@@ -9,6 +9,7 @@ import (
 	"github.com/Mr-JoE1/cwm/internal/accounts"
 	"github.com/Mr-JoE1/cwm/internal/claudepaths"
 	"github.com/Mr-JoE1/cwm/internal/config"
+	"github.com/Mr-JoE1/cwm/internal/desktopapp"
 	"github.com/Mr-JoE1/cwm/internal/storage"
 	"github.com/Mr-JoE1/cwm/internal/upkeep"
 )
@@ -133,4 +134,44 @@ func doctorFix(w io.Writer, dry bool) error {
 	}
 	fmt.Fprintln(w, "fix: done")
 	return nil
+}
+
+// desktopShareEvery is how often the agent re-runs Code-tab sharing
+// (D124) while the Claude desktop app is not running.
+var desktopShareEvery = 10 * time.Minute
+
+// desktopSharer runs Code-tab sharing from the agent: once when it starts
+// (even with the app running: the summary says the app lists the entries
+// after it restarts), then every desktopShareEvery while the app is not
+// running.
+type desktopSharer struct {
+	last time.Time
+	ran  bool
+}
+
+func (d *desktopSharer) tick(w io.Writer, name string, now time.Time) {
+	if d.ran && now.Sub(d.last) < desktopShareEvery {
+		return
+	}
+	l, err := storage.NewLayout()
+	if err != nil {
+		return
+	}
+	cfg, err := config.Load(l.ConfigPath())
+	if err != nil || !cfg.Features.DesktopSessionShare {
+		return
+	}
+	st := desktopStatus(cfg)
+	first := !d.ran
+	d.ran, d.last = true, now
+	if st.State == desktopapp.StateNone || (!first && st.Running) {
+		return
+	}
+	_, line, err := desktopapp.Sync(st, desktopapp.ShareOptions{})
+	if line != "" {
+		fmt.Fprintf(w, "%s: desktop app: %s\n", name, line)
+	}
+	if err != nil {
+		fmt.Fprintf(w, "%s: desktop app: Code-tab sharing: %v\n", name, err)
+	}
 }

@@ -280,9 +280,10 @@ func TestUnavailableMessages(t *testing.T) {
 	}
 }
 
-// TestRouteAccount is the D118 decision table: requested account ×
-// what cwm knows about the desktop app's own sign-in.
+// TestRouteAccount is the D122 decision table: requested account × the
+// desktop app's sign-in, one row per state.
 func TestRouteAccount(t *testing.T) {
+	const tail = " in a terminal instead. To use the app, switch its account in the app (cwm can switch it for you in a later version)"
 	for _, tc := range []struct {
 		name, requested string
 		app             AppAccount
@@ -290,22 +291,20 @@ func TestRouteAccount(t *testing.T) {
 		note            string
 	}{
 		{"no account, unknown", "", AppAccount{}, true, ""},
-		{"no account, known", "", AppAccount{Name: "work", Known: true}, true, ""},
-		{"account, unknown", "work", AppAccount{}, false, "the Claude desktop app keeps its own sign-in, so cwm can't open work there — opened it in a terminal instead"},
-		{"account, same", "work", AppAccount{Name: "work", Known: true}, true, "the Claude desktop app uses its own sign-in, which is work"},
-		{"account, different", "work", AppAccount{Name: "default", Known: true}, false,
-			"the Claude desktop app is signed in to default — opened work in a terminal instead; switch the app's account in the app to use it there"},
+		{"no account, known", "", AppAccount{State: AppAccountNamed, Name: "work"}, true, ""},
+		{"same account", "work", AppAccount{State: AppAccountNamed, Name: "work"}, true, "opened the Claude app (signed in as work)"},
+		{"another cwm account", "work", AppAccount{State: AppAccountNamed, Name: "default"}, false, "the Claude app is signed in as default — opened work" + tail},
+		{"other", "work", AppAccount{State: AppOther}, false, "the Claude app is signed in as another account — opened work" + tail},
+		{"signed out", "work", AppAccount{State: AppSignedOut}, false, "the Claude app is signed in as nobody — opened work" + tail},
+		{"no profile", "work", AppAccount{State: AppNone}, false, "the Claude app is signed in as nobody — opened work" + tail},
+		{"unknown", "work", AppAccount{}, false, "the Claude app is signed in as another account — opened work" + tail},
 	} {
 		got := RouteAccount(tc.requested, tc.app)
 		if got.Desktop != tc.desktop || got.Note != tc.note {
 			t.Errorf("%s: %+v", tc.name, got)
 		}
 	}
-	// cwm cannot read the app's sign-in (only an encrypted token cache).
-	if DesktopAccount(Env{GOOS: "windows"}).Known {
-		t.Error("DesktopAccount claims to know the app's account")
-	}
-	if d, _ := Pick(Detect(Env{GOOS: "linux", Getenv: func(string) string { return "" }}), Desktop); !strings.Contains(d.Help, "own sign-in, not a cwm account") {
+	if d, _ := Pick(Detect(Env{GOOS: "linux", Getenv: func(string) string { return "" }}), Desktop); !strings.Contains(d.Help, "only when the app is signed in to it") {
 		t.Errorf("desktop help = %q", d.Help)
 	}
 }

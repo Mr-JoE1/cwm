@@ -281,6 +281,9 @@ type SwitchResult struct {
 	// SavedBack is set when the old default's live login was saved into
 	// its vault entry first.
 	SavedBack bool
+	// KeptVault: the vault entry of the old default held a newer copy of
+	// its login than the live one, so it was kept (D126).
+	KeptVault bool
 	// Running lists claude processes that keep using From until they are
 	// restarted (best effort; empty = none found or unknown).
 	Running []int
@@ -359,7 +362,7 @@ func (s Switcher) ListProcs() []ClaudeProc {
 
 // Use makes name the default account: save the live login back into the
 // current default's vault entry (Claude refreshes tokens in place, so the
-// live copy is the freshest), back up the live files, then write name's
+// live copy is usually the freshest; a newer vault copy is kept, D126), back up the live files, then write name's
 // credentials and identity keys into the live location. cfg is mutated;
 // the caller persists it.
 func (s Switcher) Use(l *storage.Layout, cfg *config.Config, name string) (SwitchResult, error) {
@@ -401,11 +404,19 @@ func (s Switcher) Use(l *storage.Layout, cfg *config.Config, name string) (Switc
 		if err != nil {
 			return res, err
 		}
-		if cur, err := store.Read(live); err == nil {
-			if err := store.Write(from, cur); err != nil {
-				return res, fmt.Errorf("accounts: save %s's login back: %w", res.From, err)
+		// The newest copy wins (D126): a session that ran from the vault
+		// dir may have renewed — and so rotated — the vault copy after it
+		// was put live; overwriting it with the live one would save a
+		// spent refresh token.
+		if cur, err := readCopy(store, live); err == nil {
+			if saved, err := readCopy(store, from); err == nil && saved.newer(cur) {
+				res.KeptVault = true
+			} else {
+				if err := store.Write(from, cur.data); err != nil {
+					return res, fmt.Errorf("accounts: save %s's login back: %w", res.From, err)
+				}
+				res.SavedBack = true
 			}
-			res.SavedBack = true
 		}
 		if _, err := os.Stat(live.ClaudeJSON); err == nil {
 			if err := MergeIdentity(live.ClaudeJSON, from.ClaudeJSON); err != nil {

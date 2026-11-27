@@ -90,6 +90,9 @@ func (s *Server) debugSources() debugbundle.Sources {
 		root := s.opts.Layout.Root
 		src.Doctor = func() []status.Check { return status.Doctor(root, false) }
 	}
+	if src.Desktop == nil && s.opts.Layout != nil {
+		src.Desktop = debugbundle.DesktopFor(s.opts.Layout)
+	}
 	if src.GOOS == "" {
 		src.GOOS = s.goos()
 	}

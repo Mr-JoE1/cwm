@@ -103,14 +103,13 @@ func cmdRun(e *Env, args []string) error {
 		return err
 	}
 	if choice.ID == claudeopen.Desktop {
-		// The app keeps its own sign-in (D118): an account opens where
-		// cwm's account env applies, a terminal — this one.
-		if r := claudeopen.RouteAccount(account, claudeopen.DesktopAccount(claudeopen.SystemEnv(nil, true))); !r.Desktop {
-			fmt.Fprintln(e.Stderr, "note: "+r.Note)
-			choice = claudeopen.Choice{ID: claudeopen.Auto}
+		opened, err := e.runDesktop(cfg, account, choice)
+		if opened || err != nil {
+			return err
 		}
+		choice = claudeopen.Choice{ID: claudeopen.Auto}
 	}
-	if choice.ID == claudeopen.VSCode || choice.ID == claudeopen.Desktop {
+	if choice.ID == claudeopen.VSCode {
 		e.Account = account
 		return e.openApp(choice, runFolder(), "", nil)
 	}
@@ -123,4 +122,29 @@ func cmdRun(e *Env, args []string) error {
 		return nil
 	}
 	return launcher.Run(account, extra)
+}
+
+// runDesktop is `cwm run --with desktop` (D122). The app has its own
+// sign-in, so an account opens there only when the app is signed in to
+// it; otherwise it reports false and the caller opens the account where
+// cwm's account env applies, a terminal (this one).
+func (e *Env) runDesktop(cfg *config.Config, account string, choice claudeopen.Choice) (bool, error) {
+	r := claudeopen.RouteAccount(account, desktopAccount(cfg))
+	if !r.Desktop {
+		fmt.Fprintln(e.Stderr, "note: "+r.Note)
+		return false, nil
+	}
+	if err := e.openApp(choice, runFolder(), "", nil); err != nil {
+		return true, err
+	}
+	if r.Note != "" && !e.DryRun {
+		fmt.Fprintln(e.Stdout, r.Note)
+	}
+	return true, nil
+}
+
+// desktopAccount is who the desktop app is signed in to (a seam for
+// tests).
+var desktopAccount = func(cfg *config.Config) claudeopen.AppAccount {
+	return desktopStatus(cfg).AppAccount()
 }

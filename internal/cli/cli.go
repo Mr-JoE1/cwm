@@ -55,7 +55,7 @@ var ReservedNames = []string{
 	"init", "import", "open", "list", "wip", "doctor",
 	"account", "mcp", "hook", "version", "help", "statusline", "gui",
 	"pair", "devices", "sessions", "agent", "service", "dashboard", "debug", "stats",
-	"config", "mode", "run", "conflicts", "migrate",
+	"config", "mode", "run", "conflicts", "migrate", "desktop",
 }
 
 // IsReserved reports whether name is reserved.
@@ -115,6 +115,7 @@ var commands = []*command{
 	{name: "mode", args: "show [--json] | set capture|isolated [--dry-run] [--yes]", short: "show or change the workspace mode (capture: ~/.claude; isolated: ~/.cwm/workspace)"},
 	{name: "migrate", args: "[--dry-run] [--to capture|isolated] [--yes] | rollback [<id>] | list", short: "move a v0.7 layout, ~/.claude or the other mode's root into the workspace (backup first; rollback restores it)"},
 	{name: "conflicts", args: "[--json] | resolve <file> current|merge|<copy>", short: "list Syncthing conflict copies in the workspace and pick a version"},
+	{name: "desktop", args: "status [--json] | sync-sessions [--dry-run]", short: "show which account the Claude desktop app is signed in to; share Code-tab sessions between accounts"},
 	{name: "debug", args: "[--copy] [--show-projects]", short: "print a redacted debug report for bug reports (--copy puts it on the clipboard)"},
 }
 
@@ -162,6 +163,8 @@ func init() {
 			c.run = cmdService
 		case "debug":
 			c.run = cmdDebug
+		case "desktop":
+			c.run = cmdDesktop
 		case "stats":
 			c.run = cmdStats
 		case "config":

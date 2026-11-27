@@ -3,6 +3,144 @@
 Dated entries, newest first. Public-safe: no private infrastructure or personal
 details. Decisions are binding until superseded by a newer entry.
 
+## 2026-11-27 (v0.9.3 — the desktop app's account, Code-tab sharing, token freshness; SPEC-V0.9 "v0.9.3")
+
+- **D121: cwm reads which account the Claude desktop app is signed in to
+  (supersedes D118's "cwm cannot tell").** v0.9.2 was wrong: the app's
+  `config.json` holds a plain `lastKnownAccountUuid` next to the encrypted
+  `oauth:tokenCache*` blobs.
+  - **The live profile root** (`internal/desktopapp`). Candidates, newest
+    layout first: every dir under `%LOCALAPPDATA%\Claude-Data\` (Store
+    build `claude_<hash>`), `%APPDATA%\Claude`,
+    `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`;
+    `~/Library/Application Support/Claude` on macOS (`~/.config/Claude`
+    elsewhere). A root with a `.user-data-left*` marker is abandoned and
+    used only when nothing else is left. The live root is the one whose
+    `Network\Cookies` (or `Cookies`) is locked (the app is running), else
+    the newest mtime of config.json / Cookies / `Local State`.
+  - **No process query.** The running app's `--user-data-dir` would need
+    a CIM query on Windows (1–2 s) on every launch; the lock and the
+    mtimes pick the same root, so it is skipped. Running is detected on
+    Windows only (an exclusive-open probe); macOS and Linux have no
+    mandatory locks, so there it reads "not running".
+  - **What is read.** One JSON decode into a struct with the single field
+    `lastKnownAccountUuid` (a test pins it to one field). The oauth
+    values, cookies, Local State and Local Storage are never read,
+    decrypted, copied or logged. The uuid maps to a cwm account through
+    `accounts.UUIDMap` (each account's recorded `login.account_uuid`).
+  - **States.** `none` (no profile), `signed-out` (no config.json, or no
+    uuid in it), `account <name>`, `other` (a uuid no cwm account has),
+    `unknown` (config.json unreadable). A uuid is never printed or sent:
+    every message uses the account name, "another account" or "nobody".
+  - **Credit.** The root rules follow karthiknl0/claude-account-switcher
+    (MIT, `desktop-common.ps1` Get-SessionRoot), re-implemented in Go.
+- **D122: an account launch with desktop opens the app only when the app is
+  signed in to that account.** `claudeopen.RouteAccount` (dashboard Start
+  claude and `cwm run --account X --with desktop`):
+
+  | the app is signed in as | opens | toast / note |
+  |---|---|---|
+  | the requested account | the app (`claude://code/new?folder=` when a folder is known) | "opened the Claude app (signed in as X)" |
+  | another cwm account, other, signed out, no profile, unknown | X in a terminal (auto) | "the Claude app is signed in as <name\|another account\|nobody> — opened X in a terminal instead. To use the app, switch its account in the app (cwm can switch it for you in a later version)" |
+
+  No account asked for still opens the app, as before.
+- **D123: Resume via desktop shares the session's Code-tab entry first and
+  leaves a trace.**
+  - Right before `claude --desktop --resume <id>`, the session's own
+    index entry is shared into the app's signed-in account (D124, that
+    one entry only), and when the transcript's last `session-owner`
+    names another account than the app's, the window says so in one line.
+  - Every hand-off appends the command, its folder and the exit code to
+    `logs/handoff.log` (in the debug bundle, which also shows its tail).
+    claude refuses redirected stdout and stdin (D117), so its own text
+    ("Opening session … in Claude Desktop", "Session … is open in another
+    terminal") cannot be captured; the log line says so. A dashboard-held
+    window stays 4 s after a success so that text can be read; a failure
+    holds the window as before.
+  - The toast reads "handed to the Claude app — if it doesn't show the
+    session, see Health → Desktop app".
+- **D124: Code-tab sharing, add-only (`features.desktop_session_share`,
+  default on).** The app lists Code-tab sessions per account:
+  `<profile>\claude-code-sessions\<account-uuid>\<org-id>\local_<id>.json`
+  (title, folder, `cliSessionId`). The transcripts are the shared
+  `~/.claude/projects` files, so a session made under one account is only
+  missing from the other account's list.
+  - **Rules** (ported from cas `Sync-CodeSessions`, MIT): fill only the
+    lists that already exist under `lastKnownAccountUuid` (none = the
+    account hasn't used the Code tab: do nothing); sources are the other
+    accounts' lists in the same live profile; copy only `local_*.json`
+    regular files ≤ 1 MiB; never overwrite (an existing name is skipped,
+    and so is a `cliSessionId` already listed); a `deleted_*` marker that
+    names the entry id or its `cliSessionId` keeps it deleted; each copy
+    is a temp file plus a rename, mtime kept.
+  - **Deviations from cas.** No uuid recorded = nothing (cas fills every
+    list). Markers in the source list count too (cas reads only the
+    target's and its saved copies').
+  - **When.** Before a desktop resume (that session only); when the agent
+    starts (with the app running, the log line says it lists them after a
+    restart); then every 10 minutes while the app is not running; on
+    demand: `cwm desktop sync-sessions [--dry-run]`. The agent logs
+    "added N Code-tab entries for <account>".
+- **D125: Health, doctor and the debug bundle show the app's account.**
+  - Doctor `desktop-app` (ok, informational): "desktop app: signed in as
+    account <name> / signed in to an account cwm doesn't know / signed out
+    / not installed", plus "· running" and "· Code-tab entries: work 12,
+    default 3". On Linux the line shows only when a profile exists, so
+    the goldens are unchanged. The Health tab titles it "Desktop app".
+  - The debug bundle's `== desktop app ==`: state, profile root
+    (home-redacted like the rest), account name, lists by name (`<uuid>`
+    for unknown accounts), the handoff.log tail; any uuid reads `<uuid>`.
+  - `cwm desktop status [--json]`. "desktop" is now a reserved repo name.
+- **D126: the newest copy of a login always wins.**
+  - **Finding: cwm could restore a dead token.** Claude Code rotates the
+    refresh token when it renews, writing only where it runs. A
+    non-default account has one copy (its vault dir is its
+    CLAUDE_CONFIG_DIR). The default account has two: live (`~/.claude` or
+    the workspace) and its vault entry. Two paths restored a spent token:
+    1. a session started as account B from its vault dir keeps running
+       after `cwm account use B`; it renews in the vault, so the live copy
+       put there by the switch is spent (plain claude asks to log in);
+    2. the next switch away from B saved live → vault unconditionally,
+       overwriting the renewed vault copy with the spent one.
+  - **The fix.** `accounts.Reconcile` compares the two copies of the
+    default account's login — `claudeAiOauth.expiresAt`, then the file
+    mtime when it is more than 2 s later (same-moment writes are a tie) —
+    and writes the newest over the older, credentials only, never when the
+    two `.claude.json` name different account uuids. It runs from the
+    SessionEnd hook (with `features.hooks`, independent of
+    `features.handoff_push`; a change is a line in `logs/vault.log`).
+    `Switcher.Use` keeps a newer vault copy instead of saving the live one
+    back (`KeptVault`). Launches need nothing: each account runs from its
+    single live copy.
+  - **Reference.** realiti4/claude-swap (MIT) avoids two drifting copies
+    of one account and captures a session's credentials back after it
+    exits (`credentials.py`, `session.py`); no code was taken.
+- **D127: v0.9.3 ships when the gate and CI are green (release pending).**
+  The web change is one Health title (+~27 B). The branch is pushed, not
+  tagged.
+- **D128: v0.9.4 plan — full desktop account switching.**
+  - **Save.** `cwm desktop save <account>` once per account, with the app
+    signed in to it (checked by D121): close the app, copy its live
+    profile to `~/.cwm/desktop/<account>/profile`, excluding `claude-code`,
+    `vm_bundles` and the caches (`Cache`, `Code Cache`, `GPUCache`,
+    `Dawn*Cache`, `GrShaderCache`, `ShaderCache`, `component_crx_cache`,
+    `Crashpad`, `logs`) and `Singleton*` files, then reopen it. Never use
+    the app's Log out: it revokes the session server-side and kills the
+    saved copy; to add the next account, clear the local profile instead.
+  - **Switch.** Close the app (only the app's processes: the Store
+    package path or the profile's own children, never a standalone claude
+    CLI), back up the live profile (one slot, overwritten), save the live
+    profile back into its own account's copy when D121 says whose it is,
+    run D124 sharing into the target copy, restore the target copy,
+    reopen, then verify by `lastKnownAccountUuid` within ~45 s; on a
+    mismatch offer the backup.
+  - **Local only.** The copies hold DPAPI/Keychain-encrypted secrets bound
+    to this user on this machine: they live under `~/.cwm/desktop/`,
+    which is never synced, never in a debug bundle, and removed with the
+    account.
+  - **Then** D122's terminal fallback becomes "switch the app to X?" in
+    the dashboard and `cwm run --with desktop --switch`.
+
 ## 2026-11-27 (v0.9.2 — desktop hand-off, desktop sign-in, WIP snapshot; SPEC-V0.9 "v0.9.2")
 
 - **D117: the desktop hand-off runs in a real terminal (supersedes D113's

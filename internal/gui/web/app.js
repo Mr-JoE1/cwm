@@ -914,7 +914,7 @@
 		claude: "Claude Code installed", "claude-binary": "claude on PATH", "claude-cleared": "claude path re-checked", "claude-reads-from": "claude reads the workspace",
 		"hook-scripts": "hook scripts", "repos-tsv": "repo list", "session-folders": "session folders", "diverged-sessions": "session copies", settings: "workspace settings",
 		stignore: "sync ignore file", syncthing: "Syncthing reachable", ssh: "GitHub SSH", "wip-log": "handoff log", "path-duplicates": "PATH",
-		"cwm-hooks": "cwm hooks", "mcp-bridge": "MCP bridge", conflicts: "no conflicts", vault: "default login saved", "unknown-items": "local-only items",
+		"cwm-hooks": "cwm hooks", "mcp-bridge": "MCP bridge", conflicts: "no conflicts", vault: "default login saved", "unknown-items": "local-only items", "desktop-app": "Desktop app",
 	};
 	// D104: ok, but worth a line: the title ($ = the app) and why show in the passed list.
 	const NOTE = { "claude-bundled": ["no standalone claude CLI (using $'s copy)", "Works: cwm runs it. Bundled copies update with their app; for a claude command in terminals, install the standalone CLI:"] };

@@ -5,8 +5,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mr-JoE1/cwm/internal/claudeopen"
+	"github.com/Mr-JoE1/cwm/internal/config"
 	"github.com/Mr-JoE1/cwm/internal/launcher"
 )
 
@@ -110,5 +112,70 @@ func TestIsConsoleRefusesPipesAndNull(t *testing.T) {
 	defer null.Close()
 	if isConsole(r) || isConsole(w) || isConsole(null) {
 		t.Error("a pipe or the null device counted as a terminal")
+	}
+}
+
+// TestRunDesktopRoute (D122): `cwm run --account X --with desktop` opens
+// the app only when it is signed in to X; every other state falls back
+// to a terminal with the note.
+func TestRunDesktopRoute(t *testing.T) {
+	oldAcct, oldRun := desktopAccount, runSteps
+	t.Cleanup(func() { desktopAccount, runSteps = oldAcct, oldRun })
+	c := claudeopen.Choice{ID: claudeopen.Desktop, Label: "Claude desktop app", Available: true, Resume: true}
+	for _, tc := range []struct {
+		name   string
+		app    claudeopen.AppAccount
+		opened bool
+		note   string
+	}{
+		{"same", claudeopen.AppAccount{State: claudeopen.AppAccountNamed, Name: "work"}, true, "opened the Claude app (signed in as work)"},
+		{"another cwm account", claudeopen.AppAccount{State: claudeopen.AppAccountNamed, Name: "default"}, false, "note: the Claude app is signed in as default — opened work in a terminal instead"},
+		{"other", claudeopen.AppAccount{State: claudeopen.AppOther}, false, "signed in as another account"},
+		{"signed out", claudeopen.AppAccount{State: claudeopen.AppSignedOut}, false, "signed in as nobody"},
+		{"unknown", claudeopen.AppAccount{}, false, "signed in as another account"},
+	} {
+		var ran [][]string
+		runSteps = func(steps []claudeopen.Step) error {
+			for _, s := range steps {
+				ran = append(ran, s.Argv)
+			}
+			return nil
+		}
+		desktopAccount = func(*config.Config) claudeopen.AppAccount { return tc.app }
+		var out, errb strings.Builder
+		e := &Env{Stdout: &out, Stderr: &errb}
+		opened, err := e.runDesktop(&config.Config{}, "work", c)
+		if err != nil || opened != tc.opened || !strings.Contains(out.String()+errb.String(), tc.note) {
+			t.Errorf("%s: opened=%v err=%v out=%q err=%q", tc.name, opened, err, out.String(), errb.String())
+		}
+		if tc.opened != (len(ran) == 1 && strings.Contains(strings.Join(ran[0], " "), "claude://code/new")) {
+			t.Errorf("%s: steps %q", tc.name, ran)
+		}
+		if strings.Contains(errb.String(), "signs in on its own") {
+			t.Errorf("%s: stale D118 note: %q", tc.name, errb.String())
+		}
+	}
+}
+
+// TestHandOffLingers (D123): a window the dashboard opened stays a moment
+// after a successful hand-off (claude's "Opening session …" stays
+// readable); the user's own terminal does not wait.
+func TestHandOffLingers(t *testing.T) {
+	oldTTY, oldRun, oldHeld, oldLinger := handOffTTY, runSteps, handOffHeld, handOffLinger
+	t.Cleanup(func() { handOffTTY, runSteps, handOffHeld, handOffLinger = oldTTY, oldRun, oldHeld, oldLinger })
+	handOffTTY = func() bool { return true }
+	runSteps = func([]claudeopen.Step) error { return nil }
+	handOffLinger = 10 * time.Millisecond
+	c := claudeopen.Choice{ID: claudeopen.Desktop, Label: "Claude desktop app", Available: true, Resume: true}
+	for _, held := range []bool{true, false} {
+		handOffHeld = func() bool { return held }
+		var out strings.Builder
+		e := &Env{Stdout: &out, Stderr: &out}
+		if err := e.openApp(c, "/x", "44444444-dddd", func() error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(out.String(), "this window closes in"); got != held {
+			t.Errorf("held=%v: %q", held, out.String())
+		}
 	}
 }

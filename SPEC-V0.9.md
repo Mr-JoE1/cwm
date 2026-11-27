@@ -354,3 +354,77 @@ v0.9.2 is a bug-fix release on v0.9.1. It fixes three problems from a real Windo
   | `work` | unknown (always, today) | a terminal as `work` |
   | `work` | known, `work` | the desktop app |
   | `work` | known, another | a terminal as `work`, and the toast names the other account |
+
+
+---
+
+# v0.9.3 (as implemented)
+
+v0.9.3 is a bug-fix release on v0.9.2. It fixes two problems from the same Windows 11 machine, now on cwm 0.9.2: the Store Claude desktop app, a standalone claude 2.1.332, two accounts (`default` and `work`, `default_account = work`) and `launch.claude = desktop`. It also corrects a wrong claim in v0.9.2: cwm *can* tell which account the desktop app is signed in to.
+
+## Release notes (v0.9.3)
+
+### Fixed
+
+- **Start claude for an account no longer opens the desktop app as the other account (D121, D122).** cwm now reads which account the app is signed in to.
+  - **Same account.** When the app is signed in to the account you start, the app opens (in the folder, when there is one): "opened the Claude app (signed in as work)".
+  - **Any other state.** When the app is signed in to another account, to one cwm doesn't know, or to nobody, the account opens in a terminal instead. The toast names who the app is on and says to switch the account in the app (cwm will be able to switch it for you in a later version).
+  - **The CLI.** `cwm run --account <name> --with desktop` makes the same decision.
+- **Resume in the desktop app (D123, D124).** The app lists Code-tab sessions per account, so a session started under one account did not show while the app was signed in to the other.
+  - **Before the hand-off**, cwm adds the session's entry to the list of the account the app is signed in to. When the session ran under a different account, the window says so.
+  - **A trace.** Each hand-off is recorded in `logs/handoff.log` (the command, its folder and the exit code), and the debug bundle shows the tail. A window opened from the dashboard stays open about 4 seconds after a success, so you can read claude's "Opening session … in Claude Desktop". A failure still holds the window.
+  - **The toast** reads "handed to the Claude app — if it doesn't show the session, see Health → Desktop app".
+- **A renewed login is never overwritten by an older copy (D126).** Claude Code renews its login during a session and invalidates the previous refresh token. The default account's login exists twice (live and in its vault entry), and a switch could save the older copy over the newer one, so the account later asked you to log in again. Now the newest copy always wins, by its expiry time. The session-end hook copies a renewed login into the vault (or the other way round), and a switch keeps a newer vault copy.
+
+### New
+
+- **Code-tab sharing (D124).** Every account's Code-tab sessions are listed under the account the desktop app is signed in to. It only adds entries: it never changes or removes one, never brings back a session you deleted, never creates a list for an account that has not used the Code tab, and copies nothing but the small index entries (`local_*.json`).
+  - **When.** Before a desktop resume; when the agent starts; then every 10 minutes while the app is closed. Entries added while the app is running appear after it restarts, and the agent's log says so.
+  - **On demand.** `cwm desktop sync-sessions [--dry-run]`.
+  - **Opt-out.** `cwm config set features.desktop_session_share false` (default true).
+- **`cwm desktop status [--json]`**: who the app is signed in to, its profile folder and the Code-tab entries per account.
+- **Health and doctor** show a "Desktop app" line: "signed in as account work · Code-tab entries: work 12, default 3", "signed in to an account cwm doesn't know", "signed out" or "not installed". The debug bundle has a `== desktop app ==` section. Neither ever shows an account uuid.
+
+## Research notes (v0.9.3)
+
+Credit: two MIT-licensed tools, read for this release. Their logic is re-implemented in Go (attributed in `internal/desktopapp`); no code is copied verbatim.
+- **cas**, karthiknl0/claude-account-switcher (`src/desktop-common.ps1`, `claude-switch.ps1`, `claude-add.ps1`): the desktop app's profile, its account field and the Code-tab session lists.
+- **cswap**, realiti4/claude-swap (`src/claude_swap/credentials.py`, `session.py`): token rotation and capturing credentials back.
+
+### The desktop app's profile (D121)
+
+- **It is an Electron/Chromium profile.** Candidates, newest layout first:
+  - every dir under `%LOCALAPPDATA%\Claude-Data\` (the Store build moved there: `claude_<hash>`);
+  - `%APPDATA%\Claude`;
+  - `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`;
+  - macOS: `~/Library/Application Support/Claude`.
+- **Picking the live one.** The app leaves a `.user-data-left*` marker in a folder it moved out of; such a root is abandoned. The live root holds `Network\Cookies` (or `Cookies`) locked while the app runs; otherwise it has the newest config.json / Cookies / `Local State`.
+- **The running app's `--user-data-dir`** (on its helper processes) is the most direct answer, but on Windows it takes a CIM query of 1–2 s. cwm skips it.
+- **The account.** `config.json` holds a plain `lastKnownAccountUuid`, next to the encrypted `oauth:tokenCache` / `oauth:tokenCacheV2` blobs. cwm decodes only that field and maps it to a cwm account by each account's recorded `login.account_uuid`. v0.9.2's research looked for an e-mail or account name and missed it.
+
+### The Code-tab session list (D124)
+
+- **Layout.** `<profile>\claude-code-sessions\<account-uuid>\<org-id>\local_<id>.json`, one small JSON per session (title, folder, `cliSessionId`). Deletions are recorded as `deleted_*` marker files.
+- **Why sessions vanish.** The transcripts are the shared `~/.claude/projects` files. A session created under one account is therefore only missing from the other account's list, and is invisible while the app is signed in to the other account.
+
+### The Claude Code hand-off (D123)
+
+- **Source.** The Claude Code 2.1.319 binary's strings. On the build box we confirmed the messages ("Opening session ${t.sessionId} in Claude Desktop", "is open in another terminal. Run /desktop there instead.") and the `1.1.9669` minimum. The deep-link URLs are not literal strings in that binary (they are built at run time), so they come from the earlier reading and are unconfirmed here.
+- **The checks, in order.**
+  1. `claude --desktop --resume <id>` refuses redirected stdout and stdin (D117).
+  2. The session must exist and must not be live in another terminal ("Session … is open in another terminal. Run /desktop there instead.").
+  3. It opens the deep link `claude://resume?session=<id>` (`claude://code/new?folder=<enc>` for a new session) and prints "Opening session <id> in Claude Desktop".
+- **Requirements.** The desktop app must be at least 1.1.9669, and the CLI must be signed in to a claude.ai account.
+- **Logging.** Because the stdio cannot be redirected, cwm logs only the exit code and keeps the window readable.
+
+### Token rotation (D126)
+
+- **What Claude Code does.** It renews the access token with the refresh token and gets a new refresh token, written where that session runs: its `CLAUDE_CONFIG_DIR`, or the live location.
+- **What cswap does.** It keeps one credential copy per account and captures a session's credentials back after the session exits.
+- **cwm's case.** Each non-default account already runs from its one vault copy. The default account's two copies (live and vault) are now reconciled, newest first (`expiresAt`, then mtime), at session end and before every switch.
+
+### Unverified on a real machine (risks)
+
+- Whether the app still writes `lastKnownAccountUuid` after signing out. If it does, a signed-out app reads as the last account, and Start claude would open the app at its sign-in screen.
+- Whether the app picks up entries added while it runs, before a restart.
+- Whether `claude://resume` finds a session the app has listed under another account.

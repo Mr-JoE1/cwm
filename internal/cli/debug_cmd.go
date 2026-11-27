@@ -139,6 +139,7 @@ func buildDebug(e *Env, showProjects bool) (string, error) {
 	src.Claude = func() (claudebin.Result, error) { return claudebin.Lookup(layout) }
 	src.SyncClient = debugSync
 	src.Doctor = func() []status.Check { return status.Doctor(layout.Root, false) }
+	src.Desktop = debugbundle.DesktopFor(layout)
 	c, info, err := agent.Wait(context.Background(), layout.Root, 0)
 	if err != nil {
 		src.AgentNote = "no agent answered — start it with `cwm dashboard`"
